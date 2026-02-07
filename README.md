@@ -13,7 +13,7 @@ We collect stock prices + news, build a labeled dataset, train NLP models to pre
 
 1) Clone the repo and enter it:
 ```bash
-git clone <REPO_URL>
+git clone <https://github.com/raphaelkaramagi/news-to-alpha.git>
 cd news-to-alpha
 ```
 2) Create a virtual environment:
@@ -33,11 +33,11 @@ pip install -r requirements.txt
 5) Create your local environment file (API keys/settings):
 ```bash
 cp .env.example .env
-
+```
 Open .env and fill in values as needed. Do not commit .env.
 
 To exit the virtual environment later:
-
+```bash
 deactivate
 ```
 ## Setup (Windows)
@@ -74,10 +74,10 @@ copy .env.example .env
 Command Prompt (cmd)
 
 copy .env.example .env
-
+```
 Open .env and fill in values as needed. Do not commit .env.
 
 To exit the virtual environment later:
-
+```bash
 deactivate
 ```
