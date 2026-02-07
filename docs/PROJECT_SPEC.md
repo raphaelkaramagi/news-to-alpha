@@ -1,4 +1,4 @@
-Project Companies:
+## Project Companies:
 Apple (AAPL) 
 NVIDIA (NVDA)
 Walmart (WMT)
@@ -14,3 +14,8 @@ Netflix (NFLX)
 Meta (META)
 Oracle (ORCL)
 Palantir (PLTR)
+
+## Prediction Target: 
+Up/Down Prediction
+
+## Cutoff-time;
