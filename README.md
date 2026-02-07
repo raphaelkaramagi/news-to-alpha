@@ -1,113 +1,97 @@
-News x Stock Price Prediction Platform
+# News x Stock Price Prediction Platform
 
-We collect stock prices and news, build a labeled dataset, train NLP models to predict next-day movement, and demo results in a simple app.
+We collect stock prices + news, build a labeled dataset, train NLP models to predict next-day movement, and demo results in a simple app.
 
-Folder structure
+## Folder structure
+- `src/` all Python code (data collection, dataset, modeling, evaluation)
+- `docs/` project decisions (ticker list, cutoff rule, data sources)
+- `app/` demo app
+- `data/` local data (ignored by git)
+- `notebooks/` experiments (optional)
 
-src/ all Python code (data collection, dataset, modeling, evaluation)
+## Setup (Mac)
 
-docs/ project decisions (ticker list, cutoff rule, data sources)
-
-app/ demo app
-
-data/ local data (ignored by git)
-
-notebooks/ experiments (optional)
-
-Setup (Mac)
-
-Clone the repo and enter it:
-
-git clone REPLACE_WITH_REPO_URL
+1) Clone the repo and enter it:
+```bash
+git clone <REPO_URL>
 cd news-to-alpha
 
-
-Create a virtual environment:
+2) Create a virtual environment:
 
 python3 -m venv .venv
 
 
-Activate the virtual environment:
+3) Activate the virtual environment:
 
 source .venv/bin/activate
 
 
-Install dependencies:
+You should see (.venv) at the start of your terminal line.
+
+4) Install dependencies:
 
 pip install -r requirements.txt
 
 
-Create your local environment file (API keys/settings):
+5) Create your local environment file (API keys/settings):
 
 cp .env.example .env
 
 
 Open .env and fill in values as needed. Do not commit .env.
 
-Quick sanity check (optional):
-
-python -c "import pandas, sklearn, requests; print('ok')"
-
 
 To exit the virtual environment later:
 
 deactivate
+```
 
-Setup (Windows)
+## Setup (Windows)
 
-Clone the repo and enter it:
+1) Clone the repo and enter it:
 
-git clone REPLACE_WITH_REPO_URL
+git clone <REPO_URL>
 cd news-to-alpha
 
 
-Create a virtual environment:
+2) Create a virtual environment:
 
 python -m venv .venv
 
 
-Activate the virtual environment:
+3) Activate the virtual environment:
 
-PowerShell:
+PowerShell
 
 .\.venv\Scripts\Activate.ps1
 
 
-Command Prompt (cmd):
+Command Prompt (cmd)
 
 .\.venv\Scripts\activate.bat
 
 
-Install dependencies:
+4) Install dependencies:
 
 pip install -r requirements.txt
 
 
-Create your local environment file (API keys/settings):
+5) Create your local environment file (API keys/settings):
 
-PowerShell:
+PowerShell
 
 copy .env.example .env
 
 
-Command Prompt (cmd):
+Command Prompt (cmd)
 
 copy .env.example .env
 
 
 Open .env and fill in values as needed. Do not commit .env.
 
-Quick sanity check (optional):
-
-python -c "import pandas, sklearn, requests; print('ok')"
-
 
 To exit the virtual environment later:
 
 deactivate
-
-Notes
-
-.env, .venv/, and data/ should not be committed to GitHub.
-
-If PowerShell blocks activation, run this once:
+```
