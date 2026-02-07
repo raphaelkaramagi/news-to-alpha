@@ -7,7 +7,6 @@ We collect stock prices + news, build a labeled dataset, train NLP models to pre
 - `docs/` project decisions (ticker list, cutoff rule, data sources)
 - `app/` demo app
 - `data/` local data (ignored by git)
-- `notebooks/` experiments (optional)
 
 ## Setup (Mac)
 
