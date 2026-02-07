@@ -44,7 +44,7 @@ deactivate
 
 1) Clone the repo and enter it:
 ```bash
-git clone <REPO_URL>
+git clone <https://github.com/raphaelkaramagi/news-to-alpha.git>
 cd news-to-alpha
 ```
 2) Create a virtual environment:
