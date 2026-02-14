@@ -1,37 +1,10 @@
-## Project Companies:
-Apple (AAPL) 
-NVIDIA (NVDA)
-Walmart (WMT)
-Eli Lilly (LLY)
-JPMorgan Chase (JPM)
-Exxon Mobile (XOM)
-McDonald (MCD)
-Telsa (TSLA)
-Delta Air Lines (DAL)
-Marriott International (MAR)
-Goldman Sachs Group (GS)
-Netflix (NFLX)
-Meta (META)
-Oracle (ORCL)
-Palantir (PLTR)
-
-## Prediction Target: 
-Up/Down Prediction for the next trading day
-
-## Cutoff-time;
-Timezone: **America/New_York (ET)**
-
-For each trading day t:
-- We only use news with `published_time <= 16:00 ET` on day t to predict day t+1.
-- News published after 16:00 ET is assigned to the next trading day.
-
 ## Data Sources
 ### Prices
 Provider: Yahoo Finance
 Fields needed: date, open, high, low, close, volume (adj_close optional)
 
 ### News
-Provider: [e.g., Finnhub / NewsAPI / GDELT / RSS]
+Provider: 
 Fields needed: title, url, source, published_time
 
 ## Data Storage Standards 
@@ -44,6 +17,7 @@ Fields needed: title, url, source, published_time
 - Missing values are stored as **NULL** (not empty strings).
 - News duplicates are detected using **url** as the unique identifier.
 
+
 ### Prices table (daily)
 Required columns:
 - ticker (TEXT), date (TEXT), open (REAL), high (REAL), low (REAL), close (REAL), volume (INTEGER)
@@ -51,12 +25,10 @@ Required columns:
 Uniqueness rule:
 - One row per (ticker, date)
 
+
 ### Articles table (news)
 Required columns:
-- url (TEXT), title (TEXT), source (TEXT), published_time (TEXT)
-
-Recommended columns:
-- fetched_for_ticker (TEXT), ingested_at (TEXT)
+- url (TEXT), title (TEXT), source (TEXT), published_time (TEXT), fetched_for_ticker (TEXT), ingested_at (TEXT)
 
 Uniqueness rule:
 - One row per url
