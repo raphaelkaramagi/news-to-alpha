@@ -1,82 +1,63 @@
-# News x Stock Price Prediction Platform
+# News-to-Alpha
 
-We collect stock prices + news, build a labeled dataset, train NLP models to predict next-day movement, and demo results in a simple app.
+Predict next-day stock price movements (up/down) by combining an LSTM model on price history with an NLP model on news sentiment.
 
-## Folder structure
-- `src/` all Python code (data collection, dataset, modeling, evaluation)
-- `docs/` project decisions (ticker list, cutoff rule, data sources)
-- `app/` demo app
-- `data/` local data (ignored by git)
+**15 tickers**: AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR
 
-## Setup (Mac)
+## Setup
 
-1) Clone the repo and enter it:
 ```bash
-git clone <https://github.com/raphaelkaramagi/news-to-alpha.git>
+git clone https://github.com/raphaelkaramagi/news-to-alpha.git
 cd news-to-alpha
-```
-2) Create a virtual environment:
-```bash
+
 python3 -m venv .venv
-```
-3) Activate the virtual environment:
-```bash
-source .venv/bin/activate
-
-You should see (.venv) at the start of your terminal line.
-```
-4) Install dependencies:
-```bash
+source .venv/bin/activate        # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+
+cp .env.example .env             # then add your Finnhub key to NEWS_API_KEY=
 ```
-5) Create your local environment file (API keys/settings):
+
+## Usage
+
 ```bash
-cp .env.example .env
+python scripts/setup_database.py                        # create database (once)
+python scripts/collect_prices.py --tickers AAPL TSLA    # get price data
+python scripts/collect_news.py --tickers AAPL           # get news articles
+python scripts/validate_data.py                         # check data quality
+python scripts/demo.py                                  # quick end-to-end demo
+pytest tests/ -v                                        # run tests (13 passing)
 ```
-Open .env and fill in values as needed. Do not commit .env.
 
-To exit the virtual environment later:
-```bash
-deactivate
+## Project Status
+
+**Weeks 1–2 complete** — data collection and validation pipeline is working.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full week-by-week plan, team assignments, and what's next.
+
+## Structure
+
 ```
-## Setup (Windows)
-
-1) Clone the repo and enter it:
-```bash
-git clone <https://github.com/raphaelkaramagi/news-to-alpha.git>
-cd news-to-alpha
+src/                    Core library (config, collectors, validation)
+  data_collection/      Price + news collectors (working)
+  data_processing/      Validation, standardization (working)
+  database/             Schema definitions (working)
+  features/             Technical indicators, sequences, text features (Week 4)
+  models/               LSTM, NLP baseline, NLP advanced, ensemble (Week 5+)
+  evaluation/           Metrics, backtesting (Week 6+)
+  utils/                API clients (working)
+scripts/                Runnable commands (collect, validate, demo)
+tests/                  Automated tests
+data/                   Local database + data files (git-ignored, auto-created)
+docs/                   Project overview, roadmap, git guide
 ```
-2) Create a virtual environment:
-```bash
-python -m venv .venv
-```
-3) Activate the virtual environment:
-```bash
-PowerShell
 
-.\.venv\Scripts\Activate.ps1
+Folders like `features/`, `models/`, and `evaluation/` have empty `__init__.py` files — they're placeholders for upcoming weeks. The roadmap explains exactly what goes in each one.
 
-Command Prompt (cmd)
+## Viewing Data
 
-.\.venv\Scripts\activate.bat
-```
-4) Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-5) Create your local environment file (API keys/settings):
-```bash
-PowerShell
+Install the **SQLite Viewer** extension in VS Code/Cursor (`alexcvzz.vscode-sqlite`), then click `data/database.db` to browse tables visually. Or use `sqlite3 -header -column data/database.db` in the terminal.
 
-copy .env.example .env
+## Docs
 
-Command Prompt (cmd)
-
-copy .env.example .env
-```
-Open .env and fill in values as needed. Do not commit .env.
-
-To exit the virtual environment later:
-```bash
-deactivate
-```
+- **[docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)** — detailed walkthrough of every file, how to test, design decisions
+- **[docs/ROADMAP.md](docs/ROADMAP.md)** — week-by-week plan with tasks per team member
+- **[docs/GIT_GUIDE.md](docs/GIT_GUIDE.md)** — branching, PRs, and team workflow

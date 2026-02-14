@@ -209,6 +209,17 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Keep data/ folder but ignore its contents
-data/*
-!data/.gitkeep
+# ── Project-specific ────────────────────────────────────────
+
+# Model artefacts (in case they end up outside data/)
+*.h5
+*.pkl
+*.pth
+*.pt
+
+# OS junk
+.DS_Store
+
+# IDE
+.idea/
+.vscode/

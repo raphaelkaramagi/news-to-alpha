@@ -1,6 +1,31 @@
+# ── Core data stack ─────────────────────────────────────────
 pandas
 numpy
-requests
-python-dotenv
-scikit-learn
-yfinance
+
+# ── Data collection ─────────────────────────────────────────
+yfinance              # Yahoo Finance price data
+finnhub-python        # Finnhub news API (optional alternative client)
+requests              # HTTP calls
+
+# ── Database ────────────────────────────────────────────────
+# SQLite is built-in; no extra package needed for Week 1-2
+
+# ── Environment & config ───────────────────────────────────
+python-dotenv         # load .env files
+
+# ── Timezone handling ──────────────────────────────────────
+pytz                  # timezone conversions
+
+# ── Progress display ───────────────────────────────────────
+tqdm                  # progress bars in scripts
+
+# ── ML (needed from Week 4 onward — install now so env is ready)
+scikit-learn          # baselines, metrics, TF-IDF
+
+# ── Visualisation ──────────────────────────────────────────
+matplotlib
+seaborn
+
+# ── Testing & code quality ─────────────────────────────────
+pytest
+pytest-cov
