@@ -59,6 +59,7 @@ def main() -> None:
     print(f"Failed    : {len(stats['tickers_failed'])} tickers")
     print(f"Articles  : {stats['rows_added']}")
     print(f"Duplicates: {stats['duplicates_skipped']}")
+    print(f"Skipped (missing fields): {stats.get('skipped_missing_fields', 0)}")
 
     if stats["errors"]:
         print("\nErrors:")

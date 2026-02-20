@@ -50,8 +50,10 @@ class TestDatabaseSchema:
             )
         conn.close()
 
-    def test_news_url_unique(self, tmp_db: str) -> None:
+    def test_news_url_unique_per_ticker(self, tmp_db: str) -> None:
         conn = sqlite3.connect(tmp_db)
+
+        # Same url + same ticker should fail on second insert
         conn.execute(
             "INSERT INTO news (url, ticker, title, published_at) "
             "VALUES ('https://example.com/1', 'AAPL', 'Test', '2026-02-01T10:00:00-05:00')"
@@ -63,4 +65,12 @@ class TestDatabaseSchema:
                 "INSERT INTO news (url, ticker, title, published_at) "
                 "VALUES ('https://example.com/1', 'AAPL', 'Dupe', '2026-02-01T11:00:00-05:00')"
             )
+
+        # Same url + different ticker should be allowed
+        conn.execute(
+            "INSERT INTO news (url, ticker, title, published_at) "
+            "VALUES ('https://example.com/1', 'MSFT', 'Same url different ticker', '2026-02-01T10:00:00-05:00')"
+        )
+        conn.commit()
+
         conn.close()

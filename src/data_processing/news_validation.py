@@ -20,7 +20,7 @@ class NewsDataValidator:
         results = {
             "missing_fields": self._check_missing_fields(conn, tickers),
             "future_timestamps": self._check_future_timestamps(conn),
-            "duplicate_urls": self._check_duplicate_urls(conn),
+            "duplicate_url_ticker_pairs": self._check_duplicate_url_ticker_pairs(conn),
             "articles_per_ticker": self._check_distribution(conn, tickers),
         }
         conn.close()
@@ -38,17 +38,48 @@ class NewsDataValidator:
             logger.warning("Tickers with missing fields: %d", len(df))
         return df.to_dict("records")
 
-    def _check_future_timestamps(self, conn):
-        now_str = datetime.now(pytz.UTC).strftime("%Y-%m-%d %H:%M:%S")
-        df = pd.read_sql(f"SELECT ticker, title, published_at FROM news WHERE published_at > '{now_str}'", conn)
-        if not df.empty:
-            logger.warning("Articles with future timestamps: %d", len(df))
-        return df.to_dict("records")
+    def _check_future_timestamps(self, conn, buffer_minutes: int = 10):
+        """
+        Flag articles whose published_at is truly in the future.
 
-    def _check_duplicate_urls(self, conn):
-        df = pd.read_sql("SELECT url, COUNT(*) AS cnt FROM news GROUP BY url HAVING cnt > 1", conn)
+        We parse published_at as a real timezone-aware datetime (UTC) to avoid
+        incorrect string comparisons.
+        """
+        df = pd.read_sql(
+            "SELECT ticker, title, published_at FROM news WHERE published_at IS NOT NULL",
+            conn,
+        )
+        if df.empty:
+            return []
+
+        # Parse ISO-8601 timestamps with timezone offsets safely
+        ts = pd.to_datetime(df["published_at"], utc=True, errors="coerce")
+
+        # If parsing fails, treat as an issue (optional: include in missing_fields instead)
+        bad_parse = df[ts.isna()].copy()
+        bad_parse_records = bad_parse.to_dict("records") if not bad_parse.empty else []
+
+        now_utc = pd.Timestamp.now(tz="UTC") + pd.Timedelta(minutes=buffer_minutes)
+
+        future = df[ts > now_utc].copy()
+        future_records = future.to_dict("records")
+
+        if not future.empty:
+            logger.warning("Articles with future timestamps: %d", len(future))
+
+        # If you want to track bad parses too, return them combined.
+        # Otherwise, return only future_records.
+        return future_records
+
+    def _check_duplicate_url_ticker_pairs(self, conn):
+        df = pd.read_sql("""
+            SELECT url, ticker, COUNT(*) AS cnt
+            FROM news
+            GROUP BY url, ticker
+            HAVING cnt > 1
+        """, conn)
         if not df.empty:
-            logger.warning("Duplicate URLs: %d", len(df))
+            logger.warning("Duplicate (url, ticker) pairs: %d", len(df))
         return df.to_dict("records")
 
     def _check_distribution(self, conn, tickers):
@@ -65,6 +96,6 @@ if __name__ == "__main__":
     print("\n=== NEWS DATA VALIDATION ===")
     print(f"Missing fields : {len(r['missing_fields'])}")
     print(f"Future timestamps: {len(r['future_timestamps'])}")
-    print(f"Duplicate URLs : {len(r['duplicate_urls'])}")
+    print(f"Duplicate (url, ticker) pairs : {len(r['duplicate_url_ticker_pairs'])}")
     for row in r["articles_per_ticker"]:
         print(f"  {row['ticker']:5s}  {row['article_count']:4d} articles")

@@ -40,8 +40,7 @@ def main() -> None:
     print("\n--- NEWS DATA ---")
     print(f"Missing fields   : {len(nv['missing_fields'])} tickers affected")
     print(f"Future timestamps: {len(nv['future_timestamps'])} articles")
-    print(f"Duplicate URLs   : {len(nv['duplicate_urls'])} duplicates")
-
+    print(f"Duplicate (url,ticker) pairs: {len(nv['duplicate_url_ticker_pairs'])} duplicates")
     print("\nArticle distribution:")
     for row in nv["articles_per_ticker"]:
         print(f"  {row['ticker']:5s}  {row['article_count']:4d} articles")
@@ -53,8 +52,7 @@ def main() -> None:
         + len(pv["volume_anomalies"])
         + len(nv["missing_fields"])
         + len(nv["future_timestamps"])
-        + len(nv["duplicate_urls"])
-    )
+        + len(nv["duplicate_url_ticker_pairs"])    )
 
     print("\n" + "=" * 60)
     if total_issues == 0:

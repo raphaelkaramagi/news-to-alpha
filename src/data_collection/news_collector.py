@@ -26,6 +26,7 @@ class NewsCollector(BaseCollector):
             "tickers_failed": [],
             "rows_added": 0,
             "duplicates_skipped": 0,
+            "skipped_missing_fields": 0,
             "errors": {},
         }
 
@@ -47,9 +48,12 @@ class NewsCollector(BaseCollector):
                 relevant = self._filter_relevant(ticker, articles)
                 self.logger.info("%s: %d / %d articles relevant", ticker, len(relevant), len(articles))
 
-                added, dupes = self._insert_articles(ticker, relevant, cursor)
+                added, dupes, skipped = self._insert_articles(ticker, relevant, cursor)
                 stats["rows_added"] += added
                 stats["duplicates_skipped"] += dupes
+                stats["skipped_missing_fields"] += skipped
+
+                # ✅ THIS WAS MISSING
                 stats["tickers_succeeded"].append(ticker)
 
                 self.logger.info("%s: +%d articles, %d duplicates", ticker, added, dupes)
@@ -81,30 +85,60 @@ class NewsCollector(BaseCollector):
         return result
 
     @staticmethod
-    def _insert_articles(ticker: str, articles: list[dict], cursor: sqlite3.Cursor) -> tuple[int, int]:
-        """Insert articles into news table."""
+    def _insert_articles(ticker: str, articles: list[dict], cursor: sqlite3.Cursor) -> tuple[int, int, int]:
+        """Insert articles into news table. Skips invalid records safely."""
         added = 0
         dupes = 0
+        skipped = 0
+
+        et_tz = pytz.timezone("US/Eastern")
 
         for art in articles:
             try:
-                pub_ts = art.get("datetime", 0)
-                pub_dt = datetime.fromtimestamp(pub_ts, tz=pytz.UTC)
-                pub_et = pub_dt.astimezone(pytz.timezone("US/Eastern"))
+                url = (art.get("url") or "").strip()
+                title = (art.get("headline") or "").strip()
+                source = (art.get("source") or "").strip() or "unknown"
+                content = (art.get("summary") or "").strip()
+
+                pub_ts = art.get("datetime", None)  # Finnhub uses unix seconds
+                if pub_ts is None:
+                    skipped += 1
+                    logger.debug("Skipped article (missing datetime): %s", url[:80])
+                    continue
+
+                # Required fields check
+                if not url or not title:
+                    skipped += 1
+                    logger.debug(
+                        "Skipped article (missing required fields) ticker=%s url=%s title_len=%d",
+                        ticker, url[:80], len(title),
+                    )
+                    continue
+
+                # Convert timestamp → ET ISO string
+                try:
+                    pub_dt = datetime.fromtimestamp(int(pub_ts), tz=pytz.UTC)
+                except Exception:
+                    skipped += 1
+                    logger.debug("Skipped article (bad datetime) ticker=%s url=%s pub_ts=%s", ticker, url[:80], str(pub_ts))
+                    continue
+
+                pub_et = pub_dt.astimezone(et_tz).isoformat()
 
                 cursor.execute(
                     """INSERT INTO news (url, ticker, title, source, published_at, content)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (art.get("url", ""), ticker, art.get("headline", ""), 
-                     art.get("source", ""), pub_et.isoformat(), art.get("summary", ""))
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    (url, ticker, title, source, pub_et, content),
                 )
                 added += 1
+
             except sqlite3.IntegrityError:
                 dupes += 1
             except Exception as exc:
-                logger.debug("Insert error: %s", exc)
+                skipped += 1
+                logger.debug("Insert error (skipped): %s", exc)
 
-        return added, dupes
+        return added, dupes, skipped
 
     def _log_run(self, stats: dict, started: datetime, duration: float) -> None:
         conn = sqlite3.connect(self.db_path)

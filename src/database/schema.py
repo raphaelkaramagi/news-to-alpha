@@ -54,7 +54,7 @@ class DatabaseSchema:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS news (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                url             TEXT    NOT NULL UNIQUE,
+                url             TEXT    NOT NULL,
                 ticker          TEXT    NOT NULL,
                 title           TEXT    NOT NULL,
                 source          TEXT,
@@ -63,11 +63,12 @@ class DatabaseSchema:
                 sentiment_score REAL,
                 relevance_score REAL,
                 created_at      TEXT DEFAULT (datetime('now')),
-                CHECK(relevance_score IS NULL OR (relevance_score >= 0 AND relevance_score <= 1))
+                CHECK(relevance_score IS NULL OR (relevance_score >= 0 AND relevance_score <= 1)),
+                UNIQUE(url, ticker)
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_news_ticker_published ON news(ticker, published_at)")
-
+        
     def _create_labels_table(self, cursor: sqlite3.Cursor) -> None:
         """Ground truth: did stock go up or down next day?"""
         cursor.execute("""
