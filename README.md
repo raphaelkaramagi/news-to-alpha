@@ -23,14 +23,15 @@ cp .env.example .env             # then add your Finnhub key to NEWS_API_KEY=
 python scripts/setup_database.py                        # create database (once)
 python scripts/collect_prices.py --tickers AAPL TSLA    # get price data
 python scripts/collect_news.py --tickers AAPL           # get news articles
+python scripts/split_dataset.py                          # chronological train/val/test split
 python scripts/validate_data.py                         # check data quality
 python scripts/demo.py                                  # quick end-to-end demo
-pytest tests/ -v                                        # run tests (13 passing)
+pytest tests/ -v                                        # run tests (19 passing)
 ```
 
 ## Project Status
 
-**Weeks 1–2 complete** — data collection and validation pipeline is working.
+**Week 3 in progress** — data collection done, dataset splitting done, label generation next.
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full week-by-week plan, team assignments, and what's next.
 
 ## Structure
