@@ -22,12 +22,14 @@ python scripts/demo.py
 
 # Or step by step:
 python scripts/setup_database.py
-python scripts/collect_prices.py --tickers AAPL TSLA --days 14
+python scripts/collect_prices.py --tickers AAPL TSLA --days 90
 python scripts/collect_news.py --tickers AAPL --days 7
+python scripts/generate_labels.py
 python scripts/split_dataset.py
+python scripts/build_features.py --tickers AAPL TSLA
 python scripts/validate_data.py
 
-# Run tests (19 passing)
+# Run tests (31 passing)
 pytest tests/ -v
 
 # Browse the database visually
@@ -35,6 +37,7 @@ pytest tests/ -v
 
 # Or in terminal:
 sqlite3 -header -column data/database.db "SELECT ticker, date, close FROM prices LIMIT 10;"
+sqlite3 -header -column data/database.db "SELECT ticker, date, label_binary, label_return FROM labels LIMIT 10;"
 ```
 
 ---
@@ -57,16 +60,21 @@ Fetches from Finnhub API with rate limiting (60 calls/min), relevance filtering 
 Thin Finnhub wrapper. Handles rate limiting and has a cutoff filter (drops articles after 4PM ET).
 
 ### `src/data_processing/`
-- **`standardization.py`** — converts dates to `YYYY-MM-DD`, timestamps to ISO-8601 ET, applies the cutoff rule (news before 4PM → predicts next day, after → predicts day after).
+- **`label_generator.py`** — for each (ticker, date), compares today's close to the next trading day's close. Up = 1, down = 0. Stores label + percentage return in the `labels` table. Safe to re-run (skips duplicates).
+- **`dataset_split.py`** — splits data chronologically (70/15/15). Saves to `data/processed/split_info.json`.
+- **`standardization.py`** — date/timestamp conversion, 4PM ET cutoff rule.
 - **`price_validation.py`** — checks for missing data, >20% daily moves, zero volume, coverage gaps.
-- **`news_validation.py`** — checks for missing fields, future timestamps, duplicate URLs, article distribution.
-- **`dataset_split.py`** — splits data chronologically (70% train / 15% val / 15% test). Saves split info to `data/processed/split_info.json`. Chronological because random splits would leak future data into training.
+- **`news_validation.py`** — checks for missing fields, future timestamps, duplicate URLs, distribution.
+
+### `src/features/`
+- **`technical_indicators.py`** — computes RSI, MACD (line + signal + histogram), Bollinger Bands (upper/lower/width/position), and volume moving average from price data. Returns a DataFrame with 16 feature columns.
+- **`sequence_generator.py`** — slides a 60-day window across the indicator data. Each window = one LSTM training sample. Features are min-max normalized per window so different price scales (e.g. $3 PLTR vs $250 AAPL) don't matter. Needs 60+ days of price data to produce any output.
 
 ### `scripts/`
-CLI entry points: `setup_database.py`, `collect_prices.py`, `collect_news.py`, `collect_all_data.py`, `validate_data.py`, `split_dataset.py`, `demo.py`. All accept `--help` for options.
+CLI entry points: `setup_database.py`, `collect_prices.py`, `collect_news.py`, `collect_all_data.py`, `generate_labels.py`, `split_dataset.py`, `build_features.py`, `validate_data.py`, `demo.py`. All accept `--help`.
 
 ### `tests/unit/`
-19 tests covering schema creation, price collection, date standardization, cutoff rule, and dataset splitting. Run with `pytest tests/ -v`.
+31 tests covering schema, price collection, standardization, label generation, dataset splitting, technical indicators, and sequence generation. Run with `pytest tests/ -v`.
 
 ---
 
