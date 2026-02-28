@@ -66,10 +66,13 @@ def main() -> None:
         + len(pv["price_anomalies"])
         + len(pv["volume_anomalies"])
     )
+    # Support both naming conventions (old + new)
+    dup_key = "duplicate_url_ticker_pairs" if "duplicate_url_ticker_pairs" in nv else "duplicate_urls"
+
     news_issues = (
         len(nv["missing_fields"])
         + len(nv["future_timestamps"])
-        + len(nv["duplicate_urls"])
+        + len(nv[dup_key])
     )
 
     print(f"  Price issues : {price_issues}")
