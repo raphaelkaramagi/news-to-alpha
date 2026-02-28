@@ -23,15 +23,17 @@ cp .env.example .env             # then add your Finnhub key to NEWS_API_KEY=
 python scripts/setup_database.py                        # create database (once)
 python scripts/collect_prices.py --tickers AAPL TSLA    # get price data
 python scripts/collect_news.py --tickers AAPL           # get news articles
-python scripts/split_dataset.py                          # chronological train/val/test split
+python scripts/generate_labels.py                       # generate up/down labels
+python scripts/split_dataset.py                         # chronological train/val/test split
+python scripts/build_features.py --tickers AAPL TSLA   # indicators + LSTM sequences
 python scripts/validate_data.py                         # check data quality
 python scripts/demo.py                                  # quick end-to-end demo
-pytest tests/ -v                                        # run tests (19 passing)
+pytest tests/ -v                                        # run tests (31 passing)
 ```
 
 ## Project Status
 
-**Week 3 in progress** — data collection done, dataset splitting done, label generation next.
+**Week 4 complete** — labels, splits, technical indicators, and LSTM sequences done.
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full week-by-week plan, team assignments, and what's next.
 
 ## Structure
@@ -39,9 +41,9 @@ See [docs/ROADMAP.md](docs/ROADMAP.md) for the full week-by-week plan, team assi
 ```
 src/                    Core library (config, collectors, validation)
   data_collection/      Price + news collectors (working)
-  data_processing/      Validation, standardization (working)
+  data_processing/      Validation, standardization, labels, splits (working)
   database/             Schema definitions (working)
-  features/             Technical indicators, sequences, text features (Week 4)
+  features/             Technical indicators, LSTM sequences (working)
   models/               LSTM, NLP baseline, NLP advanced, ensemble (Week 5+)
   evaluation/           Metrics, backtesting (Week 6+)
   utils/                API clients (working)

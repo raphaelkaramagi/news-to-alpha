@@ -16,28 +16,28 @@
 
 ```
 src/
-├── config.py                   # settings, ticker list, API key
-├── database/schema.py          # 5 tables: prices, news, labels, predictions, run_log
+├── config.py                       # settings, ticker list, API key
+├── database/schema.py              # 5 tables: prices, news, labels, predictions, run_log
 ├── data_collection/
-│   ├── price_collector.py      # Yahoo Finance → prices table
-│   └── news_collector.py       # Finnhub API → news table
+│   ├── price_collector.py          # Yahoo Finance → prices table
+│   └── news_collector.py          # Finnhub API → news table
 ├── data_processing/
-│   ├── standardization.py      # date/time utils, cutoff rule
-│   ├── price_validation.py     # quality checks on prices
-│   ├── news_validation.py      # quality checks on news
-│   ├── label_generator.py      # (Week 3 - Tim) up/down labels from price data
-│   └── dataset_split.py        # (Week 3 - Raphael) chronological train/val/test split
-├── features/                   # (Week 4) technical indicators, LSTM sequences, TF-IDF
-├── models/                     # (Week 5+) LSTM, NLP baseline, NLP advanced, ensemble
-└── evaluation/                 # (Week 6+) accuracy metrics, backtesting
+│   ├── standardization.py          # date/time utils, cutoff rule
+│   ├── price_validation.py         # quality checks on prices
+│   ├── news_validation.py          # quality checks on news
+│   ├── label_generator.py          # up/down labels from price data
+│   └── dataset_split.py            # chronological train/val/test split
+├── features/
+│   ├── technical_indicators.py     # RSI, MACD, Bollinger Bands, volume MA
+│   └── sequence_generator.py       # 60-day sliding windows for LSTM input
+├── models/                         # (Week 5+) LSTM, NLP baseline, NLP advanced, ensemble
+└── evaluation/                     # (Week 6+) accuracy metrics, backtesting
 
-scripts/                        # CLI entry points (python scripts/xxx.py)
-tests/unit/                     # pytest tests
-data/                           # git-ignored — database, raw files, model weights
-docs/                           # this file, project overview, git guide
+scripts/                            # CLI entry points (python scripts/xxx.py)
+tests/unit/                         # pytest tests
+data/                               # git-ignored — database, processed features, model weights
+docs/                               # this file, project overview, git guide
 ```
-
-Empty folders (`features/`, `models/`, `evaluation/`) have `__init__.py` files so Python treats them as packages. Code goes there in later weeks.
 
 ---
 
@@ -47,24 +47,26 @@ Config, database schema, project structure, requirements.
 
 ## Week 2 — Data Collection ✓
 
-Price + news collectors, validation, standardization, demo script, 13 tests.
+Price + news collectors, validation, standardization, demo script.
 
-## Week 3 — Labels & Splits (current)
+## Week 3 — Labels & Splits ✓
 
-| Who     | Task | File to create |
-|---------|------|----------------|
-| Tim     | Generate up/down labels from price data | `src/data_processing/label_generator.py`, `scripts/generate_labels.py` |
-| Raphael | Chronological train/val/test split (70/15/15) | `src/data_processing/dataset_split.py` ✓, `scripts/split_dataset.py` ✓ |
-| Cheri   | Weekend/holiday handling in cutoff rule | update `src/data_processing/standardization.py` |
-| Moses + Gordon | Improve news relevance filter | update `src/data_collection/news_collector.py` |
+| Who     | Task | Status |
+|---------|------|--------|
+| Tim     | Generate up/down labels from price data | ✓ `label_generator.py` |
+| Raphael | Chronological train/val/test split (70/15/15) | ✓ `dataset_split.py` |
+| Cheri   | Weekend/holiday handling in cutoff rule | pending |
+| Moses + Gordon | Improve news relevance filter | pending |
 
-## Week 4 — Features
+## Week 4 — Features ✓ (Raphael + Tim)
 
-| Who     | Task | File to create |
-|---------|------|----------------|
-| Raphael + Tim | Technical indicators (RSI, MACD, Bollinger), 60-day sequences for LSTM | `src/features/technical_indicators.py`, `src/features/sequence_generator.py` |
-| Moses + Gordon | TF-IDF on headlines, group by (ticker, date) | `src/features/text_features.py` |
-| Cheri   | Pipeline script tying it all together | `scripts/build_features.py` |
+| Who     | Task | Status |
+|---------|------|--------|
+| Raphael + Tim | Technical indicators (RSI, MACD, Bollinger) + 60-day LSTM sequences | ✓ `technical_indicators.py`, `sequence_generator.py` |
+| Moses + Gordon | TF-IDF on headlines | `src/features/text_features.py` (pending) |
+| Cheri   | Pipeline script | ✓ `scripts/build_features.py` |
+
+**Note:** sequences need 60+ days of price data. Collect more with `python scripts/collect_prices.py --days 90`.
 
 ## Week 5 — Baseline Models
 
@@ -75,7 +77,7 @@ Price + news collectors, validation, standardization, demo script, 13 tests.
 
 ## Weeks 6–7 — Tuning & Evaluation
 
-Hyperparameter tuning (LSTM), FinBERT/embeddings (NLP), evaluation framework with accuracy/precision/recall/confusion matrix. Files: `src/models/nlp_advanced.py`, `src/evaluation/metrics.py`, `src/evaluation/backtester.py`.
+Hyperparameter tuning (LSTM), FinBERT/embeddings (NLP), evaluation framework. Files: `src/models/nlp_advanced.py`, `src/evaluation/metrics.py`, `src/evaluation/backtester.py`.
 
 ## Weeks 8–9 — Ensemble
 
@@ -87,4 +89,4 @@ Bug fixes, test coverage, final training run, report writeup.
 
 ## Week 11 — Web Demo
 
-Flask app: search a ticker → see prediction + confidence + supporting headlines. Directory: `app/`.
+Flask app: search a ticker, see prediction + confidence + supporting headlines. Directory: `app/`.
