@@ -107,7 +107,7 @@ Thin Finnhub wrapper. Handles rate limiting and has a cutoff filter (drops artic
 - **`news_validation.py`** — checks for missing fields, future timestamps, duplicate URLs, distribution.
 
 ### `src/features/`
-- **`technical_indicators.py`** — computes RSI, MACD (line + signal + histogram), Bollinger Bands (upper/lower/width/position), and volume moving average from price data. Returns a DataFrame with 16 feature columns.
+- **`technical_indicators.py`** — computes RSI, MACD (line + signal + histogram), Bollinger Bands (upper/lower/width/position), and volume moving average from price data. Returns a DataFrame with 17 feature columns (OHLCV + daily return + indicators).
 - **`sequence_generator.py`** — slides a 60-day window across the indicator data. Each window = one LSTM training sample. Features are min-max normalized per window so different price scales (e.g. $3 PLTR vs $250 AAPL) don't matter. Needs 60+ valid rows (after indicator warmup) to produce any output.
 - **`text_features.py`** — extracts TF-IDF features from news headlines. For each (ticker, date) with a label, gathers headlines from the previous 3 days and converts them to a sparse feature vector. Supports separate fit/transform for proper train/val/test separation. Uses bigrams, English stop words, and configurable vocabulary size (default 5000).
 

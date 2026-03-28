@@ -1,10 +1,10 @@
 """Two-layer LSTM for binary stock movement prediction.
 
 Architecture
-    Input (batch, 60, 16)
-      → LSTM-1 (50 units) → Dropout
-      → LSTM-2 (50 units) → Dropout
-      → Linear(50 → 1) → Sigmoid → P(up)
+    Input (batch, 60, 17)
+      → LSTM-1 (64 units) → Dropout
+      → LSTM-2 (64 units) → Dropout
+      → Linear(64 → 1) → Sigmoid → P(up)
 
 Uses the last hidden state from the second LSTM as input to the
 classifier.  Trained with binary cross-entropy and Adam.
