@@ -24,15 +24,15 @@ The fastest way to test the entire system — one command runs the full pipeline
 train LSTM → train NLP):
 
 ```bash
-python scripts/demo.py --reset          # fresh start, runs everything
+python scripts/demo.py --reset          # fresh start, runs everything (all 15 tickers)
 ```
 
-Customize which tickers and how much data:
+Customize:
 
 ```bash
 python scripts/demo.py --tickers AAPL NVDA TSLA    # pick specific tickers
-python scripts/demo.py --all                        # use all 15 tickers
-python scripts/demo.py --all --days 365             # all tickers, 1 year of data
+python scripts/demo.py --quick                      # fast test (AAPL + TSLA only)
+python scripts/demo.py --days 365                   # more price history
 python scripts/demo.py --skip-training              # data pipeline only, no models
 ```
 

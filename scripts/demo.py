@@ -40,11 +40,12 @@ from src.config import (  # noqa: E402
     PROCESSED_DATA_DIR, MODELS_DIR, LSTM_CONFIG,
 )
 
-# 250 calendar days ≈ 175 trading days.  Technical indicators consume
-# ~34 rows of warmup (MACD needs 26+9), leaving ~140 valid rows.
-# The LSTM slides a 60-day window, producing ~80 sequences per ticker.
+# Use all tickers by default so training has enough samples.
+# 2 tickers = 58 training sequences (too few for LSTM to learn).
+# 15 tickers = 1,245 training sequences (meaningful baseline).
+# 250 calendar days ≈ 175 trading days → ~80 sequences per ticker.
 DEFAULT_DAYS = 250
-DEFAULT_TICKERS = ["AAPL", "TSLA"]
+DEFAULT_TICKERS = TICKERS
 
 
 # ── pipeline steps (each prints its own status) ─────────────────────
@@ -287,26 +288,26 @@ def main():
         description="Full end-to-end pipeline demo",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""examples:
-  python scripts/demo.py                        # quick demo (2 tickers)
+  python scripts/demo.py                        # all 15 tickers, 250 days
   python scripts/demo.py --reset                # fresh start
-  python scripts/demo.py --tickers AAPL NVDA    # pick tickers
-  python scripts/demo.py --all --days 365       # all 15 tickers, 1 year
-  python scripts/demo.py --skip-training        # data only, no models""",
+  python scripts/demo.py --tickers AAPL TSLA    # quick test (fewer tickers)
+  python scripts/demo.py --days 365             # more history
+  python scripts/demo.py --skip-training        # data pipeline only""",
     )
     parser.add_argument("--reset", action="store_true",
                         help="Wipe all data before running")
     parser.add_argument("--skip-training", action="store_true",
                         help="Data pipeline only, skip model training")
     parser.add_argument("--tickers", nargs="+", default=None,
-                        help=f"Tickers to use (default: {' '.join(DEFAULT_TICKERS)})")
-    parser.add_argument("--all", action="store_true",
-                        help=f"Use all {len(TICKERS)} project tickers")
+                        help=f"Tickers to use (default: all {len(TICKERS)})")
+    parser.add_argument("--quick", action="store_true",
+                        help="Quick test with just AAPL + TSLA (fewer samples)")
     parser.add_argument("--days", type=int, default=DEFAULT_DAYS,
                         help=f"Calendar days of price history (default: {DEFAULT_DAYS})")
     args = parser.parse_args()
 
-    if args.all:
-        tickers = TICKERS
+    if args.quick:
+        tickers = ["AAPL", "TSLA"]
     elif args.tickers:
         tickers = [t.upper() for t in args.tickers]
     else:
@@ -375,9 +376,9 @@ def main():
         print(f"  NLP  test accuracy : {nlp_acc:.4f}")
     print(f"  Random baseline    : 0.5000")
 
-    print(f"\nTo train with more data:")
-    print(f"  python scripts/demo.py --all --days 365")
-    print(f"  python scripts/train_lstm.py --epochs 50")
+    print(f"\nTo improve results:")
+    print(f"  python scripts/demo.py --days 365           # more history")
+    print(f"  python scripts/train_lstm.py --epochs 100   # longer training")
     print()
 
 

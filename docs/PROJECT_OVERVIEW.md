@@ -33,8 +33,8 @@ python scripts/demo.py --skip-training              # data pipeline only
 
 ```bash
 python scripts/demo.py --tickers AAPL NVDA TSLA     # specific tickers
-python scripts/demo.py --all                         # all 15 project tickers
-python scripts/demo.py --all --days 365              # all tickers, 1 year
+python scripts/demo.py --quick                       # fast test (AAPL + TSLA only)
+python scripts/demo.py --days 365                    # more price history
 python scripts/demo.py --days 500                    # 2 years of history
 ```
 
