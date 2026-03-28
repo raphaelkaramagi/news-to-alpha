@@ -20,23 +20,28 @@ src/
 ├── database/schema.py              # 5 tables: prices, news, labels, predictions, run_log
 ├── data_collection/
 │   ├── price_collector.py          # Yahoo Finance → prices table
-│   └── news_collector.py          # Finnhub API → news table
+│   └── news_collector.py          # Finnhub API → news table (word-boundary relevance filter)
 ├── data_processing/
-│   ├── standardization.py          # date/time utils, cutoff rule
+│   ├── standardization.py          # date/time utils, cutoff rule (skips weekends/holidays)
 │   ├── price_validation.py         # quality checks on prices
 │   ├── news_validation.py          # quality checks on news
 │   ├── label_generator.py          # up/down labels from price data
 │   └── dataset_split.py            # chronological train/val/test split
 ├── features/
 │   ├── technical_indicators.py     # RSI, MACD, Bollinger Bands, volume MA
-│   └── sequence_generator.py       # 60-day sliding windows for LSTM input
-├── models/                         # (Week 5+) LSTM, NLP baseline, NLP advanced, ensemble
+│   ├── sequence_generator.py       # 60-day sliding windows for LSTM input
+│   └── text_features.py            # TF-IDF extraction from news headlines
+├── models/
+│   ├── lstm_model.py               # 2-layer LSTM + trainer (PyTorch)
+│   └── nlp_baseline.py             # logistic regression on TF-IDF (scikit-learn)
 └── evaluation/                     # (Week 6+) accuracy metrics, backtesting
 
 scripts/                            # CLI entry points (python scripts/xxx.py)
+  train_lstm.py                     # train LSTM on price sequences
+  train_nlp.py                      # train NLP baseline on headlines
 tests/unit/                         # pytest tests
 data/                               # git-ignored — database, processed features, model weights
-docs/                               # this file, project overview, git guide
+docs/                               # this file, project overview
 ```
 
 ---
@@ -55,29 +60,37 @@ Price + news collectors, validation, standardization, demo script.
 |---------|------|--------|
 | Tim     | Generate up/down labels from price data | ✓ `label_generator.py` |
 | Raphael | Chronological train/val/test split (70/15/15) | ✓ `dataset_split.py` |
-| Cheri   | Weekend/holiday handling in cutoff rule | pending |
-| Moses + Gordon | Improve news relevance filter | pending |
+| Cheri   | Weekend/holiday handling in cutoff rule | ✓ `standardization.py` |
+| Moses + Gordon | Improve news relevance filter | ✓ `news_collector.py` |
 
-## Week 4 — Features ✓ (Raphael + Tim)
+## Week 4 — Features ✓
 
 | Who     | Task | Status |
 |---------|------|--------|
 | Raphael + Tim | Technical indicators (RSI, MACD, Bollinger) + 60-day LSTM sequences | ✓ `technical_indicators.py`, `sequence_generator.py` |
-| Moses + Gordon | TF-IDF on headlines | `src/features/text_features.py` (pending) |
-| Cheri   | Pipeline script | ✓ `scripts/build_features.py` |
+| Moses + Gordon | TF-IDF on headlines | ✓ `src/features/text_features.py` |
+| Cheri   | Pipeline script (+ sequence date metadata) | ✓ `scripts/build_features.py` |
 
 **Note:** sequences need 60+ days of price data. Collect more with `python scripts/collect_prices.py --days 90`.
 
-## Week 5 — Baseline Models
+## Week 5 — Baseline Models ✓
 
-| Who     | Task | File to create |
-|---------|------|----------------|
-| Raphael + Tim | 2-layer LSTM on price sequences | `src/models/lstm_model.py`, `scripts/train_lstm.py` |
-| Moses + Gordon | Logistic regression on TF-IDF | `src/models/nlp_baseline.py`, `scripts/train_nlp.py` |
+| Who     | Task | Status |
+|---------|------|--------|
+| Raphael + Tim | 2-layer LSTM on price sequences | ✓ `src/models/lstm_model.py`, `scripts/train_lstm.py` |
+| Moses + Gordon | Logistic regression on TF-IDF | ✓ `src/models/nlp_baseline.py`, `scripts/train_nlp.py` |
 
 ## Weeks 6–7 — Tuning & Evaluation
 
-Hyperparameter tuning (LSTM), FinBERT/embeddings (NLP), evaluation framework. Files: `src/models/nlp_advanced.py`, `src/evaluation/metrics.py`, `src/evaluation/backtester.py`.
+| Who     | Task | File to create |
+|---------|------|----------------|
+| Raphael + Tim | Hyperparameter tuning (LSTM epochs, lr, units, dropout) | update `scripts/train_lstm.py` |
+| Raphael + Tim | Evaluation metrics (accuracy, precision, recall, F1, confusion matrix) | `src/evaluation/metrics.py` |
+| Moses + Gordon | FinBERT / sentence-transformer embeddings | `src/models/nlp_advanced.py` |
+| Moses + Gordon | Compare NLP baseline vs advanced on same test set | update `scripts/train_nlp.py` |
+| Cheri | Backtesting framework (simulated trades from predictions) | `src/evaluation/backtester.py` |
+
+**Prerequisite:** collect enough data first — `python scripts/demo.py --all --days 365`.
 
 ## Weeks 8–9 — Ensemble
 

@@ -17,23 +17,65 @@ pip install -r requirements.txt
 cp .env.example .env             # then add your Finnhub key to NEWS_API_KEY=
 ```
 
-## Usage
+## Quick Start
+
+The fastest way to test the entire system — one command runs the full pipeline
+(collect prices → collect news → generate labels → split → build features →
+train LSTM → train NLP):
 
 ```bash
-python scripts/setup_database.py                        # create database (once)
-python scripts/collect_prices.py --tickers AAPL TSLA    # get price data
-python scripts/collect_news.py --tickers AAPL           # get news articles
-python scripts/generate_labels.py                       # generate up/down labels
-python scripts/split_dataset.py                         # chronological train/val/test split
-python scripts/build_features.py --tickers AAPL TSLA   # indicators + LSTM sequences
-python scripts/validate_data.py                         # check data quality
-python scripts/demo.py                                  # quick end-to-end demo
-pytest tests/ -v                                        # run tests (31 passing)
+python scripts/demo.py --reset          # fresh start, runs everything
+```
+
+Customize which tickers and how much data:
+
+```bash
+python scripts/demo.py --tickers AAPL NVDA TSLA    # pick specific tickers
+python scripts/demo.py --all                        # use all 15 tickers
+python scripts/demo.py --all --days 365             # all tickers, 1 year of data
+python scripts/demo.py --skip-training              # data pipeline only, no models
+```
+
+## Step-by-Step Usage
+
+If you prefer running each stage individually:
+
+```bash
+# 1. Data collection
+python scripts/setup_database.py                         # create database (once)
+python scripts/collect_prices.py --tickers AAPL TSLA     # defaults to 365 days
+python scripts/collect_news.py --tickers AAPL --days 30  # news articles
+
+# 2. Labels + splits
+python scripts/generate_labels.py                        # up/down labels from prices
+python scripts/split_dataset.py                          # chronological 70/15/15 split
+
+# 3. Features
+python scripts/build_features.py --tickers AAPL TSLA    # indicators + LSTM sequences
+
+# 4. Training
+python scripts/train_lstm.py                             # train LSTM model
+python scripts/train_lstm.py --epochs 100 --lr 0.0005    # with overrides
+python scripts/train_nlp.py                              # train NLP baseline
+python scripts/train_nlp.py --tickers AAPL TSLA          # specific tickers
+
+# 5. Validation
+python scripts/validate_data.py                          # check data quality
+pytest tests/ -v                                         # run unit tests (31 passing)
+```
+
+## Reset
+
+Start fresh at any time:
+
+```bash
+python scripts/reset_data.py              # delete database + features + models
+python scripts/reset_data.py --keep-raw   # keep downloaded data, reset features + models only
 ```
 
 ## Project Status
 
-**Week 4 complete** — labels, splits, technical indicators, and LSTM sequences done.
+**Week 5 complete** — baseline LSTM and NLP models trainable on collected data.
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full week-by-week plan, team assignments, and what's next.
 
 ## Structure
@@ -43,17 +85,15 @@ src/                    Core library (config, collectors, validation)
   data_collection/      Price + news collectors (working)
   data_processing/      Validation, standardization, labels, splits (working)
   database/             Schema definitions (working)
-  features/             Technical indicators, LSTM sequences (working)
-  models/               LSTM, NLP baseline, NLP advanced, ensemble (Week 5+)
+  features/             Technical indicators, LSTM sequences, TF-IDF (working)
+  models/               LSTM model, NLP baseline (working); NLP advanced, ensemble (Week 6+)
   evaluation/           Metrics, backtesting (Week 6+)
   utils/                API clients (working)
-scripts/                Runnable commands (collect, validate, demo)
+scripts/                Runnable commands (collect, validate, train, demo, reset)
 tests/                  Automated tests
 data/                   Local database + data files (git-ignored, auto-created)
-docs/                   Project overview, roadmap, git guide
+docs/                   Project overview, roadmap
 ```
-
-Folders like `features/`, `models/`, and `evaluation/` have empty `__init__.py` files — they're placeholders for upcoming weeks. The roadmap explains exactly what goes in each one.
 
 ## Viewing Data
 
@@ -63,4 +103,3 @@ Install the **SQLite Viewer** extension in VS Code/Cursor (`alexcvzz.vscode-sqli
 
 - **[docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)** — detailed walkthrough of every file, how to test, design decisions
 - **[docs/ROADMAP.md](docs/ROADMAP.md)** — week-by-week plan with tasks per team member
-- **[docs/GIT_GUIDE.md](docs/GIT_GUIDE.md)** — branching, PRs, and team workflow
