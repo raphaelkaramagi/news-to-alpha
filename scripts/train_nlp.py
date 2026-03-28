@@ -24,27 +24,32 @@ from src.config import TICKERS, PROCESSED_DATA_DIR, MODELS_DIR, NLP_CONFIG  # no
 from src.models.nlp_baseline import NLPBaseline  # noqa: E402
 
 
-def split_by_dates(metadata, texts, labels):
-    """Split samples into train/val/test based on their dates."""
-    split_path = PROCESSED_DATA_DIR / "split_info.json"
-    if not split_path.exists():
-        raise FileNotFoundError(
-            f"{split_path} not found — run: python scripts/split_dataset.py"
-        )
-    with open(split_path) as f:
-        split_info = json.load(f)
+def split_by_news_dates(metadata, texts, labels):
+    """Split news samples chronologically by their own date range (70/15/15).
 
-    train_dates = set(split_info["splits"]["train"]["dates"])
-    val_dates = set(split_info["splits"]["val"]["dates"])
-    test_dates = set(split_info["splits"]["test"]["dates"])
+    Unlike the LSTM, which shares a global split_info.json based on 250+
+    days of price history, the NLP model splits the *available* news dates
+    independently.  This is necessary because free-tier news APIs only
+    return ~21-30 days of articles, which would all land in the LSTM's
+    test period and leave training empty.
+    """
+    unique_dates = sorted(set(date for _, date in metadata))
+    n = len(unique_dates)
+
+    train_end = int(n * 0.70)
+    val_end = int(n * 0.85)
+
+    train_dates = set(unique_dates[:train_end])
+    val_dates = set(unique_dates[train_end:val_end])
+    test_dates = set(unique_dates[val_end:])
 
     train_idx, val_idx, test_idx = [], [], []
-    for i, (ticker, date) in enumerate(metadata):
+    for i, (_, date) in enumerate(metadata):
         if date in train_dates:
             train_idx.append(i)
         elif date in val_dates:
             val_idx.append(i)
-        elif date in test_dates:
+        else:
             test_idx.append(i)
 
     def _select(indices):
@@ -52,7 +57,8 @@ def split_by_dates(metadata, texts, labels):
         la = labels[indices]
         return t, la
 
-    return _select(train_idx), _select(val_idx), _select(test_idx)
+    return (_select(train_idx), _select(val_idx), _select(test_idx),
+            unique_dates[0], unique_dates[-1])
 
 
 def main() -> None:
@@ -84,11 +90,12 @@ def main() -> None:
     print(f"  Label distribution: {labels.mean():.0%} up / "
           f"{1 - labels.mean():.0%} down")
 
-    # ---- Split ----
-    print("\n--- Splitting by date ---")
-    (train_texts, y_train), (val_texts, y_val), (test_texts, y_test) = \
-        split_by_dates(metadata, texts, labels)
+    # ---- Split (by available news dates, independent of LSTM) ----
+    print("\n--- Splitting by news dates (70/15/15) ---")
+    (train_texts, y_train), (val_texts, y_val), (test_texts, y_test), \
+        first_date, last_date = split_by_news_dates(metadata, texts, labels)
 
+    print(f"  News date range: {first_date} → {last_date}")
     print(f"  Train: {len(train_texts)}")
     print(f"  Val:   {len(val_texts)}")
     print(f"  Test:  {len(test_texts)}")

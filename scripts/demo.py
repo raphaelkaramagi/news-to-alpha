@@ -52,9 +52,9 @@ DEFAULT_TICKERS = TICKERS
 
 def step_reset():
     from scripts.reset_data import reset
-    print("\n0. Resetting all data...")
-    reset()
-    print("   ✓ Clean slate")
+    print("\n0. Resetting features + models (keeping database)...")
+    reset(keep_db=True)
+    print("   ✓ Clean slate (news articles preserved)")
 
 
 def step_database():
@@ -101,9 +101,12 @@ def step_validate(db_path, tickers):
 
 def step_labels(tickers):
     summary = LabelGenerator().generate(tickers)
-    print(f"   ✓ {summary['total_labels']} labels "
-          f"({summary['total_skipped']} already existed)")
-    return summary["total_labels"]
+    total = summary['total_labels'] + summary['total_skipped']
+    if summary['total_labels'] > 0:
+        print(f"   ✓ {summary['total_labels']} new labels "
+              f"({summary['total_skipped']} already existed)")
+    else:
+        print(f"   ✓ {total} labels (all already existed)")
 
 
 def step_split():
@@ -201,11 +204,19 @@ def step_train_nlp(tickers):
         print("   ⚠ No news data — skipping NLP baseline")
         return None
 
-    with open(PROCESSED_DATA_DIR / "split_info.json") as f:
-        split_info = json.load(f)
+    # Cap vocabulary to avoid overfitting with small training sets
+    n_train = int(len(texts) * 0.70)
+    max_feats = min(model.max_features, max(100, n_train * 2))
+    model.extractor.vectorizer.max_features = max_feats
 
-    train_dates = set(split_info["splits"]["train"]["dates"])
-    val_dates = set(split_info["splits"]["val"]["dates"])
+    # Split news dates independently (free-tier APIs only return ~21 days,
+    # which all fall in the LSTM's test period if we use the global split).
+    unique_dates = sorted(set(date for _, date in metadata))
+    n = len(unique_dates)
+    train_end = int(n * 0.70)
+    val_end = int(n * 0.85)
+    train_dates = set(unique_dates[:train_end])
+    val_dates = set(unique_dates[train_end:val_end])
 
     train_idx, val_idx, test_idx = [], [], []
     for i, (_, date) in enumerate(metadata):
@@ -220,12 +231,10 @@ def step_train_nlp(tickers):
     y_train = labels[train_idx]
 
     if not train_texts:
-        print("   ⚠ No training samples — Finnhub free tier only returns "
-              "recent articles (~60 days), which fall outside the training "
-              "date range. Collect news over time to build up training data.")
+        print("   ⚠ No training samples — need more news data")
         return None
 
-    print(f"   {len(texts)} samples with news → "
+    print(f"   {len(texts)} samples ({unique_dates[0]} → {unique_dates[-1]}) → "
           f"Train: {len(train_texts)}  Val: {len(val_idx)}  "
           f"Test: {len(test_idx)}")
 
@@ -340,10 +349,7 @@ def main():
     step_validate(db_path, tickers)
 
     print(f"\n5. Generating labels...")
-    label_count = step_labels(tickers)
-    if label_count == 0:
-        print("\n   ✗ No labels — check price data.")
-        return
+    step_labels(tickers)
 
     print(f"\n6. Splitting dataset (70 / 15 / 15)...")
     step_split()

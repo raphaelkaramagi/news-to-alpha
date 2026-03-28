@@ -172,6 +172,6 @@ CLI entry points — all accept `--help`:
 
 **"Finnhub API key is empty"** — add your key to `.env`: `NEWS_API_KEY=your_key`.
 
-**"No training samples" for NLP** — Finnhub's free tier only returns articles from the last ~60 days. With 250+ days of prices, those articles fall in the validation/test period, not training. Fix: collect news regularly over time (e.g. run `python scripts/collect_news.py` weekly), or use `--days 120` for prices so the training window overlaps with available news.
+**NLP accuracy is low** — free-tier news APIs only return ~21 days of articles, so the NLP model trains on very few samples. Accuracy improves with more news data collected over time (`python scripts/collect_news.py` weekly). The NLP model splits news dates independently from the LSTM — it doesn't share the LSTM's 250-day date split.
 
 **"Database locked"** — close other sqlite3 sessions. Reset: `python scripts/reset_data.py`.

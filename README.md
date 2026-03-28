@@ -66,11 +66,12 @@ pytest tests/ -v                                         # run unit tests (31 pa
 
 ## Reset
 
-Start fresh at any time:
+Start fresh at any time (database with collected news is preserved by default):
 
 ```bash
-python scripts/reset_data.py              # delete database + features + models
-python scripts/reset_data.py --keep-raw   # keep downloaded data, reset features + models only
+python scripts/reset_data.py              # reset features + models (keeps database)
+python scripts/reset_data.py --full       # delete everything including database
+python scripts/reset_data.py --keep-raw   # also keep raw download files
 ```
 
 ## Project Status
