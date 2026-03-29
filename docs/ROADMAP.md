@@ -90,7 +90,7 @@ Price + news collectors, validation, standardization, demo script.
 | Moses + Gordon | Compare NLP baseline vs advanced on same test set | update `scripts/train_nlp.py` |
 | Cheri | Backtesting framework (simulated trades from predictions) | `src/evaluation/backtester.py` |
 
-**Prerequisite:** collect enough data first — `python scripts/demo.py --all --days 365`.
+**Prerequisite:** collect enough data first — `python scripts/demo.py --days 365`.
 
 ## Weeks 8–9 — Ensemble
 

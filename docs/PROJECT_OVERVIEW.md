@@ -120,7 +120,7 @@ CLI entry points — all accept `--help`:
 
 | Script | What it does |
 |--------|-------------|
-| `demo.py` | Full pipeline in one command. Accepts `--reset`, `--tickers`, `--all`, `--days`, `--skip-training`. |
+| `demo.py` | Full pipeline in one command. Accepts `--reset`, `--tickers`, `--quick`, `--days`, `--skip-training`. |
 | `reset_data.py` | Delete all generated data. `--keep-raw` preserves downloaded prices/news. |
 | `setup_database.py` | Create the SQLite database and all 5 tables. |
 | `collect_prices.py` | Download price data from Yahoo Finance. `--days`, `--tickers`. |
