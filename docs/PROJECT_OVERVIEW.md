@@ -152,7 +152,20 @@ All scripts accept `--help`.
 | `train_nlp.py` | Train the NLP baseline on headlines. `--tickers`, `--max-features`. |
 
 ### `tests/unit/`
-Automated tests covering schema creation, price collection, standardization/cutoff logic, label generation, dataset splitting, technical indicator computation, and sequence generation. Run with `pytest tests/ -v`.
+83 automated tests. Run with `pytest tests/ -v`.
+
+| Test file | What it covers |
+|-----------|---------------|
+| `test_schema.py` | Table creation, idempotency, unique constraints |
+| `test_price_collector.py` | Live price collection, duplicate handling, run logging |
+| `test_standardization.py` | Date parsing, timestamp conversion, 4PM cutoff rule |
+| `test_label_generator.py` | Label counts, up/down values, percentage returns, deduplication |
+| `test_dataset_split.py` | 70/15/15 ratios, no date overlap, chronological ordering, JSON output |
+| `test_features.py` | Technical indicators (17 columns), RSI range, sequence shape/normalization, constant-column handling, TF-IDF extraction (prepare, fit/transform, error states, empty data) |
+| `test_lstm_model.py` | LSTM output shape/range, weight init, variable input sizes, eval determinism, training loop, early stopping, predict/predict_proba, save/load roundtrip |
+| `test_nlp_baseline.py` | Full NLP pipeline (prepare + fit + train), probability range, balanced class weights, save/load roundtrip, empty data |
+| `test_news_collector.py` | Relevance filter (ticker, company name, word-boundary, summary field, fallback), article insertion (valid, missing fields, duplicates), full collect with mocked API |
+| `test_validation.py` | Price validation (missing values, zero volume, >20% jumps, coverage), news validation (missing fields, future timestamps, duplicates, distribution, empty DB) |
 
 ---
 
