@@ -1,6 +1,6 @@
 # News-to-Alpha
 
-Predict whether a stock will go **up or down** the next trading day by combining two signals: price history (LSTM) and news headlines (NLP). The end goal is a web app where you search a ticker and see a prediction with confidence and the headlines behind it.
+Predict whether a stock will go up or down the next trading day by combining two signals: price history (LSTM) and news headlines (NLP). The end goal is a web app where you search a ticker and see a prediction with confidence and the headlines behind it.
 
 **15 tickers tracked**: AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR
 
@@ -122,7 +122,7 @@ docs/                     project overview, roadmap
 
 ## Viewing the Data
 
-Install **SQLite Viewer** in VS Code/Cursor (`alexcvzz.vscode-sqlite`) and click `data/database.db` to browse tables. Or from the terminal:
+Install **SQLite Viewer** in VS Code (`alexcvzz.vscode-sqlite`) and click `data/database.db` to browse tables. Or from the terminal:
 
 ```bash
 sqlite3 -header -column data/database.db "SELECT ticker, date, close FROM prices LIMIT 10;"

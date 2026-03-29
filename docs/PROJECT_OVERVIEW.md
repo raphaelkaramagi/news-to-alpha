@@ -194,4 +194,4 @@ Automated tests covering schema creation, price collection, standardization/cuto
 
 **NLP accuracy is low or erratic** — the NLP model trains on very few samples because free-tier news APIs only return ~21 days of articles. Run `python scripts/collect_news.py` weekly to build up more training data over time. More data = better calibration.
 
-**"Database locked"** — another process has the database open. Close any SQLite browser sessions or terminals using the database, then retry.
+**"Database locked"** — another process has the database open. Close any SQLite browser sessions or terminals using the database, then retry
