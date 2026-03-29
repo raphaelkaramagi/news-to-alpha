@@ -113,7 +113,7 @@ src/
   utils/                  API clients
 
 scripts/                  runnable CLI commands (all accept --help)
-tests/unit/               automated tests (pytest)
+tests/unit/               83 automated tests — pytest tests/ -v
 data/                     git-ignored — database, features, trained models (auto-created)
 docs/                     project overview, roadmap
 ```
