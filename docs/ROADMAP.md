@@ -2,13 +2,13 @@
 
 ## Team
 
-| Person  | Focus                    | Reviews with |
-|---------|--------------------------|--------------|
-| Raphael | Prices, LSTM             | Tim          |
-| Tim     | Database, LSTM training  | Raphael      |
-| Moses   | News, NLP baseline/advanced | Gordon    |
-| Gordon  | API clients, embeddings  | Moses        |
-| Cheri   | Integration, ensemble    | cross-team   |
+| Person  | Focus                          | Reviews with |
+|---------|--------------------------------|--------------|
+| Raphael | Prices, LSTM                   | Tim          |
+| Tim     | Database, LSTM training        | Raphael      |
+| Moses   | News, NLP (baseline + advanced)| Gordon       |
+| Gordon  | API clients, embeddings        | Moses        |
+| Cheri   | Integration, ensemble          | cross-team   |
 
 ---
 
@@ -16,31 +16,33 @@
 
 ```
 src/
-├── config.py                       # settings, ticker list, API key
+├── config.py                       # settings, ticker list, API key, hyperparameters
 ├── database/schema.py              # 5 tables: prices, news, labels, predictions, run_log
 ├── data_collection/
 │   ├── price_collector.py          # Yahoo Finance → prices table
-│   └── news_collector.py          # Finnhub API → news table (word-boundary relevance filter)
+│   └── news_collector.py          # Finnhub API → news table
 ├── data_processing/
-│   ├── standardization.py          # date/time utils, cutoff rule (skips weekends/holidays)
-│   ├── price_validation.py         # quality checks on prices
-│   ├── news_validation.py          # quality checks on news
-│   ├── label_generator.py          # up/down labels from price data
-│   └── dataset_split.py            # chronological train/val/test split
+│   ├── standardization.py          # date/time utils, 4PM ET cutoff rule
+│   ├── price_validation.py         # data quality checks on prices
+│   ├── news_validation.py          # data quality checks on news
+│   ├── label_generator.py          # up/down labels from consecutive closing prices
+│   └── dataset_split.py            # chronological train/val/test split (70/15/15)
 ├── features/
-│   ├── technical_indicators.py     # RSI, MACD, Bollinger Bands, volume MA
-│   ├── sequence_generator.py       # 60-day sliding windows for LSTM input
+│   ├── technical_indicators.py     # RSI, MACD, Bollinger Bands, volume MA, daily return
+│   ├── sequence_generator.py       # 60-day sliding windows → LSTM training samples
 │   └── text_features.py            # TF-IDF extraction from news headlines
 ├── models/
 │   ├── lstm_model.py               # 2-layer LSTM + trainer (PyTorch)
-│   └── nlp_baseline.py             # logistic regression on TF-IDF (scikit-learn)
-└── evaluation/                     # (Week 6+) accuracy metrics, backtesting
+│   ├── nlp_baseline.py             # logistic regression on TF-IDF (scikit-learn)
+│   ├── nlp_advanced.py             # [Week 6+] FinBERT / sentence embeddings
+│   └── ensemble.py                 # [Week 8+] combine LSTM + NLP predictions
+└── evaluation/
+    ├── metrics.py                  # [Week 6+] accuracy, AUC-ROC, F1, confusion matrix
+    └── backtester.py               # [Week 7+] simulated trading returns
 
-scripts/                            # CLI entry points (python scripts/xxx.py)
-  train_lstm.py                     # train LSTM on price sequences
-  train_nlp.py                      # train NLP baseline on headlines
+scripts/                            # CLI entry points (python scripts/xxx.py --help)
 tests/unit/                         # pytest tests
-data/                               # git-ignored — database, processed features, model weights
+data/                               # git-ignored — database, features, model weights
 docs/                               # this file, project overview
 ```
 
@@ -48,58 +50,83 @@ docs/                               # this file, project overview
 
 ## Week 1 — Setup ✓
 
-Config, database schema, project structure, requirements.
+Config, database schema, project structure, requirements, git workflow.
 
 ## Week 2 — Data Collection ✓
 
-Price + news collectors, validation, standardization, demo script.
+Price + news collectors, data validation, standardization, initial demo script.
 
 ## Week 3 — Labels & Splits ✓
 
-| Who     | Task | Status |
-|---------|------|--------|
-| Tim     | Generate up/down labels from price data | ✓ `label_generator.py` |
-| Raphael | Chronological train/val/test split (70/15/15) | ✓ `dataset_split.py` |
-| Cheri   | Weekend/holiday handling in cutoff rule | ✓ `standardization.py` |
-| Moses + Gordon | Improve news relevance filter | ✓ `news_collector.py` |
+| Who            | Task                                          |
+|----------------|-----------------------------------------------|
+| Tim            | Up/down labels from price data                |
+| Raphael        | Chronological train/val/test split (70/15/15) |
+| Cheri          | Weekend/holiday handling in the cutoff rule   |
+| Moses + Gordon | Improved news relevance filtering             |
 
 ## Week 4 — Features ✓
 
-| Who     | Task | Status |
-|---------|------|--------|
-| Raphael + Tim | Technical indicators (RSI, MACD, Bollinger) + 60-day LSTM sequences | ✓ `technical_indicators.py`, `sequence_generator.py` |
-| Moses + Gordon | TF-IDF on headlines | ✓ `src/features/text_features.py` |
-| Cheri   | Pipeline script (+ sequence date metadata) | ✓ `scripts/build_features.py` |
-
-**Note:** sequences need 60+ days of price data. Collect more with `python scripts/collect_prices.py --days 90`.
+| Who            | Task                                                      |
+|----------------|-----------------------------------------------------------|
+| Raphael + Tim  | Technical indicators (RSI, MACD, Bollinger) + 60-day LSTM sequences |
+| Moses + Gordon | TF-IDF feature extraction from headlines                  |
+| Cheri          | `build_features.py` pipeline + sequence date metadata     |
 
 ## Week 5 — Baseline Models ✓
 
-| Who     | Task | Status |
-|---------|------|--------|
-| Raphael + Tim | 2-layer LSTM on price sequences | ✓ `src/models/lstm_model.py`, `scripts/train_lstm.py` |
-| Moses + Gordon | Logistic regression on TF-IDF | ✓ `src/models/nlp_baseline.py`, `scripts/train_nlp.py` |
+| Who            | Task                                       |
+|----------------|--------------------------------------------|
+| Raphael + Tim  | 2-layer LSTM on price sequences            |
+| Moses + Gordon | Logistic regression on TF-IDF headlines    |
 
-## Weeks 6–7 — Tuning & Evaluation
+**Current results** (all 15 tickers, 250 days of price history):
 
-| Who     | Task | File to create |
-|---------|------|----------------|
-| Raphael + Tim | Hyperparameter tuning (LSTM epochs, lr, units, dropout) | update `scripts/train_lstm.py` |
-| Raphael + Tim | Evaluation metrics (accuracy, precision, recall, F1, confusion matrix) | `src/evaluation/metrics.py` |
-| Moses + Gordon | FinBERT / sentence-transformer embeddings | `src/models/nlp_advanced.py` |
-| Moses + Gordon | Compare NLP baseline vs advanced on same test set | update `scripts/train_nlp.py` |
-| Cheri | Backtesting framework (simulated trades from predictions) | `src/evaluation/backtester.py` |
+| Model        | Test accuracy | vs. random |
+|--------------|--------------|------------|
+| LSTM         | ~51%         | +1%        |
+| NLP baseline | ~53%         | +3%        |
 
-**Prerequisite:** collect enough data first — `python scripts/demo.py --days 365`.
+Both models show weak but real signal. Expected for a Week 5 baseline using only public data. The ensemble (Week 8) should improve both.
+
+**Note on news data:** Free-tier APIs return only the last ~21 days of articles. The NLP model uses its own independent date split on whatever news is available. Run `python scripts/collect_news.py` weekly to accumulate more training data.
+
+---
+
+## Weeks 6–7 — Evaluation & Improved Models
+
+**Goal:** Understand where each model is right and wrong, improve NLP signal, and set up a backtesting framework to translate accuracy into trading returns.
+
+| Who            | Task |
+|----------------|------|
+| Raphael + Tim  | Proper evaluation metrics beyond accuracy — think about what signals that the model is actually learning vs. getting lucky. How do you measure this? |
+| Raphael + Tim  | Hyperparameter search for LSTM — what knobs to turn, how to search efficiently without overfitting to val set? |
+| Moses + Gordon | Replace TF-IDF with a financial language model (FinBERT or similar) — how do you handle the small training set? fine-tuning vs. frozen embeddings? |
+| Moses + Gordon | Compare new NLP model vs. baseline on the same test set |
+| Cheri          | Backtesting framework — if we traded based on model predictions, what return would we get vs. buy-and-hold? |
+
+**Prerequisite:** Collect enough news data first — `python scripts/collect_news.py` weekly, and run `python scripts/demo.py --days 365` for longer price history.
+
+---
 
 ## Weeks 8–9 — Ensemble
 
-Combine LSTM + NLP predictions, optimize weights, backtest. File: `src/models/ensemble.py`.
+**Goal:** Combine LSTM and NLP predictions into a single signal that's stronger than either alone.
 
-## Week 10 — Polish
+Questions to answer: How do you combine two probability scores? Weighted average, learned meta-model, or something else? How do you handle dates where news is missing (LSTM only) vs. dates with news?
 
-Bug fixes, test coverage, final training run, report writeup.
+File to create: `src/models/ensemble.py`
+
+---
+
+## Week 10 — Polish & Report
+
+Final training run on all data. Improve test coverage. Write up results — what worked, what didn't, what would you do with more time/data?
+
+---
 
 ## Week 11 — Web Demo
 
-Flask app: search a ticker, see prediction + confidence + supporting headlines. Directory: `app/`.
+Flask app: search a ticker → see predicted direction, confidence score, and the headlines that drove the NLP prediction.
+
+Directory: `app/`
