@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # Which columns from the indicator DataFrame become LSTM features
 FEATURE_COLUMNS = [
     "open", "high", "low", "close", "volume",
+    "daily_return",
     "rsi", "macd_line", "macd_signal", "macd_histogram",
     "bb_middle", "bb_upper", "bb_lower", "bb_width", "bb_position",
     "volume_ma", "volume_ratio",
@@ -119,13 +120,15 @@ class SequenceGenerator:
     def _normalize_window(window: np.ndarray) -> np.ndarray:
         """
         Min-max normalize each feature column to [0, 1] within this window.
-        If a column is constant (max == min), set it to 0.5.
+        Constant columns (max == min) are set to 0.5.
         """
         mins = window.min(axis=0)
         maxs = window.max(axis=0)
         ranges = maxs - mins
 
-        # Avoid division by zero for constant columns
-        ranges[ranges == 0] = 1.0
+        constant_mask = ranges == 0
+        ranges[constant_mask] = 1.0  # prevent division by zero
 
-        return (window - mins) / ranges
+        normalized = (window - mins) / ranges
+        normalized[:, constant_mask] = 0.5
+        return normalized

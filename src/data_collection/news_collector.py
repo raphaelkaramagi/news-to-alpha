@@ -1,5 +1,6 @@
 """Collect news articles from Finnhub API."""
 
+import re
 import json
 import sqlite3
 import logging
@@ -71,15 +72,31 @@ class NewsCollector(BaseCollector):
         return stats
 
     def _filter_relevant(self, ticker: str, articles: list[dict]) -> list[dict]:
-        """Keep articles where headline mentions ticker or company name."""
+        """Keep articles mentioning the ticker symbol or company name.
+
+        Checks both headline and summary.  Short tickers (<=3 chars) use
+        word-boundary matching to avoid false positives like "GS" in
+        "things" or "MAR" in "March".
+        """
         company = TICKER_TO_COMPANY.get(ticker, "").lower()
+
+        if len(ticker) <= 3:
+            ticker_re = re.compile(rf"\b{re.escape(ticker)}\b", re.IGNORECASE)
+        else:
+            ticker_re = re.compile(re.escape(ticker), re.IGNORECASE)
+
         result = []
         for art in articles:
-            headline = art.get("headline", "").lower()
-            if ticker.lower() in headline or (company and company in headline):
+            headline = art.get("headline", "")
+            summary = art.get("summary", "")
+            searchable = f"{headline} {summary}"
+
+            if ticker_re.search(searchable):
+                result.append(art)
+            elif company and company in searchable.lower():
                 result.append(art)
 
-        # If too aggressive (< 10% kept), fall back to all
+        # If filter is too aggressive (< 10% kept), fall back to all
         if len(result) < max(1, len(articles) * 0.10):
             return articles
         return result

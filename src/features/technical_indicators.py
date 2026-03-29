@@ -48,11 +48,22 @@ class TechnicalIndicators:
         df["date"] = pd.to_datetime(df["date"])
         df = df.set_index("date")
 
+        df = self._add_daily_return(df)
         df = self._add_rsi(df)
         df = self._add_macd(df)
         df = self._add_bollinger_bands(df)
         df = self._add_volume_ma(df)
 
+        return df
+
+    @staticmethod
+    def _add_daily_return(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Percentage change in close price day-over-day.
+        This is the most direct signal of price direction and survives
+        per-window normalization better than raw prices.
+        """
+        df["daily_return"] = df["close"].pct_change() * 100
         return df
 
     @staticmethod

@@ -9,6 +9,7 @@ Usage:
 """
 
 import sys
+import json
 import argparse
 from pathlib import Path
 
@@ -73,12 +74,18 @@ def main() -> None:
     np.save(PROCESSED_DATA_DIR / "X_sequences.npy", X_combined)
     np.save(PROCESSED_DATA_DIR / "y_labels.npy", y_combined)
 
+    # Save (ticker, date) metadata so training scripts can split by date
+    dates_path = PROCESSED_DATA_DIR / "sequence_dates.json"
+    with open(dates_path, "w") as f:
+        json.dump(all_dates, f)
+
     print(f"\n--- Summary ---")
     print(f"  Total sequences: {len(X_combined)}")
     print(f"  Shape: {X_combined.shape}")
     print(f"  Up/Down split: {y_combined.mean():.0%} up / {1 - y_combined.mean():.0%} down")
     print(f"\n  Saved to: data/processed/X_sequences.npy")
     print(f"            data/processed/y_labels.npy")
+    print(f"            data/processed/sequence_dates.json")
     print("=" * 60)
 
 

@@ -23,8 +23,8 @@ from src.data_collection.price_collector import PriceCollector  # noqa: E402
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collect stock price data")
     parser.add_argument(
-        "--days", type=int, default=21,
-        help="Days of history to collect (default: 21)",
+        "--days", type=int, default=365,
+        help="Days of history to collect (default: 365)",
     )
     parser.add_argument(
         "--tickers", nargs="+",

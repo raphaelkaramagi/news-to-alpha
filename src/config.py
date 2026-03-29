@@ -44,18 +44,18 @@ CUTOFF_TIMEZONE: str = "US/Eastern"
 CUTOFF_HOUR: int = 16  # 4 PM ET market close
 
 # Data collection defaults
-DEFAULT_LOOKBACK_DAYS: int = 21
+DEFAULT_LOOKBACK_DAYS: int = 365
 MAX_RETRIES: int = 3
 RETRY_BASE_DELAY_SECONDS: float = 2.0
 
 # Model hyperparameters (will tune later)
 LSTM_CONFIG: dict = {
     "sequence_length": 60,
-    "batch_size": 32,
+    "batch_size": 16,
     "epochs": 50,
-    "learning_rate": 0.001,
-    "lstm_units": [50, 50],
-    "dropout": 0.2,
+    "learning_rate": 0.0005,
+    "lstm_units": [64, 64],
+    "dropout": 0.3,
 }
 
 NLP_CONFIG: dict = {

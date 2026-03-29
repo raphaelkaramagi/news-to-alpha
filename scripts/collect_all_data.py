@@ -24,7 +24,7 @@ from src.data_processing.news_validation import NewsDataValidator  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Full data collection pipeline")
-    parser.add_argument("--days", type=int, default=21)
+    parser.add_argument("--days", type=int, default=365)
     args = parser.parse_args()
 
     end_date = datetime.now().strftime("%Y-%m-%d")
@@ -66,13 +66,10 @@ def main() -> None:
         + len(pv["price_anomalies"])
         + len(pv["volume_anomalies"])
     )
-    # Support both naming conventions (old + new)
-    dup_key = "duplicate_url_ticker_pairs" if "duplicate_url_ticker_pairs" in nv else "duplicate_urls"
-
     news_issues = (
         len(nv["missing_fields"])
         + len(nv["future_timestamps"])
-        + len(nv[dup_key])
+        + len(nv["duplicate_url_ticker_pairs"])
     )
 
     print(f"  Price issues : {price_issues}")
