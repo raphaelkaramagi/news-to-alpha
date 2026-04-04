@@ -23,6 +23,7 @@ tqdm                  # progress bars in scripts
 scikit-learn          # baselines, metrics, TF-IDF
 torch                 # LSTM model (Week 5+)
 joblib                # model serialization (NLP baseline)
+sentence-transformers # sentence embeddings for advanced news model
 
 # ── Visualisation ──────────────────────────────────────────
 matplotlib
