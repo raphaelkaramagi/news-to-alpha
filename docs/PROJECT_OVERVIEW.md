@@ -130,7 +130,7 @@ Two-layer stacked LSTM for binary price direction prediction.
 Logistic regression on TF-IDF headline features. Intentionally simple — it's a baseline to establish whether news carries any predictive signal before investing in heavier models (FinBERT, embeddings). Uses balanced class weights to handle class imbalance. Saves the vectorizer and classifier together so they can be loaded as a unit for inference.
 
 ### `src/evaluation/`
-Empty placeholder for Week 6. Will contain `metrics.py` (confusion matrix, AUC-ROC, F1, precision/recall curves) and `backtester.py` (simulated trading returns from model predictions).
+Placeholder for Week 10. Will contain evaluation and backtesting logic once the ensemble is built.
 
 ### `scripts/`
 
@@ -148,8 +148,9 @@ All scripts accept `--help`.
 | `split_dataset.py` | Chronological 70/15/15 split. Saves to `data/processed/split_info.json`. |
 | `build_features.py` | Compute technical indicators and generate 60-day LSTM sequences. `--tickers`. |
 | `validate_data.py` | Run price and news data quality checks. |
-| `train_lstm.py` | Train the LSTM on price sequences. `--epochs`, `--batch-size`, `--lr`. |
-| `train_nlp.py` | Train the NLP baseline on headlines. `--tickers`, `--max-features`. |
+| `train_lstm.py` | Train LSTM, evaluate, and export `price_predictions.csv`. `--epochs`, `--batch-size`, `--lr`, `--no-db-export`. |
+| `train_nlp.py` | Cutoff-aligned TF-IDF baseline: train, evaluate, export `news_tfidf_predictions.csv`, optional DB upsert. `--max-features`, `--no-db-export`. |
+| `train_news_embeddings.py` | Sentence-embedding model (MiniLM + LR): train, evaluate, export `news_embeddings_predictions.csv`. `--sentence-model`, `--no-db-export`. |
 
 ### `tests/unit/`
 83 automated tests. Run with `pytest tests/ -v`.
@@ -190,6 +191,8 @@ All scripts accept `--help`.
 **Run logging** — every script execution is recorded in the `run_log` table with timestamps and stats. When data looks wrong, `SELECT * FROM run_log ORDER BY started_at DESC LIMIT 20;` shows exactly what ran and when.
 
 **Gradient clipping + orthogonal init** — LSTMs are prone to exploding/vanishing gradients. Clipping gradients to norm 1.0 and initializing recurrent weights orthogonally stabilizes training and prevents the model from collapsing to "predict everything the same class."
+
+**Shared prediction contract** (`docs/session1_contract.md`) — all model outputs are CSVs keyed by `(ticker, prediction_date)` with a common confidence formula `abs(pred_proba - 0.5) * 2`. This lets the ensemble join all three models (LSTM, TF-IDF, embeddings) on the same row key without column collisions. News models use cutoff-aligned `prediction_date`, not raw `published_at`.
 
 ---
 
