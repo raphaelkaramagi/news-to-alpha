@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
 """
-Full end-to-end demo: collect data → build features → train models.
+Full end-to-end demo: collect data → build features → train models → export predictions.
 
 The single command to verify the entire pipeline works.  Collects enough
 price history for the 60-day LSTM windows (~250 calendar days = ~175
 trading days, minus ~34 for indicator warmup = ~140 usable rows).
 
 Usage:
-    python scripts/demo.py                          # 2 tickers, 250 days
+    python scripts/demo.py                          # all 15 tickers, 250 days
     python scripts/demo.py --reset                  # wipe first, then run
+    python scripts/demo.py --quick                  # fast test (AAPL + TSLA)
     python scripts/demo.py --tickers AAPL NVDA TSLA # pick your own
     python scripts/demo.py --days 365               # more history
-    python scripts/demo.py --all                    # all 15 tickers
-    python scripts/demo.py --all --days 365         # maximum data
     python scripts/demo.py --skip-training          # data pipeline only
 """
 
@@ -150,31 +149,16 @@ def step_build_features(tickers):
 
 
 def step_train_lstm():
+    from scripts.train_lstm import load_data, split_by_dates, \
+        save_predictions_csv, MODEL_NAME
     from src.models.lstm_model import StockLSTM, LSTMTrainer
 
-    X = np.load(PROCESSED_DATA_DIR / "X_sequences.npy")
-    y = np.load(PROCESSED_DATA_DIR / "y_labels.npy")
-    with open(PROCESSED_DATA_DIR / "sequence_dates.json") as f:
-        dates_meta = json.load(f)
-    with open(PROCESSED_DATA_DIR / "split_info.json") as f:
-        split_info = json.load(f)
+    X, y, dates_meta = load_data()
+    splits = split_by_dates(X, y, dates_meta)
 
-    train_dates = set(split_info["splits"]["train"]["dates"])
-    val_dates = set(split_info["splits"]["val"]["dates"])
-    test_dates = set(split_info["splits"]["test"]["dates"])
-
-    train_idx, val_idx, test_idx = [], [], []
-    for i, (_, date) in enumerate(dates_meta):
-        if date in train_dates:
-            train_idx.append(i)
-        elif date in val_dates:
-            val_idx.append(i)
-        elif date in test_dates:
-            test_idx.append(i)
-
-    X_train, y_train = X[train_idx], y[train_idx]
-    X_val, y_val = X[val_idx], y[val_idx]
-    X_test, y_test = X[test_idx], y[test_idx]
+    X_train, y_train, _ = splits["train"]
+    X_val, y_val, _ = splits["val"]
+    X_test, y_test, _ = splits["test"]
 
     print(f"   Split → Train: {len(X_train)}  Val: {len(X_val)}  "
           f"Test: {len(X_test)}")
@@ -190,65 +174,58 @@ def step_train_lstm():
     trainer = LSTMTrainer(model, config)
     trainer.train(X_train, y_train, X_val, y_val, patience=15)
     test_acc = trainer.evaluate(X_test, y_test, split_name="Test")
+
     trainer.save(MODELS_DIR / "lstm_model.pt")
+
+    csv_path = PROCESSED_DATA_DIR / "price_predictions.csv"
+    save_predictions_csv(trainer, splits, csv_path)
+    print(f"   ✓ Predictions saved to {csv_path.name}")
+
     return test_acc
 
 
 def step_train_nlp(tickers):
-    from src.models.nlp_baseline import NLPBaseline
+    """Run Moses's cutoff-aligned TF-IDF pipeline (scripts/train_nlp.py)."""
+    from scripts.train_nlp import (
+        build_dataset, chronological_split, build_pipeline,
+        train as train_nlp_model, evaluate as eval_nlp,
+        save_predictions_csv as save_nlp_csv,
+    )
+    import joblib
 
-    model = NLPBaseline()
-    texts, labels, metadata = model.extractor.prepare(tickers)
+    try:
+        df = build_dataset(DATABASE_PATH)
+    except RuntimeError as e:
+        print(f"   ⚠ {e}")
+        return None
 
-    if not texts:
+    if df.empty:
         print("   ⚠ No news data — skipping NLP baseline")
         return None
 
-    # Cap vocabulary to avoid overfitting with small training sets
-    n_train = int(len(texts) * 0.70)
-    max_feats = min(model.max_features, max(100, n_train * 2))
-    model.extractor.vectorizer.max_features = max_feats
-
-    # Split news dates independently (free-tier APIs only return ~21 days,
-    # which all fall in the LSTM's test period if we use the global split).
-    unique_dates = sorted(set(date for _, date in metadata))
-    n = len(unique_dates)
-    train_end = int(n * 0.70)
-    val_end = int(n * 0.85)
-    train_dates = set(unique_dates[:train_end])
-    val_dates = set(unique_dates[train_end:val_end])
-
-    train_idx, val_idx, test_idx = [], [], []
-    for i, (_, date) in enumerate(metadata):
-        if date in train_dates:
-            train_idx.append(i)
-        elif date in val_dates:
-            val_idx.append(i)
-        else:
-            test_idx.append(i)
-
-    train_texts = [texts[i] for i in train_idx]
-    y_train = labels[train_idx]
-
-    if not train_texts:
-        print("   ⚠ No training samples — need more news data")
+    try:
+        train_df, val_df, test_df = chronological_split(df)
+    except ValueError as e:
+        print(f"   ⚠ {e}")
         return None
 
-    print(f"   {len(texts)} samples ({unique_dates[0]} → {unique_dates[-1]}) → "
-          f"Train: {len(train_texts)}  Val: {len(val_idx)}  "
-          f"Test: {len(test_idx)}")
+    splits = {"train": train_df, "val": val_df, "test": test_df}
+    print(f"   {len(df)} ticker-day rows → "
+          f"Train: {len(train_df)}  Val: {len(val_df)}  Test: {len(test_df)}")
 
-    X_train = model.extractor.fit_transform(train_texts)
-    model.train(X_train, y_train)
+    pipe = train_nlp_model(train_df)
 
-    test_acc = None
-    if test_idx:
-        test_texts = [texts[i] for i in test_idx]
-        X_test = model.extractor.transform(test_texts)
-        y_test = labels[test_idx]
-        test_acc = model.evaluate(X_test, y_test, split_name="Test")
+    test_metrics = eval_nlp(pipe, test_df, "test")
+    test_acc = test_metrics.get("accuracy")
 
-    model.save(MODELS_DIR / "nlp_baseline.joblib")
+    model_path = MODELS_DIR / "nlp_baseline.joblib"
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(pipe, model_path)
+
+    csv_path = PROCESSED_DATA_DIR / "news_tfidf_predictions.csv"
+    save_nlp_csv(pipe, splits, csv_path)
+    print(f"   ✓ Predictions saved to {csv_path.name}")
+
     return test_acc
 
 
@@ -373,18 +350,21 @@ def main():
     print("\n" + "=" * 70)
     print("DEMO COMPLETE")
     print("=" * 70)
-    print(f"\n  Database : data/database.db")
-    print(f"  Features : data/processed/")
-    print(f"  Models   : data/models/")
+    print(f"\n  Database    : data/database.db")
+    print(f"  Features    : data/processed/")
+    print(f"  Models      : data/models/")
     if lstm_acc is not None:
         print(f"\n  LSTM test accuracy : {lstm_acc:.4f}")
+        print(f"    → data/processed/price_predictions.csv")
     if nlp_acc is not None:
         print(f"  NLP  test accuracy : {nlp_acc:.4f}")
+        print(f"    → data/processed/news_tfidf_predictions.csv")
     print(f"  Random baseline    : 0.5000")
 
-    print(f"\nTo improve results:")
-    print(f"  python scripts/demo.py --days 365           # more history")
-    print(f"  python scripts/train_lstm.py --epochs 100   # longer training")
+    print(f"\nNext steps:")
+    print(f"  python scripts/train_lstm.py --epochs 100        # longer training")
+    print(f"  python scripts/train_news_embeddings.py          # embeddings model")
+    print(f"  python scripts/demo.py --days 365                # more history")
     print()
 
 
