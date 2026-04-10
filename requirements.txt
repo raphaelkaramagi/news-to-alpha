@@ -25,6 +25,9 @@ torch                 # LSTM model (Week 5+)
 joblib                # model serialization (NLP baseline)
 sentence-transformers # sentence embeddings for advanced news model
 
+# ── Web app ────────────────────────────────────────────────
+flask
+
 # ── Visualisation ──────────────────────────────────────────
 matplotlib
 seaborn
