@@ -44,6 +44,13 @@ except ModuleNotFoundError:
 
 app = Flask(__name__, template_folder=str(_APP_DIR / "templates"))
 
+# ── Ensure database exists on startup ────────────────────────────────────────
+try:
+    from src.database.schema import DatabaseSchema
+    DatabaseSchema().create_all_tables()
+except Exception:
+    pass
+
 # ── Refresh state ────────────────────────────────────────────────────────────
 _refresh_lock = threading.Lock()
 _refresh_status: dict = {"running": False, "last_date": None, "error": None, "step": None}
