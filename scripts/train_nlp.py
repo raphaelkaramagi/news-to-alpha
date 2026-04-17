@@ -541,9 +541,14 @@ def main() -> None:
 
     # ── 1. Load data ─────────────────────────────────────────────────────────
     print("Step 1/4  Loading data …")
-    df = build_dataset(db_path)
-    print(f"  {len(df):,} ticker-day rows, "
-          f"{(df['headlines_text'] != PLACEHOLDER_TEXT).sum():,} with real news")
+    df_all = build_dataset(db_path)
+    df = df_all[df_all["headlines_text"] != PLACEHOLDER_TEXT].copy()
+
+    print(f"  {len(df_all):,} ticker-day rows total")
+    print(f"  {len(df):,} with real news")
+
+    if df.empty:
+        raise RuntimeError("No real-news rows available for training.")
 
     # ── 2. Split ─────────────────────────────────────────────────────────────
     print("Step 2/4  Splitting (chronological) …")
