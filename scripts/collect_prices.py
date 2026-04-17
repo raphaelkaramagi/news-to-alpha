@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.config import TICKERS  # noqa: E402
+from src.config import TICKERS, MARKET_INDEX_TICKER  # noqa: E402
 from src.database.schema import DatabaseSchema  # noqa: E402
 from src.data_collection.price_collector import PriceCollector  # noqa: E402
 
@@ -35,6 +35,9 @@ def main() -> None:
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=args.days)).strftime("%Y-%m-%d")
     tickers = args.tickers or TICKERS
+    # Always include the market-index ticker for LSTM regime features
+    if MARKET_INDEX_TICKER not in tickers:
+        tickers = [*tickers, MARKET_INDEX_TICKER]
 
     # Ensure tables exist
     DatabaseSchema().create_all_tables()

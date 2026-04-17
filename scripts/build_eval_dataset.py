@@ -1,44 +1,38 @@
 #!/usr/bin/env python3
-"""
-Build the aligned evaluation dataset by joining all three model prediction CSVs.
+"""Build the aligned evaluation dataset by joining all three prediction CSVs.
 
 Inputs
 ------
-  data/processed/price_predictions.csv
-  data/processed/news_tfidf_predictions.csv
-  data/processed/news_embeddings_predictions.csv
+  data/processed/price_predictions.csv          (LSTM per ticker-day)
+  data/processed/news_tfidf_predictions.csv     (TF-IDF; only news-bearing days)
+  data/processed/news_embeddings_predictions.csv (Embeddings; only news-bearing days)
 
 Output
 ------
   data/processed/eval_dataset.csv
 
-Join key : (ticker, prediction_date)
-Split    : price_split is used as the canonical split column (per session_2_contract.md)
+Join policy
+-----------
+LSTM is the anchor (LEFT join from `price_predictions.csv`) so that every
+(ticker, prediction_date) the LSTM scored survives.  News predictions are
+filled with 0.5 / 0.0 / empty when missing, and a `has_news` flag is added.
 
-Usage
------
-  python scripts/build_eval_dataset.py
+The ensemble script downstream understands `has_news` and reweights (via its
+meta model) accordingly.
 """
+
+from __future__ import annotations
 
 import sys
 from pathlib import Path
 
 import pandas as pd
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
-_SCRIPT_DIR   = Path(__file__).resolve().parent
-_PROJECT_ROOT = _SCRIPT_DIR.parent
-if not (_PROJECT_ROOT / "src").exists():
-    _PROJECT_ROOT = _SCRIPT_DIR
-
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-try:
-    from src.config import PROCESSED_DATA_DIR  # noqa: E402
-except ModuleNotFoundError:
-    PROCESSED_DATA_DIR = _PROJECT_ROOT / "data" / "processed"
+from src.config import PROCESSED_DATA_DIR  # noqa: E402
 
-# ── Required output columns ───────────────────────────────────────────────────
 OUTPUT_COLS = [
     "ticker",
     "prediction_date",
@@ -55,6 +49,7 @@ OUTPUT_COLS = [
     "news_embeddings_pred_proba",
     "news_embeddings_pred_binary",
     "news_embeddings_confidence",
+    "has_news",
     "top_headlines",
     "actual_binary",
 ]
@@ -71,6 +66,12 @@ def load_price(path: Path) -> pd.DataFrame:
 
 
 def load_news_tfidf(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=[
+            "ticker", "prediction_date", "news_tfidf_split",
+            "news_tfidf_pred_proba", "news_tfidf_pred_binary",
+            "news_tfidf_confidence", "news_tfidf_top_headlines",
+        ])
     df = pd.read_csv(path)
     df = df.rename(columns={
         "split":            "news_tfidf_split",
@@ -81,12 +82,18 @@ def load_news_tfidf(path: Path) -> pd.DataFrame:
     })
     return df[[
         "ticker", "prediction_date", "news_tfidf_split",
-        "news_tfidf_pred_proba", "news_tfidf_pred_binary", "news_tfidf_confidence",
-        "news_tfidf_top_headlines",
+        "news_tfidf_pred_proba", "news_tfidf_pred_binary",
+        "news_tfidf_confidence", "news_tfidf_top_headlines",
     ]]
 
 
 def load_news_embeddings(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=[
+            "ticker", "prediction_date", "news_embeddings_split",
+            "news_embeddings_pred_proba", "news_embeddings_pred_binary",
+            "news_embeddings_confidence", "news_embeddings_top_headlines",
+        ])
     df = pd.read_csv(path)
     df = df.rename(columns={
         "split":            "news_embeddings_split",
@@ -97,59 +104,86 @@ def load_news_embeddings(path: Path) -> pd.DataFrame:
     })
     return df[[
         "ticker", "prediction_date", "news_embeddings_split",
-        "news_embeddings_pred_proba", "news_embeddings_pred_binary", "news_embeddings_confidence",
-        "news_embeddings_top_headlines",
+        "news_embeddings_pred_proba", "news_embeddings_pred_binary",
+        "news_embeddings_confidence", "news_embeddings_top_headlines",
     ]]
 
 
 def main() -> None:
-    price_path      = PROCESSED_DATA_DIR / "price_predictions.csv"
-    tfidf_path      = PROCESSED_DATA_DIR / "news_tfidf_predictions.csv"
+    price_path = PROCESSED_DATA_DIR / "price_predictions.csv"
+    tfidf_path = PROCESSED_DATA_DIR / "news_tfidf_predictions.csv"
     embeddings_path = PROCESSED_DATA_DIR / "news_embeddings_predictions.csv"
-    output_path     = PROCESSED_DATA_DIR / "eval_dataset.csv"
+    output_path = PROCESSED_DATA_DIR / "eval_dataset.csv"
 
     print("=" * 70)
-    print("BUILD EVAL DATASET")
+    print("BUILD EVAL DATASET (LEFT join from LSTM predictions)")
     print("=" * 70)
 
-    for p in [price_path, tfidf_path, embeddings_path]:
-        if not p.exists():
-            raise FileNotFoundError(f"Missing input file: {p}")
+    if not price_path.exists():
+        raise FileNotFoundError(
+            f"Missing {price_path}. Run scripts/train_lstm.py first."
+        )
 
-    print("Loading price predictions …")
+    print("Loading price predictions ...")
     price = load_price(price_path)
     print(f"  {len(price):,} rows")
 
-    print("Loading news TF-IDF predictions …")
+    print("Loading news TF-IDF predictions ...")
     tfidf = load_news_tfidf(tfidf_path)
     print(f"  {len(tfidf):,} rows")
 
-    print("Loading news embeddings predictions …")
+    print("Loading news embeddings predictions ...")
     embeddings = load_news_embeddings(embeddings_path)
     print(f"  {len(embeddings):,} rows")
 
-    print("\nJoining on (ticker, prediction_date) …")
-    df = price.merge(tfidf,      on=["ticker", "prediction_date"], how="inner")
-    df = df.merge(embeddings,    on=["ticker", "prediction_date"], how="inner")
+    print("\nLeft-joining on (ticker, prediction_date) anchored on LSTM ...")
+    df = price.merge(tfidf, on=["ticker", "prediction_date"], how="left")
+    df = df.merge(embeddings, on=["ticker", "prediction_date"], how="left")
 
-    print(f"  Rows after inner join: {len(df):,}")
-    print(f"  Tickers: {df['ticker'].nunique()}")
-    print(f"  Date range: {df['prediction_date'].min()} → {df['prediction_date'].max()}")
+    # has_news = at least one news model produced a probability
+    tfidf_present = df.get("news_tfidf_pred_proba", pd.Series(dtype=float)).notna()
+    emb_present = df.get("news_embeddings_pred_proba", pd.Series(dtype=float)).notna()
+    df["has_news"] = (tfidf_present | emb_present).astype(int)
 
-    # top_headlines: prefer embeddings, fall back to tfidf
-    df["top_headlines"] = df["news_embeddings_top_headlines"].fillna(
-        df["news_tfidf_top_headlines"]
-    )
+    # Fill missing news probas with neutral 0.5 and zero confidence
+    for col, neutral in [
+        ("news_tfidf_pred_proba", 0.5),
+        ("news_embeddings_pred_proba", 0.5),
+        ("news_tfidf_confidence", 0.0),
+        ("news_embeddings_confidence", 0.0),
+    ]:
+        if col in df.columns:
+            df[col] = df[col].fillna(neutral)
 
-    # canonical split = price_split
+    for col in ("news_tfidf_pred_binary", "news_embeddings_pred_binary"):
+        if col in df.columns:
+            df[col] = df[col].fillna(-1).astype(int)
+
+    # Pick top_headlines: prefer embeddings, fall back to tfidf, else empty list.
+    emb_top = df.get("news_embeddings_top_headlines")
+    tfidf_top = df.get("news_tfidf_top_headlines")
+    if emb_top is not None and tfidf_top is not None:
+        df["top_headlines"] = emb_top.fillna(tfidf_top).fillna("[]")
+    elif emb_top is not None:
+        df["top_headlines"] = emb_top.fillna("[]")
+    elif tfidf_top is not None:
+        df["top_headlines"] = tfidf_top.fillna("[]")
+    else:
+        df["top_headlines"] = "[]"
+
     df["split"] = df["price_split"]
+
+    print(f"  Rows after join: {len(df):,}")
+    print(f"  Tickers        : {df['ticker'].nunique()}")
+    print(f"  Date range     : {df['prediction_date'].min()} -> {df['prediction_date'].max()}")
+    print(f"  Rows with news : {int(df['has_news'].sum()):,}  "
+          f"({df['has_news'].mean():.0%})")
 
     out_cols = [c for c in OUTPUT_COLS if c in df.columns]
     df = df[out_cols]
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False)
-
     print(f"\nSaved {len(df):,} rows to {output_path}")
     print("\nSplit breakdown:")
     for split, grp in df.groupby("split"):

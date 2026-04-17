@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>News-to-Alpha · Admin</title>
+  <style>
+    :root {
+      --bg: #0b1020; --panel: #121932; --panel-2: #182040;
+      --border: #1f2a4a; --text: #e6eaf5; --text-dim: #94a3b8;
+      --accent: #6366f1; --accent-2: #22d3ee;
+      --up: #10b981; --down: #ef4444; --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', sans-serif;
+      background: radial-gradient(1200px 800px at 20% -10%, #1a2352 0%, var(--bg) 60%);
+      color: var(--text); min-height: 100vh;
+    }
+    .app { max-width: 1100px; margin: 0 auto; padding: 30px 24px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    header h1 { font-size: 20px; margin: 0; }
+    header a { color: var(--accent-2); text-decoration: none; font-size: 13px; }
+
+    .grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; }
+    @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; padding: 18px;
+    }
+    .panel h2 { margin: 0 0 6px; font-size: 15px; }
+    .panel .desc { color: var(--text-dim); font-size: 12px; margin-bottom: 14px; }
+
+    .row { display: grid; grid-template-columns: 130px 1fr; gap: 6px; margin-bottom: 8px; align-items: center; }
+    .row label { color: var(--text-dim); font-size: 12px; }
+    .row input {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      padding: 6px 8px; border-radius: 6px; font-size: 12px; width: 100%;
+    }
+    .btns { display: flex; gap: 8px; margin-top: 12px; }
+    .btn {
+      background: var(--accent); color: white; border: 0; padding: 8px 14px;
+      border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;
+    }
+    .btn.danger { background: rgba(239,68,68,.15); color: var(--down); border: 1px solid rgba(239,68,68,.4); }
+    .btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+
+    .job-bar {
+      position: fixed; right: 20px; bottom: 20px; max-width: 420px;
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 14px; display: none; box-shadow: 0 12px 28px rgba(0,0,0,.4);
+    }
+    .job-bar.show { display: block; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .status-dot.running { background: var(--warn); animation: pulse 1s infinite; }
+    .status-dot.success { background: var(--up); }
+    .status-dot.failed  { background: var(--down); }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+    .progress { color: var(--text-dim); font-size: 12px;
+      font-family: 'SF Mono', ui-monospace, monospace; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Admin</h1>
+      <div>
+        <a href="/">Configure</a> · <a href="/dashboard">Dashboard</a>
+      </div>
+    </header>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>LSTM (price)</h2>
+        <div class="desc">Retrains only the LSTM, then refits ensemble + evaluation.</div>
+        <div class="row"><label>Epochs</label><input type="number" id="lstm-epochs" placeholder="80"></div>
+        <div class="row"><label>Batch size</label><input type="number" id="lstm-batch-size" placeholder="64"></div>
+        <div class="row"><label>Learning rate</label><input type="number" id="lstm-lr" step="0.0001" placeholder="0.0005"></div>
+        <div class="row"><label>Dropout</label><input type="number" id="lstm-dropout" step="0.05" placeholder="0.4"></div>
+        <div class="btns">
+          <button class="btn" data-train="lstm">Retrain</button>
+          <button class="btn danger" data-reset="lstm">Reset</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>NLP TF-IDF</h2>
+        <div class="desc">Headline + content snippet + publisher baseline.</div>
+        <div class="row"><label>max_features</label><input type="number" id="tfidf-max-features" placeholder="5000"></div>
+        <div class="row"><label>C (inv reg)</label><input type="number" id="tfidf-C" step="0.1" placeholder="1.0"></div>
+        <div class="row"><label>top_publishers</label><input type="number" id="tfidf-top-publishers" placeholder="10"></div>
+        <div class="btns">
+          <button class="btn" data-train="tfidf">Retrain</button>
+          <button class="btn danger" data-reset="tfidf">Reset</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>News embeddings</h2>
+        <div class="desc">MiniLM / FinBERT pooled per day + publisher features.</div>
+        <div class="row"><label>C (inv reg)</label><input type="number" id="emb-C" step="0.1" placeholder="1.0"></div>
+        <div class="row"><label>top_publishers</label><input type="number" id="emb-top-publishers" placeholder="10"></div>
+        <div class="row"><label>FinBERT</label>
+          <label style="font-size:12px;"><input type="checkbox" id="emb-finbert"> use FinBERT</label>
+        </div>
+        <div class="btns">
+          <button class="btn" data-train="embeddings">Retrain</button>
+          <button class="btn danger" data-reset="embeddings">Reset</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Ensemble meta-model</h2>
+        <div class="desc">Refits the HistGradientBoosting meta-model + calibration.</div>
+        <div class="btns">
+          <button class="btn" data-train="ensemble">Refit meta</button>
+          <button class="btn" data-train="all">Retrain all</button>
+          <button class="btn danger" data-reset="ensemble">Reset meta</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="job-bar" id="job-bar">
+    <div><span class="status-dot" id="job-dot"></span><span id="job-label">idle</span></div>
+    <div class="progress" id="job-progress"></div>
+  </div>
+
+<script>
+function qs(s){return document.querySelector(s);}
+function qsa(s){return Array.from(document.querySelectorAll(s));}
+function _n(id){const el=qs("#"+id);if(!el||el.value==="")return null;return Number(el.value);}
+
+function collect(model){
+  if(model==="lstm") return {epochs:_n("lstm-epochs"),batch_size:_n("lstm-batch-size"),learning_rate:_n("lstm-lr"),dropout:_n("lstm-dropout")};
+  if(model==="tfidf") return {max_features:_n("tfidf-max-features"),C:_n("tfidf-C"),top_publishers:_n("tfidf-top-publishers")};
+  if(model==="embeddings") return {C:_n("emb-C"),top_publishers:_n("emb-top-publishers"),use_finbert:qs("#emb-finbert").checked};
+  return {};
+}
+
+qsa("[data-train]").forEach(b => b.addEventListener("click", async () => {
+  const model = b.dataset.train;
+  const res = await fetch("/api/train", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({model, params: collect(model)})});
+  const data = await res.json();
+  if(!res.ok){alert(data.error||"Could not start training"); return;}
+  showJob(data.job); pollJobs();
+}));
+qsa("[data-reset]").forEach(b => b.addEventListener("click", async () => {
+  const model = b.dataset.reset;
+  if(!confirm(`Reset ${model} artifacts? This cannot be undone.`)) return;
+  const res = await fetch("/api/reset", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({model})});
+  const data = await res.json();
+  if(!res.ok){alert(data.error||"Could not reset"); return;}
+  showJob(data.job); pollJobs();
+}));
+
+function showJob(job){
+  if(!job)return;
+  const bar=qs("#job-bar"); bar.classList.add("show");
+  qs("#job-label").textContent = `${job.label} — ${job.status}`;
+  qs("#job-progress").textContent = job.progress || job.error || "";
+  qs("#job-dot").className = "status-dot " + (job.status==="running"?"running":job.status==="failed"?"failed":"success");
+}
+let _poll=null;
+async function pollJobs(){
+  try{
+    const r=await fetch("/api/jobs"); const d=await r.json();
+    if(d.current) showJob(d.current);
+    if(d.current && d.current.status==="running"){ if(!_poll) _poll=setInterval(pollJobs,2000); }
+    else { if(_poll){clearInterval(_poll); _poll=null;} }
+  }catch(_){}
+}
+pollJobs();
+</script>
+</body>
+</html>

@@ -25,8 +25,12 @@ torch                 # LSTM model (Week 5+)
 joblib                # model serialization (NLP baseline)
 sentence-transformers # sentence embeddings for advanced news model
 
+# ── FinBERT sentiment (Phase B2) ───────────────────────────
+transformers         # FinBERT pipeline for news sentiment
+
 # ── Web app ────────────────────────────────────────────────
 flask
+gunicorn             # production WSGI server for Railway/Render/Fly.io
 
 # ── Visualisation ──────────────────────────────────────────
 matplotlib

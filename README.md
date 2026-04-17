@@ -1,6 +1,6 @@
 # News-to-Alpha
 
-Predict whether a stock will go up or down the next trading day by combining two signals: price history (LSTM) and news headlines (NLP). The end goal is a web app where you search a ticker and see a prediction with confidence and the headlines behind it.
+Predict whether a stock will go up or down the next trading day by combining three signals: price history (LSTM), news headlines (TF-IDF + logistic regression), and sentence-embedding news (MiniLM + logistic regression). A learned meta-model stacks the three into a calibrated ensemble, and a Flask web app lets you search any ticker, switch between models, and retrain on demand.
 
 **15 tickers tracked**: AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR
 
@@ -23,21 +23,32 @@ cp .env.example .env             # add your Finnhub API key: NEWS_API_KEY=your_k
 
 ## Quick Start
 
-One command runs the entire pipeline — collects data, builds features, trains both models:
+The fastest path is the single-command orchestrator. It wraps every step
+(collect → labels → split → LSTM → NLP → embeddings → ensemble → evaluate)
+and accepts a **preset** plus optional overrides:
 
 ```bash
-python scripts/demo.py --reset      # wipe and run fresh (all 15 tickers)
-python scripts/demo.py              # re-run, skips already-collected data
+python scripts/run_pipeline.py --preset quick        # 2 tickers, 1-day horizon, 1 seed
+python scripts/run_pipeline.py --preset balanced     # 5 tickers, 2y, 3-day horizon, 3 seeds
+python scripts/run_pipeline.py --preset advanced     # full universe + FinBERT
 ```
 
-Customize:
+Dry-run to inspect the resolved config without executing:
 
 ```bash
-python scripts/demo.py --quick                      # fast 2-ticker test (AAPL + TSLA)
-python scripts/demo.py --tickers AAPL NVDA TSLA     # pick specific tickers
-python scripts/demo.py --days 365                   # more price history
-python scripts/demo.py --skip-training              # data pipeline only, no model training
+python scripts/run_pipeline.py --preset balanced --dry-run
 ```
+
+Common overrides:
+
+```bash
+python scripts/run_pipeline.py --preset balanced --tickers AAPL NVDA --horizon 3 --min-move-pct 0.5
+python scripts/run_pipeline.py --preset balanced --skip-collect --skip-news   # re-train without redownloading
+python scripts/run_pipeline.py --preset balanced --use-finbert                # FinBERT sentiment in NLP
+```
+
+The older `scripts/demo.py` still works for the simpler legacy flow, but
+`run_pipeline.py` is what the Flask app uses under the hood.
 
 ---
 
@@ -62,14 +73,32 @@ python scripts/split_dataset.py                           # chronological 70/15/
 python scripts/build_features.py                          # indicators + LSTM sequences
 
 # 5. Training
-python scripts/train_lstm.py                              # LSTM on price sequences
-python scripts/train_lstm.py --epochs 100 --lr 0.0003     # with overrides
-python scripts/train_nlp.py                               # NLP baseline on news headlines
+python scripts/train_lstm.py --horizon 3 --seeds 42 1337 2024      # seed-ensemble LSTM
+python scripts/train_lstm.py --horizon 3 --min-move-pct 0.5        # drop-flat filter on train
+python scripts/train_nlp.py --horizon 3 --min-move-pct 0.5         # TF-IDF + publisher + content snippet
+python scripts/train_news_embeddings.py --horizon 3 --use-finbert  # MiniLM / FinBERT + relevance-weighted pooling
+python scripts/build_ensemble.py                                    # HistGradientBoosting meta-model + calibration
 
-# 6. Validation
+# 6. Evaluation
+python scripts/evaluate_predictions.py --horizon 3        # accuracy/F1/AUC + `evaluation_by_confidence.csv`
 python scripts/validate_data.py                           # data quality checks
 pytest tests/ -v                                          # unit tests
+
+# 7. Web app
+python app/server.py                                      # http://localhost:5000
 ```
+
+The app serves three routes:
+
+| Route        | Purpose                                                       |
+|--------------|---------------------------------------------------------------|
+| `/`          | Landing / configure page — pick a preset and run the pipeline |
+| `/dashboard` | Interactive dashboard: rewind slider, rationale, headline cards, confidence buckets |
+| `/admin`     | Per-model retrain / reset controls                            |
+
+Keyboard shortcuts in `/dashboard`: `←`/`→` cycle tickers, `1..4` switch
+model (ensemble / lstm / tfidf / embeddings), `r` opens the reconfigure
+drawer, `Esc` closes it.
 
 All scripts accept `--help` for full options.
 
@@ -88,14 +117,30 @@ python scripts/reset_data.py --full   # delete everything including database
 
 ## Project Status
 
-**Week 5 complete.** Both baseline models train and predict above the 50% random baseline:
+**Week 10 complete.** All three base models train end-to-end with probability
+calibration; a `HistGradientBoosting` meta-model stacks them on 10 features and
+gets its own isotonic + temperature calibration. The Flask app covers both the
+configure-and-run flow and a rich interactive dashboard:
 
-| Model | What it uses | Test accuracy |
-|-------|-------------|---------------|
-| LSTM | 60-day price + indicator sequences | ~51% |
-| NLP baseline | TF-IDF headlines → logistic regression | ~53% |
+| Model               | What it uses                                                            |
+|---------------------|-------------------------------------------------------------------------|
+| LSTM (`lstm_price`) | 60-day scaled price + ~20 indicators + ticker embed, **seed ensemble + isotonic calibration + BCE pos_weight**  |
+| TF-IDF              | TF-IDF bigrams over headlines **+ content snippet**, publisher one-hot, **Finnhub sentiment/relevance** |
+| Embeddings          | MiniLM / optional FinBERT embeddings **relevance-weighted pooled**, + publisher + side features |
+| Ensemble            | **HistGradientBoosting** meta-model over 10 features (base probas, confidences, `has_news`, `n_headlines`, `spy_return_5d`, `all_agree`) + isotonic + temperature scaling |
 
-See [docs/ROADMAP.md](docs/ROADMAP.md) for the full plan and what's coming in Weeks 6–11.
+New knobs you can tune end-to-end:
+
+- `--horizon {1,3}` — 3-day direction labels usually give higher accuracy and
+  sharper confidence than next-day.
+- `--min-move-pct X` — drop training rows with `|return_horizon| < X` so the
+  models stop learning from near-flat days.
+- `--seeds 42 1337 2024` — train multiple LSTMs and average their probas.
+- `--use-finbert` — swap MiniLM for FinBERT sentiment embeddings.
+- `evaluation_by_confidence.csv` — accuracy per confidence decile, so you can
+  see the high-conviction subset of calls.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the full timeline and [docs/DEPLOY.md](docs/DEPLOY.md) for deploying the app to Railway/Render.
 
 ---
 
@@ -107,15 +152,15 @@ src/
   database/               SQLite schema (5 tables: prices, news, labels, predictions, run_log)
   data_collection/        price collector (Yahoo Finance), news collector (Finnhub)
   data_processing/        validation, standardization, label generation, dataset splitting
-  features/               technical indicators, LSTM sequence builder, TF-IDF text features
-  models/                 LSTM model (PyTorch), NLP baseline (scikit-learn)
-  evaluation/             [Week 6+] metrics, backtesting
+  features/               technical indicators, LSTM sequence builder, news sentiment
+  models/                 LSTM (PyTorch) + shared news pipeline (cutoff-aligned dataset)
   utils/                  API clients
 
 scripts/                  runnable CLI commands (all accept --help)
-tests/unit/               83 automated tests — pytest tests/ -v
+app/                      Flask web app (server.py, jobs.py, templates/)
+tests/unit/               pytest tests/ -v
 data/                     git-ignored — database, features, trained models (auto-created)
-docs/                     project overview, roadmap
+docs/                     project overview, roadmap, deploy guide
 ```
 
 ---

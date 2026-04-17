@@ -1,0 +1,41 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+.git/
+.gitignore
+.github/
+
+# Large generated artifacts — these are recreated on demand.
+data/models/
+data/processed/
+data/raw/
+data/database.db
+
+# Notebooks and docs aren't needed at runtime.
+notebooks/
+docs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / tooling
+.vscode/
+.idea/
+*.iml
+
+# Tests
+tests/

@@ -1,4 +1,4 @@
-"""Tests for technical indicators, sequence generation, and text features."""
+"""Tests for technical indicators and sequence generation."""
 
 import sqlite3
 import numpy as np
@@ -8,7 +8,6 @@ import pytest
 from src.database.schema import DatabaseSchema
 from src.features.technical_indicators import TechnicalIndicators
 from src.features.sequence_generator import SequenceGenerator, FEATURE_COLUMNS
-from src.features.text_features import TextFeatureExtractor
 
 
 @pytest.fixture
@@ -63,21 +62,25 @@ def test_db(tmp_path):
 
 class TestTechnicalIndicators:
     def test_returns_dataframe_with_all_indicators(self, test_db):
-        """compute() should produce all 17 feature columns."""
         ti = TechnicalIndicators(test_db)
         df = ti.compute("TEST")
 
         expected_cols = [
             "daily_return",
-            "rsi", "macd_line", "macd_signal", "macd_histogram",
+            "rsi", "rsi_norm",
+            "macd_line", "macd_signal", "macd_histogram",
+            "macd_line_rel", "macd_signal_rel", "macd_hist_rel",
             "bb_middle", "bb_upper", "bb_lower", "bb_width", "bb_position",
-            "volume_ma", "volume_ratio",
+            "volume_ma", "volume_ratio", "volume_ratio_m1",
+            "roc_5", "roc_10",
+            "atr_14", "atr_rel",
+            "obv", "realized_vol_20",
+            "market_return", "market_return_5d",
         ]
         for col in expected_cols:
             assert col in df.columns, f"Missing column: {col}"
 
     def test_daily_return_computed(self, test_db):
-        """daily_return should be the percentage change of close."""
         ti = TechnicalIndicators(test_db)
         df = ti.compute("TEST")
         dr = df["daily_return"].dropna()
@@ -85,72 +88,68 @@ class TestTechnicalIndicators:
         assert not np.isinf(dr).any()
 
     def test_rsi_range(self, test_db):
-        """RSI should be between 0 and 100 (where not NaN)."""
         ti = TechnicalIndicators(test_db)
         df = ti.compute("TEST")
         rsi_valid = df["rsi"].dropna()
         assert (rsi_valid >= 0).all() and (rsi_valid <= 100).all()
 
+    def test_rsi_norm_range(self, test_db):
+        ti = TechnicalIndicators(test_db)
+        df = ti.compute("TEST")
+        r = df["rsi_norm"].dropna()
+        assert (r >= 0).all() and (r <= 1).all()
+
+    def test_atr_positive(self, test_db):
+        ti = TechnicalIndicators(test_db)
+        df = ti.compute("TEST")
+        a = df["atr_14"].dropna()
+        assert len(a) > 0
+        assert (a >= 0).all()
+
     def test_empty_ticker(self, test_db):
-        """Ticker with no data should return empty DataFrame."""
         ti = TechnicalIndicators(test_db)
         df = ti.compute("DOESNOTEXIST")
         assert df.empty
 
-    def test_feature_column_count(self, test_db):
-        """FEATURE_COLUMNS list should have 17 entries (OHLCV + daily_return + indicators)."""
-        assert len(FEATURE_COLUMNS) == 17
+    def test_feature_column_order(self):
+        """FEATURE_COLUMNS is the canonical order the LSTM expects."""
         assert "daily_return" in FEATURE_COLUMNS
+        assert "market_return" in FEATURE_COLUMNS
+        assert "atr_rel" in FEATURE_COLUMNS
+        assert len(FEATURE_COLUMNS) >= 20
 
 
 class TestSequenceGenerator:
     def test_generates_sequences(self, test_db):
-        """Should produce sequences with correct shape (17 features)."""
         gen = SequenceGenerator(test_db, sequence_length=5)
-        X, y, dates = gen.generate("TEST")
+        X, y, returns, dates = gen.generate("TEST")
 
         assert len(X) > 0
         assert X.shape[1] == 5
         assert X.shape[2] == len(FEATURE_COLUMNS)
         assert len(y) == len(X)
+        assert len(returns) == len(X)
         assert len(dates) == len(X)
 
     def test_labels_are_binary(self, test_db):
-        """All labels should be 0 or 1."""
         gen = SequenceGenerator(test_db, sequence_length=5)
-        _, y, _ = gen.generate("TEST")
+        _, y, _, _ = gen.generate("TEST")
         assert set(y).issubset({0, 1})
 
-    def test_normalization_bounds(self, test_db):
-        """Features should be in [0, 1] after per-window normalization."""
+    def test_sequences_are_raw_unscaled(self, test_db):
+        """Unlike the old generator, values are raw - not per-window normalized."""
         gen = SequenceGenerator(test_db, sequence_length=5)
-        X, _, _ = gen.generate("TEST")
-
-        assert X.min() >= -0.001
-        assert X.max() <= 1.001
-
-    def test_constant_column_normalized_to_half(self, test_db):
-        """If a feature is constant across a window, it should become 0.5."""
-        gen = SequenceGenerator(test_db, sequence_length=5)
-        X, _, _ = gen.generate("TEST")
-
-        for sample_idx in range(min(5, len(X))):
-            window = X[sample_idx]
-            for col_idx in range(window.shape[1]):
-                col = window[:, col_idx]
-                if col.std() < 1e-9:
-                    assert abs(col[0] - 0.5) < 0.01, \
-                        f"Constant column should be 0.5, got {col[0]}"
+        X, _, _, _ = gen.generate("TEST")
+        # Prices in the fixture grow to ~140 - raw values should exceed 1.
+        assert X.max() > 1.0
 
     def test_dates_are_strings(self, test_db):
-        """Returned dates should be YYYY-MM-DD strings."""
         gen = SequenceGenerator(test_db, sequence_length=5)
-        _, _, dates = gen.generate("TEST")
+        _, _, _, dates = gen.generate("TEST")
         for d in dates:
             assert len(d) == 10 and d[4] == "-" and d[7] == "-"
 
     def test_no_labels_returns_empty(self, tmp_path):
-        """Ticker with prices but no labels should return empty."""
         db_path = tmp_path / "nolabel.db"
         DatabaseSchema(db_path).create_all_tables()
 
@@ -164,72 +163,7 @@ class TestSequenceGenerator:
         conn.close()
 
         gen = SequenceGenerator(db_path, sequence_length=5)
-        X, y, dates = gen.generate("X")
+        X, y, returns, dates = gen.generate("X")
         assert len(X) == 0
 
 
-class TestTextFeatureExtractor:
-    def test_prepare_returns_aligned_data(self, test_db):
-        """prepare() should return texts, labels, and metadata of equal length."""
-        ext = TextFeatureExtractor(db_path=test_db)
-        texts, labels, metadata = ext.prepare(["TEST"])
-
-        assert len(texts) > 0
-        assert len(texts) == len(labels) == len(metadata)
-
-    def test_metadata_is_ticker_date_pairs(self, test_db):
-        """Each metadata entry should be (ticker, date_string)."""
-        ext = TextFeatureExtractor(db_path=test_db)
-        _, _, metadata = ext.prepare(["TEST"])
-
-        for ticker, date_str in metadata:
-            assert ticker == "TEST"
-            assert len(date_str) == 10
-
-    def test_labels_are_binary(self, test_db):
-        """Labels from prepare() should only be 0 or 1."""
-        ext = TextFeatureExtractor(db_path=test_db)
-        _, labels, _ = ext.prepare(["TEST"])
-        assert set(labels).issubset({0, 1})
-
-    def test_fit_transform_produces_sparse_matrix(self, test_db):
-        """fit_transform should return a sparse matrix with correct row count."""
-        ext = TextFeatureExtractor(db_path=test_db, max_features=50)
-        texts, _, _ = ext.prepare(["TEST"])
-
-        X = ext.fit_transform(texts)
-        assert X.shape[0] == len(texts)
-        assert X.shape[1] <= 50
-
-    def test_transform_after_fit(self, test_db):
-        """transform() should work after fit() and produce same column count."""
-        ext = TextFeatureExtractor(db_path=test_db, max_features=50)
-        texts, _, _ = ext.prepare(["TEST"])
-
-        ext.fit(texts)
-        X = ext.transform(texts)
-        assert X.shape[0] == len(texts)
-
-    def test_transform_before_fit_raises(self, test_db):
-        """transform() before fit() should raise RuntimeError."""
-        ext = TextFeatureExtractor(db_path=test_db)
-        with pytest.raises(RuntimeError):
-            ext.transform(["some text"])
-
-    def test_no_news_returns_empty(self, tmp_path):
-        """Ticker with labels but no news should return empty lists."""
-        db_path = tmp_path / "nonews.db"
-        DatabaseSchema(db_path).create_all_tables()
-
-        conn = sqlite3.connect(db_path)
-        conn.execute(
-            "INSERT INTO prices (ticker, date, close) VALUES ('Z', '2026-01-05', 100)")
-        conn.execute(
-            "INSERT INTO labels (ticker, date, label_binary, label_return, close_t, close_t_plus_1) "
-            "VALUES ('Z', '2026-01-05', 1, 1.0, 100, 101)")
-        conn.commit()
-        conn.close()
-
-        ext = TextFeatureExtractor(db_path=db_path)
-        texts, labels, meta = ext.prepare(["Z"])
-        assert len(texts) == 0
