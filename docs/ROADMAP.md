@@ -33,17 +33,19 @@ src/
 │   └── text_features.py            # TF-IDF extraction from news headlines
 ├── models/
 │   ├── lstm_model.py               # 2-layer LSTM + trainer (PyTorch)
-│   ├── nlp_baseline.py             # logistic regression on TF-IDF (scikit-learn)
-│   ├── nlp_advanced.py             # [Week 6+] FinBERT / sentence embeddings
-│   └── ensemble.py                 # [Week 8+] combine LSTM + NLP predictions
-└── evaluation/
-    ├── metrics.py                  # [Week 6+] accuracy, AUC-ROC, F1, confusion matrix
-    └── backtester.py               # [Week 7+] simulated trading returns
+│   └── nlp_baseline.py             # logistic regression on TF-IDF (scikit-learn)
+└── evaluation/                     # [Week 10] metrics, evaluation scripts
 
-scripts/                            # CLI entry points (python scripts/xxx.py --help)
-tests/unit/                         # pytest tests
+scripts/
+├── train_lstm.py                   # LSTM train + export → price_predictions.csv
+├── train_nlp.py                    # TF-IDF baseline train + export → news_tfidf_predictions.csv
+├── train_news_embeddings.py        # Sentence embeddings + LR → news_embeddings_predictions.csv
+├── demo.py                         # end-to-end pipeline
+└── ...                             # data collection, labels, features, reset
+
+tests/unit/                         # 83 automated tests (pytest)
 data/                               # git-ignored — database, features, model weights
-docs/                               # this file, project overview
+docs/                               # roadmap, project overview, contracts
 ```
 
 ---
@@ -93,40 +95,56 @@ Both models show weak but real signal. Expected for a Week 5 baseline using only
 
 ---
 
-## Weeks 6–7 — Evaluation & Improved Models
+## Weeks 6–8 — Evaluation, Improved Models & Contracts ✓
 
-**Goal:** Understand where each model is right and wrong, improve NLP signal, and set up a backtesting framework to translate accuracy into trading returns.
+| Who            | Task | Status |
+|----------------|------|--------|
+| Raphael + Tim  | LSTM hyperparameter tuning (gradient clipping, LR scheduling, weight init) | ✓ Done |
+| Raphael + Tim  | Per-class recall and accuracy reporting in training scripts | ✓ Done |
+| Moses          | Rewrite `train_nlp.py` — cutoff-aligned pipeline with CSV export per session 1 contract | ✓ Done |
+| Gordon         | Sentence-embedding NLP model (`train_news_embeddings.py`) — MiniLM + logistic regression | ✓ Done |
+| Cheri          | Session 1 contract (`docs/session1_contract.md`) — shared output schema, join key, cutoff rule | ✓ Done |
+| All            | 83 unit tests covering all modules | ✓ Done |
+
+## Week 9 — Model Training & Prediction Export ✓
+
+**Goal:** Every model produces a standardized prediction CSV keyed by `(ticker, prediction_date)`, ready for ensemble integration.
+
+| Who            | Task | Status |
+|----------------|------|--------|
+| Raphael        | Extend `train_lstm.py` — train + evaluate + export to `price_predictions.csv` with `financial_pred_proba`, `financial_confidence`, `model_name = "lstm_price"` | ✓ Done |
+| Tim            | `check_price_alignment.py` — QC script validating sequence/split/label consistency | ✓ Done |
+| Moses          | `train_nlp.py` — TF-IDF baseline export to `news_tfidf_predictions.csv` | ✓ Done |
+| Gordon         | `train_news_embeddings.py` — embeddings export to `news_embeddings_predictions.csv` | ✓ Done |
+
+**Artifacts produced by Week 9:**
+
+| File | Owner |
+|------|-------|
+| `data/models/lstm_model.pt` | Raphael |
+| `data/processed/price_predictions.csv` | Raphael |
+| `data/models/nlp_baseline.joblib` | Moses |
+| `data/processed/news_tfidf_predictions.csv` | Moses |
+| `data/models/news_embeddings.joblib` | Gordon |
+| `data/processed/news_embeddings_predictions.csv` | Gordon |
+| `data/processed/price_alignment_report.txt` | Tim |
+
+---
+
+## Week 10 — Ensemble Integration, Evaluation & App
+
+**Goal:** Join the three model outputs into one aligned dataset, compute evaluation metrics, build the ensemble, and wire up the demo app.
 
 | Who            | Task |
 |----------------|------|
-| Raphael + Tim  | Proper evaluation metrics beyond accuracy — think about what signals that the model is actually learning vs. getting lucky. How do you measure this? |
-| Raphael + Tim  | Hyperparameter search for LSTM — what knobs to turn, how to search efficiently without overfitting to val set? |
-| Moses + Gordon | Replace TF-IDF with a financial language model (FinBERT or similar) — how do you handle the small training set? fine-tuning vs. frozen embeddings? |
-| Moses + Gordon | Compare new NLP model vs. baseline on the same test set |
-| Cheri          | Backtesting framework — if we traded based on model predictions, what return would we get vs. buy-and-hold? |
-
-**Prerequisite:** Collect enough news data first — `python scripts/collect_news.py` weekly, and run `python scripts/demo.py --days 365` for longer price history.
+| Raphael        | `scripts/build_eval_dataset.py` — inner-join all three prediction CSVs on `(ticker, prediction_date)`, create `eval_dataset.csv` |
+| Tim            | `scripts/evaluate_predictions.py` — accuracy, precision, recall, F1 for each model + ensemble + baselines; save overall and per-ticker reports |
+| Moses          | `scripts/build_ensemble.py` — combine model probabilities using the locked formula from `session_2_contract.md`; save `final_ensemble_predictions.csv` |
+| Gordon         | `app.py` — Streamlit app connected to `final_ensemble_predictions.csv` (ticker dropdown, prediction, confidence, headlines) |
+| Cheri          | `docs/session_2_contract.md` — lock ensemble formula, output file list, demo tickers, app priority order |
 
 ---
 
-## Weeks 8–9 — Ensemble
+## Week 11 — Presentation Prep & Polish
 
-**Goal:** Combine LSTM and NLP predictions into a single signal that's stronger than either alone.
-
-Questions to answer: How do you combine two probability scores? Weighted average, learned meta-model, or something else? How do you handle dates where news is missing (LSTM only) vs. dates with news?
-
-File to create: `src/models/ensemble.py`
-
----
-
-## Week 10 — Polish & Report
-
-Final training run on all data. Improve test coverage. Write up results — what worked, what didn't, what would you do with more time/data?
-
----
-
-## Week 11 — Web Demo
-
-Flask app: search a ticker → see predicted direction, confidence score, and the headlines that drove the NLP prediction.
-
-Directory: `app/`
+Google Slides, deciding who presents what, app polish, fixing demo-breaking bugs only, rehearsal.
