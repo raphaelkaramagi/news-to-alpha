@@ -23,6 +23,7 @@ class DatabaseSchema:
             self._create_labels_table(cursor)
             self._create_predictions_table(cursor)
             self._create_run_log_table(cursor)
+            self._migrate_labels_horizon(cursor)
             conn.commit()
             logger.info("All database tables created successfully")
         except Exception as exc:
@@ -31,6 +32,17 @@ class DatabaseSchema:
             raise
         finally:
             conn.close()
+
+    @staticmethod
+    def _migrate_labels_horizon(cursor: sqlite3.Cursor) -> None:
+        """Add label_binary_h3 / return_h3 columns if missing (idempotent)."""
+        existing = {row[1] for row in cursor.execute("PRAGMA table_info(labels)")}
+        if "label_binary_h3" not in existing:
+            cursor.execute("ALTER TABLE labels ADD COLUMN label_binary_h3 INTEGER")
+        if "return_h3" not in existing:
+            cursor.execute("ALTER TABLE labels ADD COLUMN return_h3 REAL")
+        if "close_t_plus_3" not in existing:
+            cursor.execute("ALTER TABLE labels ADD COLUMN close_t_plus_3 REAL")
 
     def _create_prices_table(self, cursor: sqlite3.Cursor) -> None:
         cursor.execute("""
@@ -73,14 +85,17 @@ class DatabaseSchema:
         """Ground truth: did stock go up or down next day?"""
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS labels (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticker          TEXT    NOT NULL,
-                date            TEXT    NOT NULL,
-                label_binary    INTEGER,
-                label_return    REAL,
-                close_t         REAL,
-                close_t_plus_1  REAL,
-                created_at      TEXT DEFAULT (datetime('now')),
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker             TEXT    NOT NULL,
+                date               TEXT    NOT NULL,
+                label_binary       INTEGER,
+                label_return       REAL,
+                close_t            REAL,
+                close_t_plus_1     REAL,
+                label_binary_h3    INTEGER,
+                return_h3          REAL,
+                close_t_plus_3     REAL,
+                created_at         TEXT DEFAULT (datetime('now')),
                 UNIQUE(ticker, date)
             )
         """)

@@ -28,6 +28,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Build full feature pipeline")
     parser.add_argument("--tickers", nargs="+", help="Specific tickers (default: all)")
     parser.add_argument("--seq-len", type=int, default=None, help="Sequence length (default: 60)")
+    parser.add_argument("--horizon", type=int, default=1, choices=[1, 3],
+                        help="Prediction horizon in trading days (default: 1)")
     args = parser.parse_args()
 
     tickers = args.tickers or TICKERS
@@ -46,12 +48,12 @@ def main() -> None:
 
     # Step 2: compute indicators + build sequences per ticker
     print("\n--- Step 2: Indicators + Sequences ---")
-    gen = SequenceGenerator(sequence_length=args.seq_len)
+    gen = SequenceGenerator(sequence_length=args.seq_len, horizon=args.horizon)
 
     all_X, all_y, all_dates = [], [], []
 
     for ticker in tickers:
-        X, y, dates = gen.generate(ticker)
+        X, y, _returns, dates = gen.generate(ticker)
         if len(X) == 0:
             print(f"  {ticker:5s}  skipped (not enough data for {gen.seq_len}-day sequences)")
             continue

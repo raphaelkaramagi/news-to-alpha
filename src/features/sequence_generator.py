@@ -1,18 +1,21 @@
-"""Generate 60-day sequences for LSTM training.
+"""Generate 60-day sequences for LSTM training (no per-window normalization).
 
-An LSTM needs fixed-length input windows. We slide a 60-day window across each
-ticker's price+indicator data and pair each window with the next day's label.
+The old per-window min-max destroyed absolute scale across windows (RSI=70
+could become 0.0 in one window and 1.0 in another).  Scaling now happens
+once, globally, in `scripts/train_lstm.py` using a StandardScaler fit on
+the training split; level features get scaled, scale-invariant features
+(returns, ratios, oscillators) go through unchanged.
 
-Example: if we have 100 days of data, we get 40 training samples
-(days 1-60 -> label for day 60, days 2-61 -> label for day 61, etc.)
-
-Features are normalized per-window to help the LSTM train. Raw price values
-vary wildly between stocks ($3 for PLTR vs $250 for AAPL), so we scale each
-feature to 0-1 within the window.
+This module is concerned only with:
+    - pulling OHLCV + indicators + market regime for a ticker
+    - dropping NaN warmup rows
+    - emitting sliding windows (X, y, dates)
 """
 
-import sqlite3
+from __future__ import annotations
+
 import logging
+import sqlite3
 from pathlib import Path
 
 import numpy as np
@@ -23,112 +26,136 @@ from src.features.technical_indicators import TechnicalIndicators
 
 logger = logging.getLogger(__name__)
 
-# Which columns from the indicator DataFrame become LSTM features
-FEATURE_COLUMNS = [
-    "open", "high", "low", "close", "volume",
+SCALE_INVARIANT_FEATURES: list[str] = [
     "daily_return",
-    "rsi", "macd_line", "macd_signal", "macd_histogram",
-    "bb_middle", "bb_upper", "bb_lower", "bb_width", "bb_position",
-    "volume_ma", "volume_ratio",
+    "rsi_norm",
+    "macd_hist_rel",
+    "macd_line_rel",
+    "macd_signal_rel",
+    "bb_position",
+    "bb_width",
+    "volume_ratio_m1",
+    "roc_5",
+    "roc_10",
+    "atr_rel",
+    "realized_vol_20",
+    "market_return",
+    "market_return_5d",
 ]
+
+LEVEL_FEATURES: list[str] = [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "macd_line",
+    "macd_signal",
+    "bb_middle",
+    "bb_upper",
+    "bb_lower",
+    "volume_ma",
+    "obv",
+]
+
+FEATURE_COLUMNS: list[str] = SCALE_INVARIANT_FEATURES + LEVEL_FEATURES
+
+SCALE_INVARIANT_IDX: list[int] = list(range(len(SCALE_INVARIANT_FEATURES)))
+LEVEL_IDX: list[int] = list(
+    range(len(SCALE_INVARIANT_FEATURES), len(FEATURE_COLUMNS))
+)
+
+
+def _label_columns(horizon: int) -> tuple[str, str]:
+    """Return (label_col, return_col) for the requested horizon."""
+    if horizon == 1:
+        return "label_binary", "label_return"
+    if horizon == 3:
+        return "label_binary_h3", "return_h3"
+    raise ValueError(f"Unsupported horizon {horizon}; expected 1 or 3")
 
 
 class SequenceGenerator:
     def __init__(self, db_path: str | Path = DATABASE_PATH,
-                 sequence_length: int | None = None):
+                 sequence_length: int | None = None,
+                 horizon: int = 1):
         self.db_path = Path(db_path)
-        # Default 60 from config, but can override for testing
         self.seq_len = sequence_length or LSTM_CONFIG["sequence_length"]
+        self.horizon = horizon
+        self._label_col, self._return_col = _label_columns(horizon)
 
-    def generate(self, ticker: str) -> tuple[np.ndarray, np.ndarray, list[str]]:
-        """
-        Build sequences for one ticker.
+    def generate(
+        self, ticker: str
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
+        """Build raw (unscaled) sequences for one ticker.
 
         Returns:
-            X: array of shape (num_samples, seq_len, num_features)
-            y: array of shape (num_samples,) — 1=up, 0=down
-            dates: list of prediction dates (the date each label corresponds to)
+            X       : (num_samples, seq_len, num_features)  float32
+            y       : (num_samples,)  int32 (0 = down, 1 = up)
+            returns : (num_samples,)  float32 pct return of the target horizon
+            dates   : list[str]  label dates (YYYY-MM-DD), one per sample
         """
-        # Step 1: get price data with indicators
         ti = TechnicalIndicators(self.db_path)
         df = ti.compute(ticker)
 
         if df.empty:
-            return np.array([]), np.array([]), []
+            return np.array([]), np.array([]), np.array([]), []
 
-        # Step 2: get labels
         conn = sqlite3.connect(self.db_path)
         labels_df = pd.read_sql_query(
-            "SELECT date, label_binary FROM labels WHERE ticker = ? ORDER BY date ASC",
+            f"SELECT date, {self._label_col} AS label, {self._return_col} AS ret "
+            "FROM labels WHERE ticker = ? ORDER BY date ASC",
             conn,
             params=(ticker,),
         )
         conn.close()
 
         if labels_df.empty:
-            logger.warning("%s: no labels found — run generate_labels.py first", ticker)
-            return np.array([]), np.array([]), []
+            logger.warning("%s: no labels found - run generate_labels.py first", ticker)
+            return np.array([]), np.array([]), np.array([]), []
+
+        labels_df = labels_df.dropna(subset=["label"])
+        if labels_df.empty:
+            logger.warning(
+                "%s: no non-null labels for horizon=%d - regenerate labels",
+                ticker, self.horizon,
+            )
+            return np.array([]), np.array([]), np.array([]), []
 
         labels_df["date"] = pd.to_datetime(labels_df["date"])
         labels_df = labels_df.set_index("date")
 
-        # Step 3: drop rows where any indicator is NaN (early rows without enough history)
         indicator_df = df[FEATURE_COLUMNS].dropna()
-
         if len(indicator_df) < self.seq_len + 1:
-            logger.warning("%s: only %d valid rows, need at least %d for one sequence",
-                           ticker, len(indicator_df), self.seq_len + 1)
-            return np.array([]), np.array([]), []
+            logger.warning(
+                "%s: only %d valid rows, need at least %d for one sequence",
+                ticker, len(indicator_df), self.seq_len + 1,
+            )
+            return np.array([]), np.array([]), np.array([]), []
 
-        # Step 4: build sliding windows
-        X_list = []
-        y_list = []
-        date_list = []
-
-        values = indicator_df.values  # numpy array for speed
+        values = indicator_df.to_numpy(dtype=np.float32)
         dates_index = indicator_df.index
 
+        X_list, y_list, ret_list, date_list = [], [], [], []
         for i in range(self.seq_len, len(indicator_df)):
-            # The window is the previous seq_len days
             window = values[i - self.seq_len : i]
-
-            # The label date is the last day of the window
             label_date = dates_index[i - 1]
-
             if label_date not in labels_df.index:
                 continue
-
-            # Normalize each feature to 0-1 within this window
-            window_normalized = self._normalize_window(window)
-
-            X_list.append(window_normalized)
-            y_list.append(labels_df.loc[label_date, "label_binary"])
-            date_list.append(str(label_date.date()))
+            row = labels_df.loc[label_date]
+            X_list.append(window)
+            y_list.append(int(row["label"]))
+            ret_list.append(float(row["ret"]) if pd.notna(row["ret"]) else 0.0)
+            date_list.append(label_date.strftime("%Y-%m-%d"))
 
         if not X_list:
             logger.warning("%s: no sequences could be built", ticker)
-            return np.array([]), np.array([]), []
+            return np.array([]), np.array([]), np.array([]), []
 
-        X = np.array(X_list, dtype=np.float32)
-        y = np.array(y_list, dtype=np.int32)
+        X = np.stack(X_list).astype(np.float32)
+        y = np.asarray(y_list, dtype=np.int32)
+        returns = np.asarray(ret_list, dtype=np.float32)
 
-        logger.info("%s: %d sequences (shape %s), %.0f%% up",
-                     ticker, len(X), X.shape, y.mean() * 100)
-        return X, y, date_list
-
-    @staticmethod
-    def _normalize_window(window: np.ndarray) -> np.ndarray:
-        """
-        Min-max normalize each feature column to [0, 1] within this window.
-        Constant columns (max == min) are set to 0.5.
-        """
-        mins = window.min(axis=0)
-        maxs = window.max(axis=0)
-        ranges = maxs - mins
-
-        constant_mask = ranges == 0
-        ranges[constant_mask] = 1.0  # prevent division by zero
-
-        normalized = (window - mins) / ranges
-        normalized[:, constant_mask] = 0.5
-        return normalized
+        logger.info("%s: %d sequences (shape %s), %.0f%% up (h=%d)",
+                    ticker, len(X), X.shape, y.mean() * 100, self.horizon)
+        return X, y, returns, date_list

@@ -2,13 +2,14 @@
 
 ## What It Does
 
-Predicts whether a stock goes **up or down** the next trading day using two independent models:
+Predicts whether a stock goes **up or down** the next trading day by combining three independent models into a learned ensemble:
 
-1. **LSTM** — looks at 60 days of price history + technical indicators (RSI, MACD, Bollinger Bands, etc.) to learn price momentum patterns.
-2. **NLP** — reads recent news headlines for each ticker and extracts text features to capture market sentiment.
-3. **Ensemble** *(Week 8+)* — combines both model outputs into a single, more confident prediction.
+1. **LSTM (price)** — 60 days of price history + ~20 technical indicators (RSI, MACD, Bollinger, ATR, ROC, OBV, realized vol, SPY market-return). Includes a ticker embedding so the model knows which company it's looking at.
+2. **TF-IDF NLP** — bigram TF-IDF over cutoff-aligned news headlines into a Platt-calibrated logistic regression.
+3. **News embeddings** — per-headline MiniLM sentence embeddings, mean-pooled per ticker-day, fed to a calibrated logistic regression. Optionally concatenated with FinBERT sentiment features.
+4. **Ensemble** — a logistic-regression meta-model fit on the validation split of the three calibrated probability streams. Handles no-news rows by passing 0.5 to the news models and letting the LSTM weight dominate.
 
-End goal: a web app where you search a ticker and see tomorrow's predicted direction with a confidence score and the headlines that influenced it.
+End goal (shipped): a Flask web app where you search a ticker, switch between Ensemble / LSTM / TF-IDF / Embeddings, see price + prediction charts, per-model breakdown, top headlines, and retrain any model on demand.
 
 ---
 

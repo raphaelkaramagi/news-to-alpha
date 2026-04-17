@@ -48,18 +48,33 @@ DEFAULT_LOOKBACK_DAYS: int = 365
 MAX_RETRIES: int = 3
 RETRY_BASE_DELAY_SECONDS: float = 2.0
 
-# Model hyperparameters (will tune later)
+# Reproducibility
+RANDOM_SEED: int = 42
+
+# Market regime feature ticker (collected alongside the 15 stocks).
+MARKET_INDEX_TICKER: str = "SPY"
+
+# Model hyperparameters
 LSTM_CONFIG: dict = {
     "sequence_length": 60,
-    "batch_size": 16,
-    "epochs": 50,
+    "batch_size": 64,
+    "epochs": 80,
     "learning_rate": 0.0005,
     "lstm_units": [64, 64],
-    "dropout": 0.3,
+    "dropout": 0.4,
+    "weight_decay": 1e-4,
+    "ticker_embed_dim": 4,
+    "patience": 20,
+    "seeds": [42, 1337, 2024],
 }
 
 NLP_CONFIG: dict = {
     "max_features": 5000,
     "max_news_per_day": 20,
     "min_relevance_score": 0.3,
+}
+
+ENSEMBLE_CONFIG: dict = {
+    "meta_C": 1.0,
+    "calibration_method": "isotonic",
 }

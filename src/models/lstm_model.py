@@ -1,14 +1,20 @@
-"""Two-layer LSTM for binary stock movement prediction.
+"""Two-layer LSTM with ticker embedding for binary stock movement prediction.
 
 Architecture
-    Input (batch, 60, 17)
-      → LSTM-1 (64 units) → Dropout
-      → LSTM-2 (64 units) → Dropout
-      → Linear(64 → 1) → Sigmoid → P(up)
+    Feature input : (batch, seq_len, num_features)
+    Ticker ID     : (batch,)                    - integer per ticker
+    Ticker embed  : (batch, seq_len, embed_dim) - learned 4-dim vector per ticker,
+                                                   broadcast across timesteps
+    Concat        : (batch, seq_len, num_features + embed_dim)
+      -> LSTM-1 -> Dropout
+      -> LSTM-2 -> Dropout
+      -> Linear(hidden -> 1)               # logit (no sigmoid in forward)
 
-Uses the last hidden state from the second LSTM as input to the
-classifier.  Trained with binary cross-entropy and Adam.
+Loss: BCEWithLogitsLoss (more numerically stable than BCELoss + sigmoid).
+Sigmoid is applied only at inference in predict_proba().
 """
+
+from __future__ import annotations
 
 import copy
 import logging
@@ -19,25 +25,39 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.config import LSTM_CONFIG, MODELS_DIR
+from src.config import LSTM_CONFIG
 
 logger = logging.getLogger(__name__)
 
 
 class StockLSTM(nn.Module):
-    """Stacked 2-layer LSTM with dropout for binary classification."""
+    """Stacked 2-layer LSTM with optional learned ticker embedding."""
 
-    def __init__(self, input_size: int = 17,
-                 hidden_sizes: list[int] | None = None,
-                 dropout: float = 0.3):
+    def __init__(
+        self,
+        input_size: int,
+        hidden_sizes: list[int] | None = None,
+        dropout: float = 0.3,
+        num_tickers: int = 0,
+        ticker_embed_dim: int = 4,
+    ):
         super().__init__()
         hs = hidden_sizes or LSTM_CONFIG["lstm_units"]
 
-        self.lstm1 = nn.LSTM(input_size, hs[0], batch_first=True)
+        self.num_tickers = int(num_tickers)
+        self.ticker_embed_dim = int(ticker_embed_dim) if self.num_tickers > 0 else 0
+        if self.num_tickers > 0:
+            self.ticker_embedding = nn.Embedding(self.num_tickers, self.ticker_embed_dim)
+        else:
+            self.ticker_embedding = None
+
+        lstm_input = input_size + self.ticker_embed_dim
+        self.lstm1 = nn.LSTM(lstm_input, hs[0], batch_first=True)
         self.dropout1 = nn.Dropout(dropout)
         self.lstm2 = nn.LSTM(hs[0], hs[1], batch_first=True)
         self.dropout2 = nn.Dropout(dropout)
         self.classifier = nn.Linear(hs[1], 1)
+
         self._init_weights()
 
     def _init_weights(self) -> None:
@@ -46,58 +66,73 @@ class StockLSTM(nn.Module):
                 nn.init.xavier_uniform_(param.data)
             elif "weight_hh" in name:
                 nn.init.orthogonal_(param.data)
-            elif "bias" in name:
+            elif "bias" in name and "classifier" not in name:
                 param.data.fill_(0)
         nn.init.xavier_uniform_(self.classifier.weight)
         self.classifier.bias.data.fill_(0)
+        if self.ticker_embedding is not None:
+            nn.init.normal_(self.ticker_embedding.weight, mean=0.0, std=0.1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor,
+                ticker_idx: torch.Tensor | None = None) -> torch.Tensor:
+        """Return raw logits (apply sigmoid at inference)."""
+        if self.ticker_embedding is not None:
+            if ticker_idx is None:
+                raise ValueError(
+                    "ticker_idx is required when the model was built with num_tickers > 0"
+                )
+            emb = self.ticker_embedding(ticker_idx)
+            emb = emb.unsqueeze(1).expand(-1, x.size(1), -1)
+            x = torch.cat([x, emb], dim=-1)
+
         out, _ = self.lstm1(x)
         out = self.dropout1(out)
         out, _ = self.lstm2(out)
         out = self.dropout2(out)
-        # Take only the last timestep's output for classification
-        out = self.classifier(out[:, -1, :])
-        return torch.sigmoid(out).squeeze(-1)
+        logits = self.classifier(out[:, -1, :])
+        return logits.squeeze(-1)
 
 
 class LSTMTrainer:
-    """Handles training loop, evaluation, and model persistence."""
+    """Training loop + eval + persistence for a StockLSTM."""
 
-    def __init__(self, model: StockLSTM, config: dict | None = None):
+    def __init__(self, model: StockLSTM, config: dict | None = None,
+                 ticker_to_idx: dict[str, int] | None = None,
+                 scaler_state: dict | None = None,
+                 pos_weight: float | None = None):
         self.config = config or LSTM_CONFIG
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
         self.optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=self.config["learning_rate"],
-            weight_decay=1e-5,
+            self.model.parameters(),
+            lr=self.config["learning_rate"],
+            weight_decay=self.config.get("weight_decay", 1e-4),
         )
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode="max", factor=0.5, patience=5, min_lr=1e-6,
         )
-        self.criterion = nn.BCELoss()
+        if pos_weight is not None:
+            pw = torch.tensor([float(pos_weight)], device=self.device)
+            self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
+        else:
+            self.criterion = nn.BCEWithLogitsLoss()
+        self.pos_weight = float(pos_weight) if pos_weight is not None else None
         self.history: dict[str, list[float]] = {
             "train_loss": [], "train_acc": [], "val_acc": [],
         }
-
-    # ------------------------------------------------------------------
-    # Training
-    # ------------------------------------------------------------------
+        self.ticker_to_idx = ticker_to_idx or {}
+        self.scaler_state = scaler_state
+        self.calibrator = None
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray,
               X_val: np.ndarray, y_val: np.ndarray,
+              tidx_train: np.ndarray | None = None,
+              tidx_val: np.ndarray | None = None,
               patience: int = 10) -> dict:
-        """
-        Full training loop with early stopping on validation accuracy.
+        train_loader = self._make_loader(X_train, y_train, tidx_train, shuffle=True)
+        val_loader = self._make_loader(X_val, y_val, tidx_val, shuffle=False)
 
-        Returns the training history dict.
-        """
-        train_loader = self._make_loader(X_train, y_train, shuffle=True)
-        val_loader = self._make_loader(X_val, y_val, shuffle=False)
-
-        best_val_acc = 0.0
-        best_state = None
-        wait = 0
+        best_val_acc, best_state, wait = 0.0, None, 0
         epochs = self.config["epochs"]
 
         for epoch in range(epochs):
@@ -130,23 +165,17 @@ class LSTMTrainer:
                       f"(no improvement for {patience} epochs)")
                 break
 
-        # Restore the best-performing weights
         if best_state is not None:
             self.model.load_state_dict(best_state)
         print(f"\n  Best validation accuracy: {best_val_acc:.4f}")
-
         return self.history
 
-    # ------------------------------------------------------------------
-    # Evaluation
-    # ------------------------------------------------------------------
-
     def evaluate(self, X: np.ndarray, y: np.ndarray,
+                 ticker_idx: np.ndarray | None = None,
                  split_name: str = "Test") -> float:
-        """Print accuracy and per-class recall for a dataset split."""
-        loader = self._make_loader(X, y, shuffle=False)
+        loader = self._make_loader(X, y, ticker_idx, shuffle=False)
         acc = self._eval_accuracy(loader)
-        y_pred = self.predict(X)
+        y_pred = self.predict(X, ticker_idx)
 
         up_total = int((y == 1).sum())
         up_correct = int(((y_pred == 1) & (y == 1)).sum())
@@ -161,95 +190,142 @@ class LSTMTrainer:
               f"({down_correct / max(down_total, 1):.2%})")
         return acc
 
-    def predict(self, X: np.ndarray) -> np.ndarray:
-        """Return binary predictions (0/1) for input sequences."""
-        probs = self.predict_proba(X)
+    def predict(self, X: np.ndarray,
+                ticker_idx: np.ndarray | None = None) -> np.ndarray:
+        probs = self.predict_proba(X, ticker_idx)
         return (probs >= 0.5).astype(np.int32)
 
-    def predict_proba(self, X: np.ndarray) -> np.ndarray:
-        """Return P(up) for each input sequence."""
+    def predict_proba(self, X: np.ndarray,
+                      ticker_idx: np.ndarray | None = None,
+                      apply_calibration: bool = True) -> np.ndarray:
         self.model.eval()
         X_t = torch.FloatTensor(X).to(self.device)
+        tidx_t = None
+        if self.model.ticker_embedding is not None:
+            if ticker_idx is None:
+                raise ValueError(
+                    "ticker_idx is required: the model has a ticker embedding."
+                )
+            tidx_t = torch.LongTensor(ticker_idx).to(self.device)
         with torch.no_grad():
-            return self.model(X_t).cpu().numpy()
+            logits = self.model(X_t, tidx_t)
+            probs = torch.sigmoid(logits).cpu().numpy()
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
+        if apply_calibration and self.calibrator is not None:
+            probs = np.clip(self.calibrator.predict(probs), 1e-4, 1 - 1e-4)
+        return probs
+
+    def fit_calibration(self, X_val: np.ndarray, y_val: np.ndarray,
+                        tidx_val: np.ndarray | None = None) -> None:
+        """Fit an isotonic regression on val probabilities -> calibrated prob."""
+        from sklearn.isotonic import IsotonicRegression
+        if len(X_val) == 0:
+            self.calibrator = None
+            return
+        raw = self.predict_proba(X_val, tidx_val, apply_calibration=False)
+        if len(np.unique(y_val)) < 2:
+            self.calibrator = None
+            return
+        cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        cal.fit(raw, y_val.astype(float))
+        self.calibrator = cal
 
     def save(self, path: str | Path) -> None:
-        """Save model weights, config, and training history."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         torch.save({
             "model_state_dict": self.model.state_dict(),
             "config": self.config,
             "history": self.history,
+            "ticker_to_idx": self.ticker_to_idx,
+            "num_tickers": self.model.num_tickers,
+            "ticker_embed_dim": self.model.ticker_embed_dim,
+            "input_size": self.model.lstm1.input_size - self.model.ticker_embed_dim,
+            "scaler_state": self.scaler_state,
+            "pos_weight": self.pos_weight,
+            "calibrator": self.calibrator,
         }, path)
         logger.info("Model saved to %s", path)
 
     @classmethod
-    def load(cls, path: str | Path, input_size: int = 17) -> "LSTMTrainer":
-        """Load a saved model from disk."""
+    def load(cls, path: str | Path,
+             input_size: int | None = None) -> "LSTMTrainer":
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
         config = checkpoint["config"]
+        in_size = input_size or checkpoint.get("input_size", 17)
 
         model = StockLSTM(
-            input_size=input_size,
+            input_size=in_size,
             hidden_sizes=config["lstm_units"],
             dropout=config["dropout"],
+            num_tickers=checkpoint.get("num_tickers", 0),
+            ticker_embed_dim=checkpoint.get("ticker_embed_dim", 4),
         )
         model.load_state_dict(checkpoint["model_state_dict"])
 
-        trainer = cls(model, config)
+        trainer = cls(
+            model, config,
+            ticker_to_idx=checkpoint.get("ticker_to_idx", {}),
+            scaler_state=checkpoint.get("scaler_state"),
+            pos_weight=checkpoint.get("pos_weight"),
+        )
         trainer.history = checkpoint.get("history", {})
+        trainer.calibrator = checkpoint.get("calibrator")
         return trainer
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
 
     def _train_epoch(self, loader: DataLoader) -> tuple[float, float]:
         self.model.train()
         total_loss, correct, total = 0.0, 0, 0
 
-        for X_batch, y_batch in loader:
+        for batch in loader:
+            X_batch, y_batch, *tidx_batch = batch
             X_batch = X_batch.to(self.device)
             y_batch = y_batch.to(self.device)
+            tidx_t = tidx_batch[0].to(self.device) if tidx_batch else None
 
             self.optimizer.zero_grad()
-            outputs = self.model(X_batch)
-            loss = self.criterion(outputs, y_batch)
+            logits = self.model(X_batch, tidx_t)
+            loss = self.criterion(logits, y_batch)
             loss.backward()
             nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
 
             total_loss += loss.item() * len(X_batch)
-            correct += ((outputs >= 0.5).long() == y_batch.long()).sum().item()
+            preds = (torch.sigmoid(logits) >= 0.5).long()
+            correct += (preds == y_batch.long()).sum().item()
             total += len(y_batch)
 
-        return total_loss / total, correct / total
+        return total_loss / max(total, 1), correct / max(total, 1)
 
     def _eval_accuracy(self, loader: DataLoader) -> float:
         self.model.eval()
         correct, total = 0, 0
-
         with torch.no_grad():
-            for X_batch, y_batch in loader:
+            for batch in loader:
+                X_batch, y_batch, *tidx_batch = batch
                 X_batch = X_batch.to(self.device)
                 y_batch = y_batch.to(self.device)
-                outputs = self.model(X_batch)
-                correct += ((outputs >= 0.5).long() == y_batch.long()).sum().item()
+                tidx_t = tidx_batch[0].to(self.device) if tidx_batch else None
+                logits = self.model(X_batch, tidx_t)
+                preds = (torch.sigmoid(logits) >= 0.5).long()
+                correct += (preds == y_batch.long()).sum().item()
                 total += len(y_batch)
-
         return correct / max(total, 1)
 
     def _make_loader(self, X: np.ndarray, y: np.ndarray,
+                     ticker_idx: np.ndarray | None,
                      shuffle: bool = False) -> DataLoader:
-        dataset = TensorDataset(
+        tensors = [
             torch.FloatTensor(X),
             torch.FloatTensor(y),
-        )
+        ]
+        if self.model.ticker_embedding is not None:
+            if ticker_idx is None:
+                raise ValueError(
+                    "ticker_idx is required: model has a ticker embedding."
+                )
+            tensors.append(torch.LongTensor(ticker_idx))
+        dataset = TensorDataset(*tensors)
         return DataLoader(
             dataset,
             batch_size=self.config["batch_size"],

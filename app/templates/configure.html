@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>News-to-Alpha · Configure</title>
+  <style>
+    :root {
+      --bg: #0b1020; --panel: #121932; --panel-2: #182040;
+      --border: #1f2a4a; --text: #e6eaf5; --text-dim: #94a3b8;
+      --accent: #6366f1; --accent-2: #22d3ee;
+      --up: #10b981; --down: #ef4444; --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', sans-serif;
+      background: radial-gradient(1200px 800px at 20% -10%, #1a2352 0%, var(--bg) 60%);
+      color: var(--text); min-height: 100vh;
+    }
+    .app { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+    .hero { text-align: center; padding: 20px 0 44px; }
+    .hero .mark {
+      width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 18px 40px rgba(99,102,241,.35);
+    }
+    .hero h1 { font-size: 36px; margin: 8px 0 4px; letter-spacing: -0.5px; }
+    .hero p { color: var(--text-dim); margin: 0 auto; max-width: 620px; font-size: 15px; }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 16px; padding: 22px;
+    }
+    .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--text-dim); margin: 0 0 14px; font-weight: 600; }
+
+    .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+    @media (max-width: 820px) { .preset-grid { grid-template-columns: 1fr; } }
+
+    .preset {
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 18px; cursor: pointer;
+      transition: border-color .15s ease, transform .08s ease;
+      color: var(--text); text-align: left;
+    }
+    .preset:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .preset.active { border-color: var(--accent); background: rgba(99,102,241,.1); }
+    .preset .pname { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .preset .pdesc { color: var(--text-dim); font-size: 12.5px; margin-bottom: 10px; }
+    .preset .psmall { color: var(--text-dim); font-size: 11px; font-family: 'SF Mono', ui-monospace, monospace; }
+    .preset .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+                   background: var(--accent-2); margin-right: 6px; }
+
+    .advanced { margin-top: 22px; }
+    details > summary {
+      cursor: pointer; padding: 12px 16px; font-weight: 600; font-size: 13px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+      list-style: none; display: flex; align-items: center; justify-content: space-between;
+    }
+    details[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+    .advanced-body {
+      background: var(--panel); border: 1px solid var(--border); border-top: 0;
+      border-radius: 0 0 10px 10px; padding: 16px;
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 22px;
+    }
+    .field label { display: block; color: var(--text-dim); font-size: 12px; margin-bottom: 4px; }
+    .field input, .field select {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font-size: 13px;
+    }
+    .field small { color: var(--text-dim); font-size: 11px; display: block; margin-top: 3px; }
+    .check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
+
+    .cta-row {
+      display: flex; gap: 10px; align-items: center; justify-content: flex-end;
+      margin-top: 26px;
+    }
+    .btn {
+      background: var(--accent); color: white; border: 0;
+      padding: 10px 18px; border-radius: 10px; cursor: pointer;
+      font-size: 14px; font-weight: 600;
+    }
+    .btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+    .job-bar {
+      position: fixed; right: 20px; bottom: 20px; max-width: 420px;
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 14px; display: none; box-shadow: 0 12px 28px rgba(0,0,0,.4);
+    }
+    .job-bar.show { display: block; }
+    .job-bar .title { font-weight: 600; margin-bottom: 4px; }
+    .job-bar .progress { color: var(--text-dim); font-size: 12px;
+      font-family: 'SF Mono', ui-monospace, monospace; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 400px; }
+    .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+    .status-dot.running { background: var(--warn); animation: pulse 1s infinite; }
+    .status-dot.success { background: var(--up); }
+    .status-dot.failed  { background: var(--down); }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+    .nav-links { display: flex; gap: 10px; justify-content: center; margin-top: 30px; color: var(--text-dim); font-size: 12px; }
+    .nav-links a { color: var(--accent-2); text-decoration: none; }
+    .nav-links a:hover { text-decoration: underline; }
+
+    .hint { color: var(--text-dim); font-size: 12px; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="hero">
+      <div class="mark"></div>
+      <h1>News-to-Alpha</h1>
+      <p>Ensemble up/down forecasts from price action + financial news. Pick a preset to train a model in minutes — or tune everything yourself.</p>
+    </div>
+
+    <div class="panel">
+      <h2>Presets</h2>
+      <div class="preset-grid" id="preset-grid"></div>
+
+      <details class="advanced">
+        <summary>
+          <span>Advanced configuration</span>
+          <span class="muted">click to expand</span>
+        </summary>
+        <div class="advanced-body">
+          <div class="field">
+            <label>Tickers (space separated)</label>
+            <input type="text" id="cfg-tickers" placeholder="AAPL TSLA NVDA">
+            <small>Blank = use the preset's tickers.</small>
+          </div>
+          <div class="field">
+            <label>Lookback days</label>
+            <input type="number" id="cfg-lookback" placeholder="730">
+            <small>How far back to pull prices/news.</small>
+          </div>
+          <div class="field">
+            <label>Prediction horizon</label>
+            <select id="cfg-horizon">
+              <option value="1">1 day</option>
+              <option value="3" selected>3 days</option>
+            </select>
+            <small>3-day horizons tend to have higher accuracy + conviction.</small>
+          </div>
+          <div class="field">
+            <label>Min move % (drop-flat)</label>
+            <input type="number" id="cfg-minmove" step="0.1" placeholder="0.5">
+            <small>Skip training examples whose return is below this magnitude.</small>
+          </div>
+          <div class="field">
+            <label>LSTM seeds</label>
+            <input type="text" id="cfg-seeds" placeholder="42 1337 2024">
+            <small>Averages multiple LSTMs for robustness.</small>
+          </div>
+          <div class="field">
+            <label class="check">
+              <input type="checkbox" id="cfg-finbert"> Use FinBERT sentiment (slower, sharper)
+            </label>
+            <label class="check">
+              <input type="checkbox" id="cfg-skipcollect"> Skip price collection
+            </label>
+            <label class="check">
+              <input type="checkbox" id="cfg-skipnews"> Skip news collection
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <div class="cta-row">
+        {% if predictions_exist %}
+          <a href="/dashboard" class="btn secondary">Open existing dashboard</a>
+        {% endif %}
+        <button class="btn" id="btn-run">Run pipeline</button>
+      </div>
+      <div class="hint" id="hint">Select a preset above to get started.</div>
+    </div>
+
+    <div class="nav-links">
+      <a href="/dashboard">Dashboard</a> ·
+      <a href="/admin">Admin</a> ·
+      <a href="/healthz">Health</a>
+    </div>
+  </div>
+
+  <div class="job-bar" id="job-bar">
+    <div class="title"><span class="status-dot" id="job-dot"></span><span id="job-label">idle</span></div>
+    <div class="progress" id="job-progress"></div>
+  </div>
+
+<script>
+const PRESETS = {{ presets|tojson }};
+let SELECTED_PRESET = "balanced" in PRESETS ? "balanced" : Object.keys(PRESETS)[0];
+
+function qs(sel){return document.querySelector(sel);}
+function qsa(sel){return Array.from(document.querySelectorAll(sel));}
+
+function presetDescription(name, p) {
+  if (name === "quick") return "Small universe, 1-year window. Fastest smoke test.";
+  if (name === "balanced") return "5 tickers, 2-year window, 3-day horizon, LSTM seed-ensemble.";
+  if (name === "advanced") return "Full universe + FinBERT sentiment. Biggest upside, longest run.";
+  return "";
+}
+
+function renderPresets() {
+  const host = qs("#preset-grid");
+  host.innerHTML = "";
+  for (const [name, p] of Object.entries(PRESETS)) {
+    const card = document.createElement("button");
+    card.className = "preset" + (name === SELECTED_PRESET ? " active" : "");
+    card.innerHTML = `
+      <div class="pname"><span class="dot"></span>${name}</div>
+      <div class="pdesc">${presetDescription(name, p)}</div>
+      <div class="psmall">
+        ${(p.tickers || []).slice(0,5).join(" ")}${(p.tickers||[]).length>5?"…":""}
+        <br>${p.lookback_days}d &nbsp;·&nbsp; h${p.horizon} &nbsp;·&nbsp;
+        ${(p.seeds||[]).length} seeds &nbsp;·&nbsp;
+        ${p.use_finbert ? "FinBERT" : "MiniLM"}
+      </div>`;
+    card.addEventListener("click", () => {
+      SELECTED_PRESET = name;
+      renderPresets();
+      applyPresetToAdvanced(p);
+    });
+    host.appendChild(card);
+  }
+  const p = PRESETS[SELECTED_PRESET];
+  if (p) applyPresetToAdvanced(p);
+}
+
+function applyPresetToAdvanced(p) {
+  if (!qs("#cfg-tickers").value)  qs("#cfg-tickers").placeholder = (p.tickers||[]).join(" ");
+  if (!qs("#cfg-lookback").value) qs("#cfg-lookback").placeholder = String(p.lookback_days||"");
+  if (!qs("#cfg-minmove").value)  qs("#cfg-minmove").placeholder = String(p.min_move_pct||"");
+  if (!qs("#cfg-seeds").value)    qs("#cfg-seeds").placeholder = (p.seeds||[]).join(" ");
+  qs("#cfg-horizon").value = String(p.horizon || 1);
+  qs("#cfg-finbert").checked = !!p.use_finbert;
+}
+
+qs("#btn-run").addEventListener("click", submitRun);
+
+async function submitRun() {
+  const tickers = (qs("#cfg-tickers").value || "").trim().split(/\s+/).filter(Boolean);
+  const seeds = (qs("#cfg-seeds").value || "").trim().split(/\s+/).filter(Boolean).map(Number);
+  const body = {
+    preset: SELECTED_PRESET,
+    config: {
+      tickers: tickers.length ? tickers : null,
+      lookback_days: Number(qs("#cfg-lookback").value) || null,
+      horizon: Number(qs("#cfg-horizon").value) || null,
+      min_move_pct: qs("#cfg-minmove").value === "" ? null : Number(qs("#cfg-minmove").value),
+      seeds: seeds.length ? seeds : null,
+      use_finbert: qs("#cfg-finbert").checked,
+      skip_collect: qs("#cfg-skipcollect").checked,
+      skip_news: qs("#cfg-skipnews").checked,
+    },
+  };
+  const btn = qs("#btn-run"); btn.disabled = true; btn.textContent = "Starting…";
+  try {
+    const res = await fetch("/api/run", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || "Could not start pipeline"); btn.disabled = false; btn.textContent = "Run pipeline"; return; }
+    qs("#hint").textContent = "Pipeline started. You can switch to the dashboard now — it'll refresh when the run completes.";
+    showJob(data.job); pollJobs();
+  } catch (e) {
+    alert("Network error: " + e);
+  } finally {
+    btn.disabled = false; btn.textContent = "Run pipeline";
+  }
+}
+
+function showJob(job) {
+  if (!job) return;
+  const bar = qs("#job-bar"); bar.classList.add("show");
+  qs("#job-label").textContent = `${job.label} — ${job.status}`;
+  qs("#job-progress").textContent = job.progress || job.error || "";
+  const dot = qs("#job-dot");
+  dot.className = "status-dot " + (job.status === "running" ? "running" : job.status === "failed" ? "failed" : "success");
+}
+
+let _poll = null;
+async function pollJobs() {
+  try {
+    const r = await fetch("/api/jobs");
+    const data = await r.json();
+    const cur = data.current;
+    if (cur) showJob(cur);
+    if (cur && cur.status === "running") {
+      if (!_poll) _poll = setInterval(pollJobs, 2000);
+    } else {
+      if (_poll) { clearInterval(_poll); _poll = null; }
+      if (cur && cur.status === "success") {
+        qs("#hint").innerHTML = 'Pipeline complete. <a href="/dashboard" style="color:var(--accent-2)">Open the dashboard →</a>';
+      }
+    }
+  } catch (_) {}
+}
+
+renderPresets();
+pollJobs();
+</script>
+</body>
+</html>
