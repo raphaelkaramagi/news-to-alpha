@@ -215,6 +215,23 @@
   </script>
   {% endif %}
 
+  <!-- Scorecard -->
+  {% if scorecard and scorecard.total > 0 %}
+  <div style="text-align:center; margin-bottom:1.5rem; font-size:0.9rem;">
+    <span style="color:var(--green); font-weight:700;">{{ scorecard.correct }}</span>
+    <span style="color:var(--text-dim);">correct</span>
+    <span style="color:var(--text-dim); margin:0 0.3rem;">/</span>
+    <span style="color:var(--red); font-weight:700;">{{ scorecard.wrong }}</span>
+    <span style="color:var(--text-dim);">wrong</span>
+    <span style="color:var(--text-dim); margin:0 0.3rem;">/</span>
+    <span style="color:var(--text-dim);">{{ scorecard.total }} predicted</span>
+    <span style="margin-left:0.6rem; padding:3px 10px; border-radius:6px; font-weight:700;
+      {% if scorecard.pct >= 60 %}background:rgba(52,211,153,0.15); color:var(--green);
+      {% elif scorecard.pct >= 45 %}background:rgba(251,191,36,0.15); color:var(--orange);
+      {% else %}background:rgba(248,113,113,0.15); color:var(--red);{% endif %}">{{ scorecard.pct }}%</span>
+  </div>
+  {% endif %}
+
   <!-- Ticker grid -->
   <div class="ticker-grid">
     {% for t in tickers %}
@@ -245,25 +262,25 @@
         <span style="color:var(--text-dim); font-weight:400;">{{ s.company }}</span>
         {% if pred %}
         <span class="badge" style="background:var(--surface2); color:var(--text-dim);">
-          {{ pred.model_version }}
+          {% if pred.model_type == 'ensemble' %}Ensemble{% else %}LSTM Only{% endif %}
         </span>
         {% endif %}
       </h2>
 
       {% if pred %}
       <div class="pred-hero">
-        {% if pred.news_pred_binary == 1 %}
+        {% if pred.pred_binary == 1 %}
           <div class="direction up">&#9650; UP</div>
         {% else %}
           <div class="direction down">&#9660; DOWN</div>
         {% endif %}
         <div class="pred-meta">
-          <strong>Probability:</strong> {{ "%.1f"|format(pred.news_pred_proba * 100) }}% up<br>
+          <strong>Probability:</strong> {{ "%.1f"|format(pred.pred_proba * 100) }}% up<br>
           <strong>Prediction date:</strong> {{ pred.date }}
         </div>
       </div>
 
-      {% set conf = pred.news_confidence or 0 %}
+      {% set conf = pred.confidence or 0 %}
       {% set conf_pct = (conf * 100)|round(1) %}
       <div class="conf-bar-wrap">
         <div class="conf-bar-label">
@@ -273,6 +290,19 @@
           <div class="conf-bar-fill" style="width:{{ conf_pct }}%;
             background:{% if conf_pct >= 60 %}var(--green){% elif conf_pct >= 30 %}var(--orange){% else %}var(--red){% endif %};"></div>
         </div>
+      </div>
+
+      <!-- Model breakdown -->
+      <div style="margin-top:1rem; font-size:0.85rem; color:var(--text-dim); line-height:1.7;">
+        {% if pred.model_type == 'ensemble' %}
+          <strong style="color:var(--text);">Model breakdown:</strong><br>
+          LSTM (10%): {{ "%.1f"|format(pred.lstm_proba * 100) if pred.lstm_proba is not none else '—' }}% up<br>
+          TF-IDF (45%): {{ "%.1f"|format(pred.tfidf_proba * 100) if pred.tfidf_proba is not none else '—' }}% up<br>
+          Embeddings (45%): {{ "%.1f"|format(pred.emb_proba * 100) if pred.emb_proba is not none else '—' }}% up
+        {% else %}
+          <span style="color:var(--orange);">&#9888; NLP models had no news signal — showing LSTM prediction only.</span><br>
+          LSTM probability: {{ "%.1f"|format(pred.lstm_proba * 100) if pred.lstm_proba is not none else '—' }}% up
+        {% endif %}
       </div>
 
       {% if pred.actual_binary is not none %}
@@ -288,9 +318,28 @@
 
       {% else %}
       <p class="no-pred">No saved prediction for {{ s.ticker }} yet.
-         Run the training scripts to generate predictions.</p>
+         Click "Update All Predictions" to generate predictions.</p>
       {% endif %}
     </div>
+
+    <!-- Latest outcome -->
+    {% if label %}
+    <div class="card">
+      <h2>Latest Known Outcome</h2>
+      <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
+        {% if label.label_binary == 1 %}
+          <span class="outcome up" style="font-size:1rem;">&#9650; Up {{ "%.2f"|format(label.label_return) }}%</span>
+        {% else %}
+          <span class="outcome down" style="font-size:1rem;">&#9660; Down {{ "%.2f"|format(label.label_return) }}%</span>
+        {% endif %}
+        <div class="pred-meta">
+          <strong>Date:</strong> {{ label.date }}<br>
+          <strong>Close:</strong> ${{ "%.2f"|format(label.close_t) }}
+          &rarr; ${{ "%.2f"|format(label.close_t_plus_1) }}
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Headlines card -->
     {% set headlines = pred.headlines_list if pred and pred.headlines_list else [] %}
@@ -328,25 +377,6 @@
         {% endfor %}
       </ul>
       {% endif %}
-    </div>
-    {% endif %}
-
-    <!-- Latest outcome -->
-    {% if label %}
-    <div class="card">
-      <h2>Latest Known Outcome</h2>
-      <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
-        {% if label.label_binary == 1 %}
-          <span class="outcome up" style="font-size:1rem;">&#9650; Up {{ "%.2f"|format(label.label_return) }}%</span>
-        {% else %}
-          <span class="outcome down" style="font-size:1rem;">&#9660; Down {{ "%.2f"|format(label.label_return) }}%</span>
-        {% endif %}
-        <div class="pred-meta">
-          <strong>Date:</strong> {{ label.date }}<br>
-          <strong>Close:</strong> ${{ "%.2f"|format(label.close_t) }}
-          &rarr; ${{ "%.2f"|format(label.close_t_plus_1) }}
-        </div>
-      </div>
     </div>
     {% endif %}
 

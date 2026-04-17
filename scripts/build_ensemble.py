@@ -41,9 +41,9 @@ except ModuleNotFoundError:
     PROCESSED_DATA_DIR = _PROJECT_ROOT / "data" / "processed"
 
 # ── Ensemble formula weights (locked in session_2_contract.md) ────────────────
-W_FINANCIAL       = 0.45
-W_NEWS_TFIDF      = 0.25
-W_NEWS_EMBEDDINGS = 0.30
+W_FINANCIAL = 0.10
+W_NEWS_TFIDF = 0.45
+W_NEWS_EMBEDDINGS = 0.45
 
 MODEL_VERSION = datetime.now().strftime("%Y%m%dT%H%M%S")
 
