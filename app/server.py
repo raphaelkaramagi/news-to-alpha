@@ -9,7 +9,7 @@ Routes
   GET  /                             -> configure landing page
   GET  /dashboard                    -> interactive dashboard
   GET  /admin                        -> training / reset controls
-  GET  /favicon.ico                  -> redirect to static favicon (tab icon)
+  GET  /favicon.ico                  -> PNG favicon (tab icon; same bytes as 32×32 static file)
   GET  /static/icons/*               -> favicons, apple-touch-icon, web manifest
   GET  /healthz                      -> liveness
   GET  /api/data-status              -> freshness summary for header chip
@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
-from flask import Flask, jsonify, redirect, render_template, request, url_for
+from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
 
 _APP_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _APP_DIR.parent
@@ -101,14 +101,33 @@ MODEL_ARTIFACTS: dict[str, list[Path]] = {
 # App setup
 # ----------------------------------------------------------------------------
 
-app = Flask(__name__, template_folder=str(_APP_DIR / "templates"))
+# Explicit paths so gunicorn/Docker always find templates + static (icons) regardless of cwd.
+app = Flask(
+    __name__,
+    template_folder=str(_APP_DIR / "templates"),
+    static_folder=str(_APP_DIR / "static"),
+    static_url_path="/static",
+)
 jobs = JobRegistry(project_root=_PROJECT_ROOT)
+
+# Bump when icons or manifest change so browsers/CDNs refetch (favicons are cached aggressively).
+ASSET_VERSION = "2"
+
+
+@app.context_processor
+def _inject_asset_version() -> dict[str, str]:
+    return {"asset_version": ASSET_VERSION}
 
 
 @app.route("/favicon.ico")
 def favicon_ico():
-    """Browsers request /favicon.ico by default; point at our PNG set."""
-    return redirect(url_for("static", filename="icons/favicon-32x32.png"), code=302)
+    """Serve PNG at the conventional path (no redirect — some clients mishandle 302 here)."""
+    return send_from_directory(
+        str(Path(app.static_folder) / "icons"),
+        "favicon-32x32.png",
+        mimetype="image/png",
+        max_age=86400,
+    )
 
 
 # ----------------------------------------------------------------------------

@@ -88,6 +88,17 @@ Once the run finishes, `/dashboard` becomes the default landing surface
 
 ## 8. Smoke tests after deploy
 
+### Tab icon / favicon looks wrong or never updates
+
+1. **Verify the files exist** (replace host with your Render URL or `stock.raphaelkaramagi.com`):
+   ```bash
+   curl -sI https://YOUR_HOST/static/icons/favicon-32x32.png
+   curl -sI https://YOUR_HOST/favicon.ico
+   ```
+   Expect **`200`** and `content-type: image/png`. If you get **404**, the deploy image may be missing `app/static/` — confirm the commit was pushed and Render rebuilt.
+2. **Aggressive browser cache**: favicons are cached hard. Try a **private window**, or clear site data for that origin, or bump `ASSET_VERSION` in `app/server.py` after icon changes (query string `?v=` forces a fresh fetch for linked assets).
+3. **Local `curl` to port 5000 on macOS**: often hits **AirPlay Receiver**, not Flask (`Server: AirTunes` / 403). Run the app on **8000** (or turn off AirPlay Receiver in System Settings → AirDrop & Handoff) and test `http://127.0.0.1:8000/favicon.ico`.
+
 ```bash
 curl -s https://<your-app>.up.railway.app/healthz
 curl -s https://<your-app>.up.railway.app/api/presets

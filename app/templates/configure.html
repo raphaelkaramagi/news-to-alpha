@@ -112,7 +112,7 @@
 <body>
   <div class="app">
     <div class="hero">
-      <div class="mark" aria-hidden="true"><img src="{{ url_for('static', filename='icons/icon-192.png') }}" alt="" width="56" height="56"></div>
+      <div class="mark" aria-hidden="true"><img src="{{ url_for('static', filename='icons/icon-192.png') }}?v={{ asset_version }}" alt="" width="56" height="56"></div>
       <h1>News-to-Alpha</h1>
       <p>Ensemble up/down forecasts from price action + financial news. Pick a preset to train a model in minutes — or tune everything yourself.</p>
     </div>
