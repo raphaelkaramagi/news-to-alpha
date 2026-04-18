@@ -8,6 +8,7 @@ long-lived processes and a persistent volume).
 
 ## 1. Files that make deployment possible
 
+- `app/static/icons/` — favicons and `site.webmanifest` (tab icon + “Add to Home Screen” on mobile). Same URLs work on **Render** and any custom domain (e.g. `stock.raphaelkaramagi.com`): Flask serves `/static/...` from the container image. This is independent of **Vercel** (your root/www/ASL projects use Vercel’s own icons there).
 - `Dockerfile` — production image, Python 3.11 slim, pins `HF_HOME` so the
   FinBERT and MiniLM caches survive restarts.
 - `Procfile` — Heroku/Railway-style process definition.
@@ -86,6 +87,17 @@ Once the run finishes, `/dashboard` becomes the default landing surface
 (accessible from the top nav, or directly at `/dashboard`).
 
 ## 8. Smoke tests after deploy
+
+### Tab icon / favicon looks wrong or never updates
+
+1. **Verify the files exist** (replace host with your Render URL or `stock.raphaelkaramagi.com`):
+   ```bash
+   curl -sI https://YOUR_HOST/static/icons/favicon-32x32.png
+   curl -sI https://YOUR_HOST/favicon.ico
+   ```
+   Expect **`200`** and `content-type: image/png`. If you get **404**, the deploy image may be missing `app/static/` — confirm the commit was pushed and Render rebuilt.
+2. **Aggressive browser cache**: favicons are cached hard. Try a **private window**, or clear site data for that origin, or bump `ASSET_VERSION` in `app/server.py` after icon changes (query string `?v=` forces a fresh fetch for linked assets).
+3. **Local `curl` to port 5000 on macOS**: often hits **AirPlay Receiver**, not Flask (`Server: AirTunes` / 403). Run the app on **8000** (or turn off AirPlay Receiver in System Settings → AirDrop & Handoff) and test `http://127.0.0.1:8000/favicon.ico`.
 
 ```bash
 curl -s https://<your-app>.up.railway.app/healthz
