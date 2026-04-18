@@ -10,14 +10,19 @@ Routes
   GET  /dashboard                    -> interactive dashboard
   GET  /admin                        -> training / reset controls
   GET  /healthz                      -> liveness
-  GET  /api/ticker?ticker=AAPL[&model=ensemble|lstm|tfidf|embeddings]
+  GET  /api/data-status              -> freshness summary for header chip
+  POST /api/data/refresh             -> fast refresh (collect + rebuild ensemble, no retraining)
+  POST /api/data/clear               -> clear predictions | models | full reset
+  GET  /api/ticker?ticker=AAPL[&model=ensemble|lstm|tfidf|embeddings][&date=YYYY-MM-DD]
   GET  /api/history?ticker=AAPL&window=30|90|180|all
+  GET  /api/last-resolved?ticker=AAPL&n=7 -> last N rows with known actual_binary
   GET  /api/metrics
   GET  /api/presets                  -> available pipeline presets
   GET  /api/headlines?ticker=X&date=Y -> full headline cards with urls + sentiment
   GET  /api/rationale?ticker=X&date=Y -> meta-feature contributions for a call
   GET  /api/dates?ticker=X           -> available prediction dates for slider
   GET  /api/accuracy-trace?ticker=X&window=30 -> rolling accuracy for sparkline
+  GET  /api/accuracy-summary?ticker=AAPL|ALL&window=7|30|90|all -> configurable recent accuracy
   GET  /api/conviction               -> accuracy by confidence bucket
   POST /api/run                      -> kick off full pipeline run
   POST /api/train                    -> kick off a per-model training job
@@ -192,13 +197,24 @@ def _parse_top_headlines(raw: Any) -> list[str]:
     return [h.strip() for h in s.split("|") if h.strip()]
 
 
-def _latest_for_ticker(df: pd.DataFrame, ticker: str, model: str) -> Optional[LatestPrediction]:
+def _latest_for_ticker(
+    df: pd.DataFrame,
+    ticker: str,
+    model: str,
+    date: Optional[str] = None,
+) -> Optional[LatestPrediction]:
     sub = df[df["ticker"] == ticker].copy()
     if sub.empty:
         return None
 
     sub = sub.sort_values("prediction_date")
-    last = sub.iloc[-1]
+    if date:
+        match = sub[sub["prediction_date"] == date]
+        if match.empty:
+            return None
+        last = match.iloc[-1]
+    else:
+        last = sub.iloc[-1]
 
     col = MODEL_PROBA_COL[model]
     if col not in sub.columns:
@@ -402,10 +418,56 @@ def healthz():
     })
 
 
+@app.route("/api/data-status")
+def api_data_status():
+    """Freshness summary - powers the header 'Data to:' chip + the reconfigure drawer."""
+    df = _load_predictions()
+    latest_pred = None
+    rows = 0
+    if df is not None and not df.empty:
+        latest_pred = str(df["prediction_date"].max())
+        rows = int(len(df))
+
+    latest_price = None
+    latest_news = None
+    price_count = 0
+    news_count = 0
+    try:
+        conn = _get_db()
+        try:
+            row = conn.execute("SELECT MAX(date) AS d, COUNT(*) AS n FROM prices").fetchone()
+            if row:
+                latest_price = str(row["d"]) if row["d"] else None
+                price_count = int(row["n"] or 0)
+            row = conn.execute(
+                "SELECT MAX(date(published_at)) AS d, COUNT(*) AS n FROM news"
+            ).fetchone()
+            if row:
+                latest_news = str(row["d"]) if row["d"] else None
+                news_count = int(row["n"] or 0)
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    return jsonify({
+        "today": today,
+        "latest_prediction_date": latest_pred,
+        "latest_price_date": latest_price,
+        "latest_news_date": latest_news,
+        "prediction_rows": rows,
+        "price_rows": price_count,
+        "news_rows": news_count,
+    })
+
+
 @app.route("/api/ticker")
 def api_ticker():
     ticker = (request.args.get("ticker") or "").upper()
     model = (request.args.get("model") or "ensemble").lower()
+    date = (request.args.get("date") or "").strip() or None
     if ticker not in TICKERS:
         return jsonify({"error": f"Unknown ticker: {ticker}"}), 404
     if model not in ALLOWED_MODELS:
@@ -415,9 +477,26 @@ def api_ticker():
     if df is None:
         return jsonify({"error": "predictions not yet built"}), 503
 
-    pred = _latest_for_ticker(df, ticker, model)
+    pred = _latest_for_ticker(df, ticker, model, date=date)
     if pred is None:
+        if date:
+            return jsonify({"error": f"no prediction for {ticker} on {date}"}), 404
         return jsonify({"error": f"no predictions for {ticker}"}), 404
+
+    realized_return = None
+    hit: Optional[int] = None
+    if pred.actual_binary is not None:
+        hit = int(pred.binary == pred.actual_binary)
+        conn = _get_db()
+        try:
+            row = conn.execute(
+                "SELECT label_return FROM labels WHERE ticker = ? AND date = ?",
+                (pred.ticker, pred.prediction_date),
+            ).fetchone()
+            if row and row["label_return"] is not None:
+                realized_return = float(row["label_return"])
+        finally:
+            conn.close()
 
     return jsonify({
         "ticker": pred.ticker,
@@ -428,9 +507,72 @@ def api_ticker():
         "binary": pred.binary,
         "confidence": pred.confidence,
         "actual_binary": pred.actual_binary,
+        "hit": hit,
+        "realized_return": realized_return,
         "top_headlines": pred.top_headlines,
         "per_model": pred.per_model,
     })
+
+
+@app.route("/api/last-resolved")
+def api_last_resolved():
+    """Return the most recent N predictions for a ticker that have a known actual.
+
+    Powers the 'Yesterday vs Actual' card and the 7-dot history strip.
+    """
+    ticker = (request.args.get("ticker") or "").upper()
+    try:
+        n = max(1, min(60, int(request.args.get("n") or "7")))
+    except ValueError:
+        n = 7
+    if ticker not in TICKERS:
+        return jsonify({"error": f"Unknown ticker: {ticker}"}), 404
+
+    df = _load_predictions()
+    if df is None:
+        return jsonify({"ticker": ticker, "rows": []})
+
+    sub = df[df["ticker"] == ticker].copy()
+    sub = sub[sub["actual_binary"].notna()].sort_values("prediction_date")
+    if sub.empty:
+        return jsonify({"ticker": ticker, "rows": []})
+
+    sub = sub.tail(n)
+
+    # Pull realized returns from labels table (keyed on ticker, date == prediction_date)
+    returns_by_date: dict[str, float] = {}
+    conn = _get_db()
+    try:
+        placeholders = ",".join(["?"] * len(sub))
+        rows = conn.execute(
+            f"SELECT date, label_return FROM labels "
+            f"WHERE ticker = ? AND date IN ({placeholders})",
+            (ticker, *sub["prediction_date"].tolist()),
+        ).fetchall()
+        for r in rows:
+            if r["label_return"] is not None:
+                returns_by_date[str(r["date"])] = float(r["label_return"])
+    finally:
+        conn.close()
+
+    out: list[dict] = []
+    for _, row in sub.iterrows():
+        proba = float(row["ensemble_pred_proba"]) if pd.notna(row.get("ensemble_pred_proba")) else None
+        pred_bin = int(row["ensemble_pred_binary"]) if pd.notna(row.get("ensemble_pred_binary")) else None
+        actual = int(row["actual_binary"]) if pd.notna(row.get("actual_binary")) else None
+        hit = None
+        if pred_bin is not None and actual is not None:
+            hit = int(pred_bin == actual)
+        date_str = str(row["prediction_date"])
+        out.append({
+            "date": date_str,
+            "proba": proba,
+            "pred_binary": pred_bin,
+            "actual_binary": actual,
+            "hit": hit,
+            "return": returns_by_date.get(date_str),
+        })
+    return jsonify({"ticker": ticker, "rows": out})
 
 
 @app.route("/api/history")
@@ -538,10 +680,19 @@ def _runner_run_pipeline(cfg_dict: dict):
             cmd_args += ["--seeds", *[str(int(s)) for s in seeds]]
         if cfg_dict.get("use_finbert"):
             cmd_args += ["--use-finbert"]
-        if cfg_dict.get("skip_collect"):
-            cmd_args += ["--skip-collect"]
-        if cfg_dict.get("skip_news"):
-            cmd_args += ["--skip-news"]
+        for flag_name, cli in [
+            ("skip_collect",  "--skip-collect"),
+            ("skip_news",     "--skip-news"),
+            ("skip_labels",   "--skip-labels"),
+            ("skip_split",    "--skip-split"),
+            ("skip_lstm",     "--skip-lstm"),
+            ("skip_nlp",      "--skip-nlp"),
+            ("skip_emb",      "--skip-emb"),
+            ("skip_ensemble", "--skip-ensemble"),
+            ("skip_evaluate", "--skip-evaluate"),
+        ]:
+            if cfg_dict.get(flag_name):
+                cmd_args += [cli]
         rc = jobs.python_script(job, "run_pipeline.py", *cmd_args)
         if rc != 0:
             raise RuntimeError("run_pipeline.py failed")
@@ -552,6 +703,117 @@ def _runner_run_pipeline(cfg_dict: dict):
 def api_presets():
     from scripts.run_pipeline import PRESETS
     return jsonify({"presets": PRESETS})
+
+
+def _runner_data_refresh(days: int, include_news: bool = True,
+                         mode: str = "quality"):
+    """Collect latest prices + news and re-score the whole pipeline.
+
+    Modes:
+      - ``quality`` (default): 3-seed LSTM averaging (~3 min). Confidence
+        numbers come out smooth and informative.
+      - ``fast``:              1-seed LSTM (~1 min). Good enough to advance
+        dates but confidence will be blocky.
+
+    We delegate to ``run_pipeline.py`` because every base model
+    (LSTM / TF-IDF / embeddings) only writes prediction rows for
+    (ticker, date) pairs it was *run* over - so just rebuilding the
+    ensemble off stale per-model CSVs would keep the dashboard
+    frozen at whatever date training last touched.
+    """
+    seeds = ["42", "1337", "2024"] if str(mode).lower() != "fast" else ["42"]
+
+    def run(job: JobSpec) -> None:
+        cmd_args: list[str] = [
+            "--tickers", *TICKERS,
+            "--lookback-days", str(int(days)),
+            "--seeds", *seeds,
+        ]
+        if not include_news:
+            cmd_args.append("--skip-news")
+        rc = jobs.python_script(job, "run_pipeline.py", *cmd_args)
+        if rc != 0:
+            raise RuntimeError("run_pipeline.py failed")
+    return run
+
+
+def _runner_data_clear(scope: str):
+    """Clear various data artifacts.
+
+    scope="predictions"  - just delete final_ensemble_predictions.csv (safe)
+    scope="models"       - delete model artifacts (prompts re-train)
+    scope="full"         - delete DB, models, processed (keeps raw downloads)
+    """
+    def run(job: JobSpec) -> None:
+        import shutil
+        removed = []
+        if scope in ("predictions", "models", "full"):
+            if PREDICTIONS_CSV.exists():
+                PREDICTIONS_CSV.unlink()
+                removed.append(str(PREDICTIONS_CSV.relative_to(_PROJECT_ROOT)))
+        if scope in ("models", "full"):
+            for paths in MODEL_ARTIFACTS.values():
+                for p in paths:
+                    if p.exists():
+                        p.unlink()
+                        removed.append(str(p.relative_to(_PROJECT_ROOT)))
+            meta = MODELS_DIR / "ensemble_meta.joblib"
+            if meta.exists():
+                meta.unlink()
+                removed.append(str(meta.relative_to(_PROJECT_ROOT)))
+        if scope == "full":
+            if DATABASE_PATH.exists():
+                DATABASE_PATH.unlink()
+                removed.append(str(DATABASE_PATH.relative_to(_PROJECT_ROOT)))
+            if PROCESSED_DATA_DIR.exists():
+                shutil.rmtree(PROCESSED_DATA_DIR)
+                removed.append(str(PROCESSED_DATA_DIR.relative_to(_PROJECT_ROOT)) + "/")
+            PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        for r in removed:
+            job.log.append(f"removed {r}")
+        job.log.append(f"clear complete ({scope}); {len(removed)} path(s) removed")
+    return run
+
+
+@app.route("/api/data/refresh", methods=["POST"])
+def api_data_refresh():
+    """Kick off a 'fast' refresh: collect new prices+news, rebuild ensemble, no retraining."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        days = max(1, int(payload.get("days") or 30))
+    except (TypeError, ValueError):
+        days = 30
+    include_news = bool(payload.get("include_news", True))
+    mode = str(payload.get("mode") or "quality").lower()
+    if mode not in ("quality", "fast"):
+        mode = "quality"
+
+    accepted, job = jobs.submit(
+        kind="data_refresh",
+        label=f"Refreshing data (last {days}d, {mode})",
+        runner=_runner_data_refresh(
+            days=days, include_news=include_news, mode=mode,
+        ),
+    )
+    status = 202 if accepted else 409
+    return jsonify({"accepted": accepted, "job": job}), status
+
+
+@app.route("/api/data/clear", methods=["POST"])
+def api_data_clear():
+    """Clear artifacts. scope = predictions | models | full."""
+    payload = request.get_json(silent=True) or {}
+    scope = str(payload.get("scope") or "predictions").lower()
+    if scope not in ("predictions", "models", "full"):
+        return jsonify({"error": "scope must be predictions | models | full"}), 400
+
+    accepted, job = jobs.submit(
+        kind=f"data_clear_{scope}",
+        label=f"Clearing {scope}",
+        runner=_runner_data_clear(scope),
+    )
+    status = 202 if accepted else 409
+    return jsonify({"accepted": accepted, "job": job}), status
 
 
 @app.route("/api/run", methods=["POST"])
@@ -653,9 +915,51 @@ def api_dates():
     return jsonify({"ticker": ticker, "dates": dates})
 
 
+# Baselines for local contribution. Each feature has a neutral point; the contribution
+# shown in Why-this-call is importance * (value - baseline), scaled to [-1, 1].
+# This makes bars vary per-day (unlike raw global importance) and gives a sign
+# indicating whether the feature pushed the ensemble UP (+) or DOWN (-).
+_FEATURE_BASELINES: dict[str, float] = {
+    "financial_pred_proba":       0.5,
+    "news_tfidf_pred_proba":      0.5,
+    "news_embeddings_pred_proba": 0.5,
+    "lstm_confidence":            0.0,
+    "tfidf_confidence":           0.0,
+    "emb_confidence":             0.0,
+    "all_agree":                  0.5,
+    "has_news":                   0.5,
+    "n_headlines":                0.0,  # overwritten with median below
+    "spy_return_5d":              0.0,
+}
+
+
+def _compute_feature_scales(df: pd.DataFrame, features: list[str]) -> dict[str, dict[str, float]]:
+    """Return per-feature {baseline, scale} for normalising contribution bars."""
+    out: dict[str, dict[str, float]] = {}
+    for f in features:
+        if f not in df.columns:
+            continue
+        series = pd.to_numeric(df[f], errors="coerce").dropna()
+        if series.empty:
+            continue
+        baseline = _FEATURE_BASELINES.get(f, float(series.median()))
+        if f == "n_headlines":
+            baseline = float(series.median())
+        # scale = interquartile range with a small floor; avoids div-by-zero
+        q1, q3 = series.quantile(0.25), series.quantile(0.75)
+        scale = float(max(q3 - q1, series.std() or 0.0, 1e-6))
+        out[f] = {"baseline": float(baseline), "scale": scale}
+    return out
+
+
 @app.route("/api/rationale")
 def api_rationale():
-    """Return per-model probabilities + meta feature contributions for one call."""
+    """Return per-model probabilities + local feature contributions for one call.
+
+    Bars are driven by signed *local* contribution:
+        contrib = importance * (value - baseline) / scale
+    so the same feature shifts position and sign across days.
+    """
     ticker = (request.args.get("ticker") or "").upper()
     date = (request.args.get("date") or "").strip()
     df = _load_predictions()
@@ -664,14 +968,12 @@ def api_rationale():
 
     row_df = df[(df["ticker"] == ticker) & (df["prediction_date"] == date)]
     if row_df.empty:
-        # fall back to latest date
         row_df = df[df["ticker"] == ticker].sort_values("prediction_date").tail(1)
     if row_df.empty:
         return jsonify({"error": f"no prediction for {ticker} on {date}"}), 404
     row = row_df.iloc[0]
 
     import joblib
-    contributions: list[dict] = []
     features: list[str] = []
     importances: list[tuple[str, float]] = []
     temperature = 1.0
@@ -684,17 +986,30 @@ def api_rationale():
         except Exception:
             features, importances = [], []
 
-    for name in features:
-        if name in row_df.columns and pd.notna(row[name]):
-            contributions.append({
-                "feature": name,
-                "value": float(row[name]),
-            })
-
     imp_map = {k: v for k, v in importances}
-    for c in contributions:
-        c["importance"] = float(imp_map.get(c["feature"], 0.0))
-    contributions.sort(key=lambda x: abs(x["importance"]), reverse=True)
+    scales = _compute_feature_scales(df, features)
+
+    contributions: list[dict] = []
+    for name in features:
+        if name not in row_df.columns or pd.isna(row[name]):
+            continue
+        value = float(row[name])
+        imp = float(imp_map.get(name, 0.0))
+        sc = scales.get(name, {"baseline": 0.0, "scale": 1.0})
+        baseline = sc["baseline"]
+        scale = sc["scale"] if sc["scale"] > 0 else 1.0
+        # Signed local contribution: how much this feature nudged the call,
+        # relative to what the model considers a neutral value for it.
+        contribution = imp * (value - baseline) / scale
+        contributions.append({
+            "feature": name,
+            "value": value,
+            "importance": imp,
+            "baseline": baseline,
+            "contribution": contribution,
+        })
+
+    contributions.sort(key=lambda x: abs(x["contribution"]), reverse=True)
 
     per_model = {}
     for name, col in MODEL_PROBA_COL.items():
@@ -742,6 +1057,87 @@ def api_accuracy_trace():
         for d, a in zip(sub["prediction_date"], sub["rolling_acc"])
     ]
     return jsonify({"ticker": ticker, "window": window, "series": series})
+
+
+@app.route("/api/accuracy-summary")
+def api_accuracy_summary():
+    """Aggregate ensemble accuracy over a recent window.
+
+    Query:
+      ticker=AAPL | ALL   (defaults to ALL)
+      window=7 | 30 | 90 | all
+    Returns:
+      { scope, window, n, hits, accuracy,
+        rows: [{date, ticker, pred_binary, actual_binary, hit, return}, ...] }
+    """
+    ticker = (request.args.get("ticker") or "ALL").upper()
+    window_raw = (request.args.get("window") or "30").lower()
+    df = _load_predictions()
+    if df is None:
+        return jsonify({"scope": ticker, "window": window_raw, "n": 0, "rows": []})
+
+    sub = df if ticker == "ALL" else df[df["ticker"] == ticker]
+    sub = sub[sub["actual_binary"].notna()].copy()
+    if sub.empty:
+        return jsonify({"scope": ticker, "window": window_raw, "n": 0, "rows": []})
+
+    sub = sub.sort_values("prediction_date")
+    # Parse window: integer = last-N resolved dates (per-ticker intuition), "all" = everything
+    if window_raw == "all":
+        window_trim = sub
+    else:
+        try:
+            n = max(1, int(window_raw))
+        except ValueError:
+            n = 30
+        # For ALL, take the last N *trading dates*, not last N rows.
+        if ticker == "ALL":
+            latest_dates = sorted(sub["prediction_date"].unique())[-n:]
+            window_trim = sub[sub["prediction_date"].isin(latest_dates)]
+        else:
+            window_trim = sub.tail(n)
+
+    window_trim = window_trim.copy()
+    window_trim["hit"] = (
+        window_trim["ensemble_pred_binary"] == window_trim["actual_binary"]
+    ).astype(int)
+
+    # Pull realized returns from labels table if available
+    conn = _get_db()
+    try:
+        label_rows = conn.execute(
+            "SELECT ticker, date, label_return FROM labels"
+        ).fetchall()
+    finally:
+        conn.close()
+    label_map: dict[tuple[str, str], float] = {}
+    for lr in label_rows:
+        if lr["label_return"] is not None:
+            label_map[(lr["ticker"], str(lr["date"]))] = float(lr["label_return"])
+
+    rows = []
+    for _, r in window_trim.iterrows():
+        key = (r["ticker"], str(r["prediction_date"]))
+        rows.append({
+            "date": str(r["prediction_date"]),
+            "ticker": r["ticker"],
+            "pred_binary": int(r["ensemble_pred_binary"]) if pd.notna(r["ensemble_pred_binary"]) else None,
+            "actual_binary": int(r["actual_binary"]) if pd.notna(r["actual_binary"]) else None,
+            "hit": int(r["hit"]),
+            "proba": float(r["ensemble_pred_proba"]) if pd.notna(r.get("ensemble_pred_proba")) else None,
+            "return": label_map.get(key),
+        })
+
+    n = len(rows)
+    hits = int(sum(r["hit"] for r in rows))
+    return jsonify({
+        "scope": ticker,
+        "window": window_raw,
+        "n": n,
+        "hits": hits,
+        "accuracy": (hits / n) if n else None,
+        "rows": rows,
+    })
 
 
 @app.route("/api/conviction")

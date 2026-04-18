@@ -1,4 +1,4 @@
-"""Unit tests for the HistGB meta-model in scripts/build_ensemble.py."""
+"""Unit tests for the LR meta-model in scripts/build_ensemble.py."""
 
 import importlib.util
 import sys

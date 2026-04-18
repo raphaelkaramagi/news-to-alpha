@@ -267,3 +267,181 @@ class TestFlaskAPI:
         monkeypatch.setattr(srv, "_load_predictions", lambda: None)
         resp = client.get("/api/rationale?ticker=AAPL&date=2026-01-01")
         assert resp.status_code == 503
+
+    def test_ticker_date_returns_specific_row(self, flask_client, monkeypatch):
+        """/api/ticker should honor an explicit ?date= and return that row."""
+        client, srv = flask_client
+        df = pd.DataFrame([
+            {
+                "ticker": "AAPL",
+                "prediction_date": "2026-01-05",
+                "ensemble_pred_proba": 0.7,
+                "financial_pred_proba": 0.55,
+                "news_tfidf_pred_proba": 0.6,
+                "news_embeddings_pred_proba": 0.52,
+                "actual_binary": 1,
+                "top_headlines": "[]",
+            },
+            {
+                "ticker": "AAPL",
+                "prediction_date": "2026-01-06",
+                "ensemble_pred_proba": 0.3,
+                "financial_pred_proba": 0.4,
+                "news_tfidf_pred_proba": 0.35,
+                "news_embeddings_pred_proba": 0.45,
+                "actual_binary": 0,
+                "top_headlines": "[]",
+            },
+        ])
+        monkeypatch.setattr(srv, "_load_predictions", lambda: df)
+        monkeypatch.setattr(srv, "TICKERS", ["AAPL"])
+        resp = client.get("/api/ticker?ticker=AAPL&date=2026-01-05")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["prediction_date"] == "2026-01-05"
+        assert abs(body["proba"] - 0.7) < 1e-6
+        assert body["binary"] == 1
+
+    def test_ticker_date_unknown_returns_404(self, flask_client, monkeypatch):
+        client, srv = flask_client
+        df = pd.DataFrame([{
+            "ticker": "AAPL", "prediction_date": "2026-01-05",
+            "ensemble_pred_proba": 0.7, "financial_pred_proba": 0.55,
+            "news_tfidf_pred_proba": 0.6, "news_embeddings_pred_proba": 0.52,
+            "actual_binary": 1, "top_headlines": "[]",
+        }])
+        monkeypatch.setattr(srv, "_load_predictions", lambda: df)
+        monkeypatch.setattr(srv, "TICKERS", ["AAPL"])
+        resp = client.get("/api/ticker?ticker=AAPL&date=2099-01-01")
+        assert resp.status_code == 404
+
+    def test_last_resolved_shape(self, flask_client, monkeypatch):
+        """/api/last-resolved returns rows with hit/actual/pred info."""
+        client, srv = flask_client
+        df = pd.DataFrame([
+            {"ticker": "AAPL", "prediction_date": "2026-01-01",
+             "ensemble_pred_proba": 0.7, "ensemble_pred_binary": 1,
+             "actual_binary": 1},
+            {"ticker": "AAPL", "prediction_date": "2026-01-02",
+             "ensemble_pred_proba": 0.8, "ensemble_pred_binary": 1,
+             "actual_binary": 0},
+            {"ticker": "AAPL", "prediction_date": "2026-01-03",
+             "ensemble_pred_proba": 0.4, "ensemble_pred_binary": 0,
+             "actual_binary": None},  # unresolved — should be excluded
+        ])
+        monkeypatch.setattr(srv, "_load_predictions", lambda: df)
+        monkeypatch.setattr(srv, "TICKERS", ["AAPL"])
+
+        class _EmptyConn:
+            def execute(self, *_a, **_kw):
+                class _Cur:
+                    def fetchall(self_inner):
+                        return []
+                return _Cur()
+            def close(self):
+                pass
+        monkeypatch.setattr(srv, "_get_db", lambda: _EmptyConn())
+
+        resp = client.get("/api/last-resolved?ticker=AAPL&n=5")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        rows = body["rows"]
+        assert len(rows) == 2  # unresolved excluded
+        assert rows[0]["date"] == "2026-01-01"
+        assert rows[0]["hit"] == 1
+        assert rows[1]["hit"] == 0
+        assert rows[1]["actual_binary"] == 0
+
+    def test_last_resolved_bad_ticker(self, flask_client):
+        client, _ = flask_client
+        resp = client.get("/api/last-resolved?ticker=ZZZZ")
+        assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# Ensemble calibration: method picker + smooth probabilities
+# --------------------------------------------------------------------------
+
+class TestCalibrationMethodPicker:
+    def test_small_val_uses_sigmoid(self):
+        from scripts.build_ensemble import _pick_calibration_method, CAL_ISOTONIC_MIN_ROWS
+        assert _pick_calibration_method(CAL_ISOTONIC_MIN_ROWS - 1) == "sigmoid"
+        assert _pick_calibration_method(100) == "sigmoid"
+
+    def test_large_val_uses_isotonic(self):
+        from scripts.build_ensemble import _pick_calibration_method, CAL_ISOTONIC_MIN_ROWS
+        assert _pick_calibration_method(CAL_ISOTONIC_MIN_ROWS) == "isotonic"
+        assert _pick_calibration_method(10_000) == "isotonic"
+
+    def test_sigmoid_produces_smooth_probabilities(self):
+        """Sigmoid calibration should give non-degenerate (std>0.05),
+        many-valued output even with a tree-based raw classifier."""
+        import numpy as np
+        from sklearn.ensemble import HistGradientBoostingClassifier
+        from scripts.build_ensemble import _make_prefit_calibrator
+
+        rng = np.random.default_rng(42)
+        X = rng.normal(size=(400, 5))
+        y = (X[:, 0] + 0.3 * X[:, 1] + rng.normal(scale=0.5, size=400) > 0).astype(int)
+
+        raw = HistGradientBoostingClassifier(max_depth=3, max_iter=100, random_state=42)
+        raw.fit(X, y)
+
+        cal = _make_prefit_calibrator(raw, method="sigmoid")
+        cal.fit(X, y)
+        proba = cal.predict_proba(X)[:, 1]
+        assert proba.std() > 0.05
+        # smooth = many distinct values (not collapsed into 2-3 plateaus)
+        assert len(np.unique(np.round(proba, 4))) > 50
+
+
+# --------------------------------------------------------------------------
+# LSTM calibration: small val should fall back to sigmoid (Platt)
+# --------------------------------------------------------------------------
+
+class TestLSTMCalibrationFallback:
+    def _make_trainer(self, seed: int = 0):
+        import torch
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        model = StockLSTM(input_size=4, hidden_sizes=[4, 4], dropout=0.0)
+        trainer = LSTMTrainer(model, config={
+            "learning_rate": 0.01, "weight_decay": 0.0,
+            "batch_size": 8, "epochs": 1,
+            "lstm_units": [4, 4], "dropout": 0.0,
+        })
+        return trainer
+
+    def test_small_val_uses_sigmoid(self):
+        from src.models.lstm_model import CAL_ISOTONIC_MIN_ROWS, _SigmoidCalibrator
+        trainer = self._make_trainer(seed=1)
+        n = 128
+        assert n < CAL_ISOTONIC_MIN_ROWS
+        X_val = np.random.randn(n, 3, 4).astype(np.float32)
+        y_val = np.random.randint(0, 2, size=n).astype(np.float32)
+        trainer.fit_calibration(X_val, y_val)
+        assert trainer.calibration_method == "sigmoid"
+        assert isinstance(trainer.calibrator, _SigmoidCalibrator)
+
+    def test_sigmoid_produces_smooth_output(self):
+        """Calibrated output should stay smooth - i.e. many distinct values -
+        and not collapse into the handful of plateaus isotonic would give."""
+        trainer = self._make_trainer(seed=2)
+        n = 256
+        X_val = np.random.randn(n, 3, 4).astype(np.float32)
+        y_val = (np.random.randn(n) > 0).astype(np.float32)
+        trainer.fit_calibration(X_val, y_val)
+        cal = trainer.predict_proba(X_val, apply_calibration=True)
+        assert len(np.unique(np.round(cal, 4))) > 50
+
+    def test_calibration_method_survives_save_load(self, tmp_path):
+        from src.models.lstm_model import _SigmoidCalibrator
+        trainer = self._make_trainer(seed=3)
+        X_val = np.random.randn(64, 3, 4).astype(np.float32)
+        y_val = np.random.randint(0, 2, size=64).astype(np.float32)
+        trainer.fit_calibration(X_val, y_val)
+        path = tmp_path / "lstm.pt"
+        trainer.save(path)
+        loaded = LSTMTrainer.load(path, input_size=4)
+        assert loaded.calibration_method == "sigmoid"
+        assert isinstance(loaded.calibrator, _SigmoidCalibrator)
