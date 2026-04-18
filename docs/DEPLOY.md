@@ -8,6 +8,7 @@ long-lived processes and a persistent volume).
 
 ## 1. Files that make deployment possible
 
+- `app/static/icons/` — favicons and `site.webmanifest` (tab icon + “Add to Home Screen” on mobile). Same URLs work on **Render** and any custom domain (e.g. `stock.raphaelkaramagi.com`): Flask serves `/static/...` from the container image. This is independent of **Vercel** (your root/www/ASL projects use Vercel’s own icons there).
 - `Dockerfile` — production image, Python 3.11 slim, pins `HF_HOME` so the
   FinBERT and MiniLM caches survive restarts.
 - `Procfile` — Heroku/Railway-style process definition.

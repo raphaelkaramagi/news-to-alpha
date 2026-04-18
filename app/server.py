@@ -9,6 +9,8 @@ Routes
   GET  /                             -> configure landing page
   GET  /dashboard                    -> interactive dashboard
   GET  /admin                        -> training / reset controls
+  GET  /favicon.ico                  -> redirect to static favicon (tab icon)
+  GET  /static/icons/*               -> favicons, apple-touch-icon, web manifest
   GET  /healthz                      -> liveness
   GET  /api/data-status              -> freshness summary for header chip
   POST /api/data/refresh             -> fast refresh (collect + rebuild ensemble, no retraining)
@@ -42,7 +44,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, redirect, render_template, request, url_for
 
 _APP_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _APP_DIR.parent
@@ -101,6 +103,12 @@ MODEL_ARTIFACTS: dict[str, list[Path]] = {
 
 app = Flask(__name__, template_folder=str(_APP_DIR / "templates"))
 jobs = JobRegistry(project_root=_PROJECT_ROOT)
+
+
+@app.route("/favicon.ico")
+def favicon_ico():
+    """Browsers request /favicon.ico by default; point at our PNG set."""
+    return redirect(url_for("static", filename="icons/favicon-32x32.png"), code=302)
 
 
 # ----------------------------------------------------------------------------
