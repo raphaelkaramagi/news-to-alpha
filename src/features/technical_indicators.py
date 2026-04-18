@@ -12,6 +12,8 @@ Price-derived signals (per ticker):
 - atr_14, atr_rel (ATR / close) - realized intra-day range
 - obv            - on-balance volume
 - realized_vol_20 - 20-day annualized std of log returns
+- volume_zscore_20 - 20-day rolling z-score of raw volume
+- excess_return  - daily_return - market_return (idiosyncratic move)
 
 Market-wide regime (same value for every ticker on a given date):
 - market_return        - SPY daily_return
@@ -73,7 +75,9 @@ class TechnicalIndicators:
         df = self._add_atr(df)
         df = self._add_obv(df)
         df = self._add_realized_vol(df)
+        df = self._add_volume_zscore(df)
         df = self._merge_market_features(df)
+        df = self._add_excess_return(df)
         df = self._add_derived_ratios(df)
 
         return df
@@ -167,6 +171,29 @@ class TechnicalIndicators:
         log_ret = np.log(df["close"] / df["close"].shift(1))
         df["realized_vol_20"] = (
             log_ret.rolling(window=period).std() * np.sqrt(252) * 100
+        )
+        return df
+
+    @staticmethod
+    def _add_volume_zscore(df: pd.DataFrame, period: int = 20) -> pd.DataFrame:
+        """20-day rolling z-score of raw volume (centered, unitless).
+
+        More informative than volume_ratio when variance is large: catches
+        genuine volume shocks while dampening small fluctuations.
+        """
+        mean = df["volume"].rolling(window=period).mean()
+        std = df["volume"].rolling(window=period).std().replace(0, np.nan)
+        df["volume_zscore_20"] = (df["volume"] - mean) / std
+        return df
+
+    @staticmethod
+    def _add_excess_return(df: pd.DataFrame) -> pd.DataFrame:
+        """daily_return minus SPY's daily_return - idiosyncratic move (% units)."""
+        if "market_return" not in df.columns:
+            df["excess_return"] = df.get("daily_return", 0.0)
+            return df
+        df["excess_return"] = (
+            df["daily_return"].fillna(0.0) - df["market_return"].fillna(0.0)
         )
         return df
 

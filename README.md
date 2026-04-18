@@ -93,12 +93,35 @@ The app serves three routes:
 | Route        | Purpose                                                       |
 |--------------|---------------------------------------------------------------|
 | `/`          | Landing / configure page — pick a preset and run the pipeline |
-| `/dashboard` | Interactive dashboard: rewind slider, rationale, headline cards, confidence buckets |
+| `/dashboard` | Interactive dashboard (see below)                             |
 | `/admin`     | Per-model retrain / reset controls                            |
 
-Keyboard shortcuts in `/dashboard`: `←`/`→` cycle tickers, `1..4` switch
-model (ensemble / lstm / tfidf / embeddings), `r` opens the reconfigure
-drawer, `Esc` closes it.
+The header on every page links **Home** (`/`) ↔ **Admin** (`/admin`), and the
+`Reconfigure` button opens a drawer to re-run the pipeline without leaving the
+dashboard.
+
+The dashboard is organised top-to-bottom as:
+
+1. **Hero row** — ticker + model selectors, the latest call, and a
+   "Last resolved call" card with a 7-dot hit/miss history strip.
+2. **Price & prediction chart** with a vertical date marker driven by the
+   rewind slider below it. An "all-up" chip appears above the chart on dates
+   where every ticker is predicted bullish.
+3. **Rewind slider** — moves the chart marker and updates the latest-call card,
+   headlines, rationale, and all-up chip.
+4. **Tabs** — `Headlines`, `Why this call`, `Accuracy & history`, and
+   `Reliability`.
+   - The Reliability tab plots calibration (predicted confidence vs empirical
+     accuracy) and a histogram of the ensemble's predicted probabilities so
+     plateau bands are visible at a glance.
+
+Confidence in the latest-call card now shows the *empirical* win-rate at that
+confidence level (sourced from `evaluation_by_confidence.csv`) alongside the
+`|p-0.5|*2` score.
+
+Keyboard shortcuts: `←`/`→` cycle tickers, `1..4` switch model
+(ensemble / lstm / tfidf / embeddings), `r` opens the reconfigure drawer,
+`Esc` closes it.
 
 All scripts accept `--help` for full options.
 
@@ -127,7 +150,7 @@ configure-and-run flow and a rich interactive dashboard:
 | LSTM (`lstm_price`) | 60-day scaled price + ~20 indicators + ticker embed, **seed ensemble + isotonic calibration + BCE pos_weight**  |
 | TF-IDF              | TF-IDF bigrams over headlines **+ content snippet**, publisher one-hot, **Finnhub sentiment/relevance** |
 | Embeddings          | MiniLM / optional FinBERT embeddings **relevance-weighted pooled**, + publisher + side features |
-| Ensemble            | **HistGradientBoosting** meta-model over 10 features (base probas, confidences, `has_news`, `n_headlines`, `spy_return_5d`, `all_agree`) + isotonic + temperature scaling |
+| Ensemble            | **HistGradientBoosting** meta-model over 10 features (base probas, confidences, `has_news`, `n_headlines`, `spy_return_5d`, `all_agree`) + adaptive calibration (isotonic above ≥2k val rows, else sigmoid) + temperature scaling |
 
 New knobs you can tune end-to-end:
 

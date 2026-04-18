@@ -30,6 +30,42 @@ from src.config import LSTM_CONFIG
 logger = logging.getLogger(__name__)
 
 
+# Below this validation-set size, fitting an isotonic step function on a
+# seed-averaged LSTM collapses the calibrated output into a handful of
+# plateaus. Use sigmoid (Platt) scaling instead when val is small.
+CAL_ISOTONIC_MIN_ROWS = 2000
+
+
+class _SigmoidCalibrator:
+    """Single-parameter Platt-style calibration: p_cal = sigmoid(a * logit(p) + b).
+
+    Exposes a `.predict(x)` method so callers can use it interchangeably
+    with `sklearn.isotonic.IsotonicRegression`.
+    """
+
+    def __init__(self) -> None:
+        self._clf = None
+
+    @staticmethod
+    def _to_logit(p: np.ndarray) -> np.ndarray:
+        p = np.clip(np.asarray(p, dtype=float), 1e-6, 1 - 1e-6)
+        return np.log(p / (1 - p)).reshape(-1, 1)
+
+    def fit(self, raw_probs: np.ndarray, y: np.ndarray) -> "_SigmoidCalibrator":
+        from sklearn.linear_model import LogisticRegression
+        X = self._to_logit(raw_probs)
+        clf = LogisticRegression(C=1.0, max_iter=500)
+        clf.fit(X, np.asarray(y).astype(int))
+        self._clf = clf
+        return self
+
+    def predict(self, raw_probs: np.ndarray) -> np.ndarray:
+        if self._clf is None:
+            return np.asarray(raw_probs, dtype=float)
+        X = self._to_logit(raw_probs)
+        return self._clf.predict_proba(X)[:, 1]
+
+
 class StockLSTM(nn.Module):
     """Stacked 2-layer LSTM with optional learned ticker embedding."""
 
@@ -123,6 +159,7 @@ class LSTMTrainer:
         self.ticker_to_idx = ticker_to_idx or {}
         self.scaler_state = scaler_state
         self.calibrator = None
+        self.calibration_method: str | None = None
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray,
               X_val: np.ndarray, y_val: np.ndarray,
@@ -217,18 +254,34 @@ class LSTMTrainer:
 
     def fit_calibration(self, X_val: np.ndarray, y_val: np.ndarray,
                         tidx_val: np.ndarray | None = None) -> None:
-        """Fit an isotonic regression on val probabilities -> calibrated prob."""
-        from sklearn.isotonic import IsotonicRegression
+        """Fit a calibrator on val probabilities -> calibrated prob.
+
+        Uses isotonic regression when the validation set is large, sigmoid
+        (Platt scaling) when it's small. Isotonic is a step function: given
+        only a few hundred labeled val rows from a seed-averaged LSTM it
+        collapses the output into a handful of plateaus (e.g. 96% of rows
+        landing on exactly p=0.541). Sigmoid is a smooth 2-parameter fit
+        and produces continuous, informative confidences.
+        """
         if len(X_val) == 0:
             self.calibrator = None
+            self.calibration_method = None
             return
         raw = self.predict_proba(X_val, tidx_val, apply_calibration=False)
         if len(np.unique(y_val)) < 2:
             self.calibrator = None
+            self.calibration_method = None
             return
-        cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-        cal.fit(raw, y_val.astype(float))
-        self.calibrator = cal
+
+        if len(raw) >= CAL_ISOTONIC_MIN_ROWS:
+            from sklearn.isotonic import IsotonicRegression
+            cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+            cal.fit(raw, y_val.astype(float))
+            self.calibrator = cal
+            self.calibration_method = "isotonic"
+        else:
+            self.calibrator = _SigmoidCalibrator().fit(raw, y_val.astype(int))
+            self.calibration_method = "sigmoid"
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -244,6 +297,7 @@ class LSTMTrainer:
             "scaler_state": self.scaler_state,
             "pos_weight": self.pos_weight,
             "calibrator": self.calibrator,
+            "calibration_method": self.calibration_method,
         }, path)
         logger.info("Model saved to %s", path)
 
@@ -271,6 +325,7 @@ class LSTMTrainer:
         )
         trainer.history = checkpoint.get("history", {})
         trainer.calibrator = checkpoint.get("calibrator")
+        trainer.calibration_method = checkpoint.get("calibration_method")
         return trainer
 
     def _train_epoch(self, loader: DataLoader) -> tuple[float, float]:

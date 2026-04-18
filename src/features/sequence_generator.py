@@ -41,6 +41,8 @@ SCALE_INVARIANT_FEATURES: list[str] = [
     "realized_vol_20",
     "market_return",
     "market_return_5d",
+    "excess_return",
+    "volume_zscore_20",
 ]
 
 LEVEL_FEATURES: list[str] = [

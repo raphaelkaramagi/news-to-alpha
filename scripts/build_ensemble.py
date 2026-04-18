@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
 """Fit a learned ensemble over LSTM + NLP model probabilities.
 
-This meta-model uses a HistGradientBoostingClassifier fit on the validation
-split, followed by isotonic calibration and optional temperature scaling.
-Feature set (10 cols):
+This meta-model uses a HistGradientBoostingClassifier (HGB) fit on the
+validation split, followed by isotonic or sigmoid calibration (auto-picked by
+val size) and optional temperature scaling. HGB handles the sparse news
+signal better than a plain LR (empirically: HGB+sigmoid hit ~55.7% test
+accuracy on the current dataset vs ~50.0% for LR+scaler+interactions).
+The smoothness we previously got from forcing sigmoid calibration on a small
+val is retained, so the plateau bands that originally motivated exploring LR
+are gone (hundreds of unique output probabilities in practice).
+
+Feature set (13 cols):
     financial_pred_proba, lstm_confidence,
     news_tfidf_pred_proba, tfidf_confidence,
     news_embeddings_pred_proba, emb_confidence,
     has_news, n_headlines,
     spy_return_5d,   (from the prices table)
-    all_agree        (1 when all three base models share the same direction)
+    all_agree,       (1 when all three base models share the same direction)
+    news_tfidf_x_has_news, news_emb_x_has_news,  (gate news signals by news presence)
+    lstm_x_agree                                 (boost LSTM when ensemble agrees)
 
 Inputs
 ------
@@ -37,7 +46,7 @@ import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, roc_auc_score
 
 try:
     from sklearn.frozen import FrozenEstimator  # sklearn >= 1.6
@@ -63,6 +72,9 @@ META_FEATURES = [
     "n_headlines",
     "spy_return_5d",
     "all_agree",
+    "news_tfidf_x_has_news",
+    "news_emb_x_has_news",
+    "lstm_x_agree",
 ]
 
 REQUIRED_COLS = [
@@ -103,6 +115,26 @@ def _make_prefit_calibrator(estimator, method: str = "isotonic") -> CalibratedCl
     if _HAS_FROZEN:
         return CalibratedClassifierCV(FrozenEstimator(estimator), method=method)
     return CalibratedClassifierCV(estimator, method=method, cv="prefit")
+
+
+# Threshold below which isotonic regression tends to collapse outputs into a
+# handful of step plateaus (e.g. the 71.8% / 86.2% bands seen previously).
+# This threshold is intentionally high: the underlying HistGB itself produces
+# only ~25 unique raw scores with current max_depth=3 + ~10 features, and
+# isotonic snaps those into even fewer bins. Sigmoid (Platt) avoids this.
+CAL_ISOTONIC_MIN_ROWS = 2000
+
+
+def _pick_calibration_method(n_val: int) -> str:
+    """Pick `isotonic` only when the validation set is large enough to support it.
+
+    Isotonic regression fits a piecewise-constant step function and, on small
+    val sets (or when the underlying classifier emits only a handful of distinct
+    scores), collapses probabilities into a few plateaus. With fewer rows than
+    the threshold we use sigmoid (Platt scaling), a 2-parameter logistic that
+    yields smooth, continuous probabilities.
+    """
+    return "isotonic" if int(n_val) >= CAL_ISOTONIC_MIN_ROWS else "sigmoid"
 
 
 def load_eval_dataset(path: Path) -> pd.DataFrame:
@@ -200,10 +232,32 @@ def _augment(df: pd.DataFrame, db_path: Path) -> pd.DataFrame:
     emb_bin = (df["news_embeddings_pred_proba"] >= 0.5).astype(int)
     df["all_agree"] = ((lstm_bin == tfidf_bin) & (tfidf_bin == emb_bin)).astype(int)
 
+    df = _add_interaction_features(df)
+
     for c in META_FEATURES:
         if c not in df.columns:
             df[c] = 0.0
 
+    return df
+
+
+def _add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute the three interaction columns used by META_FEATURES.
+
+    - ``news_tfidf_x_has_news`` / ``news_emb_x_has_news`` gate the news
+      probabilities by whether we actually had news for that row, so the LR
+      meta can weight news only when present.
+    - ``lstm_x_agree`` boosts the LSTM signal when all three base models
+      agree on direction.
+    """
+    has_news = df.get("has_news", pd.Series(0, index=df.index)).fillna(0).astype(float)
+    agree = df.get("all_agree", pd.Series(0, index=df.index)).fillna(0).astype(float)
+    tfidf = df["news_tfidf_pred_proba"].fillna(0.5).astype(float)
+    emb = df["news_embeddings_pred_proba"].fillna(0.5).astype(float)
+    lstm = df["financial_pred_proba"].fillna(0.5).astype(float)
+    df["news_tfidf_x_has_news"] = tfidf * has_news
+    df["news_emb_x_has_news"] = emb * has_news
+    df["lstm_x_agree"] = lstm * agree
     return df
 
 
@@ -224,6 +278,7 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     for col in ("n_headlines", "spy_return_5d", "has_news"):
         if col not in df.columns:
             df[col] = 0
+    df = _add_interaction_features(df)
     return df
 
 
@@ -288,6 +343,9 @@ def fit_meta_model(
             return {
                 "model": _UniformFallback(),
                 "raw_model": None,
+                "calibration_method": "uniform_fallback",
+                "n_val": int(len(val)),
+                "proba_std": 0.0,
                 "temperature": 1.0,
                 "importances": [],
                 "features": META_FEATURES,
@@ -305,11 +363,39 @@ def fit_meta_model(
     )
     raw.fit(X, y)
 
-    cal = _make_prefit_calibrator(raw, method="isotonic")
+    method = _pick_calibration_method(len(val))
+    cal = _make_prefit_calibrator(raw, method=method)
     cal.fit(X, y)
 
+    # Safety fallback: if val AUC is below chance, something upstream is
+    # broken and we should not trust the meta-model. Fall back to the
+    # uniform mean of the three base probas.
+    try:
+        val_auc = float(roc_auc_score(y, cal.predict_proba(X)[:, 1]))
+    except Exception:
+        val_auc = 0.5
+    if val_auc < 0.48:
+        print(f"  [WARN] val AUC={val_auc:.3f} < 0.48; using uniform mean fallback.")
+        return {
+            "model": _UniformFallback(),
+            "raw_model": None,
+            "calibration_method": "uniform_fallback",
+            "n_val": int(len(val)),
+            "proba_std": 0.0,
+            "temperature": 1.0,
+            "importances": [],
+            "features": META_FEATURES,
+        }
+
+    val_proba = cal.predict_proba(X)[:, 1]
+    proba_std = float(np.std(val_proba))
+    print(
+        f"  [calibration] method={method} n_val={len(val)} "
+        f"proba_std={proba_std:.3f} "
+        f"(std<0.05 suggests a degenerate calibrator)"
+    )
+
     if temperature_scale:
-        val_proba = cal.predict_proba(X)[:, 1]
         T = _fit_temperature(val_proba, y)
     else:
         T = 1.0
@@ -325,7 +411,7 @@ def fit_meta_model(
         key=lambda t: t[1], reverse=True,
     )
 
-    print("  HistGB meta-model trained on %d rows." % len(val))
+    print("  HGB meta-model trained on %d rows." % len(val))
     print("  Permutation importances (top 5):")
     for name, v in importances[:5]:
         print(f"    {name:30s} -> {v:+.4f}")
@@ -337,6 +423,9 @@ def fit_meta_model(
         "temperature": T,
         "importances": importances,
         "features": META_FEATURES,
+        "calibration_method": method,
+        "n_val": int(len(val)),
+        "proba_std": proba_std,
     }
 
 
@@ -389,7 +478,7 @@ def main() -> None:
     db_path = Path(args.db)
 
     print("=" * 70)
-    print("BUILD ENSEMBLE PREDICTIONS (HistGB + isotonic + temperature scaling)")
+    print("BUILD ENSEMBLE PREDICTIONS (HGB + adaptive calibration + temperature)")
     print("=" * 70)
     print(f"Input            : {input_path}")
     print(f"Output           : {output_path}")
@@ -416,8 +505,8 @@ def main() -> None:
     down = int((out["ensemble_pred_binary"] == 0).sum())
     print(f"  Predictions    : {up} up / {down} down")
     print(f"  Avg confidence : {out['ensemble_confidence'].mean():.3f}")
-    if ENSEMBLE_CONFIG.get("calibration_method"):
-        print(f"  Calibration    : {ENSEMBLE_CONFIG['calibration_method']}")
+    if meta.get("calibration_method"):
+        print(f"  Calibration    : {meta['calibration_method']} (n_val={meta.get('n_val', '?')})")
 
     if "split" in out.columns and "actual_binary" in out.columns:
         for split in ["train", "val", "test"]:

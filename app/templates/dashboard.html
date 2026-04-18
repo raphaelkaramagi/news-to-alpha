@@ -28,9 +28,11 @@
       min-height: 100vh;
     }
     .app { max-width: 1280px; margin: 0 auto; padding: 24px; }
+
+    /* ---------------- Header ---------------- */
     header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 0 24px;
+      padding: 8px 0 20px;
     }
     .brand { display: flex; align-items: center; gap: 12px; }
     .brand .mark {
@@ -40,10 +42,25 @@
     }
     .brand h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
     .brand p  { margin: 0; color: var(--text-dim); font-size: 12px; }
+    .nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .nav-link {
+      color: var(--text-dim); text-decoration: none; font-size: 13px;
+      padding: 6px 10px; border-radius: 8px;
+    }
+    .nav-link:hover { color: var(--text); background: var(--panel-2); }
+    .date-chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 12px; border-radius: 999px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      font-size: 12px; color: var(--text-dim);
+    }
+    .date-chip strong { color: var(--accent-2); font-family: 'SF Mono', ui-monospace, monospace; font-weight: 700; }
+    .date-chip .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2);
+    }
 
-    .layout { display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-
+    /* ---------------- Shared ---------------- */
     .panel {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -52,58 +69,246 @@
     }
     .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
       color: var(--text-dim); margin: 0 0 12px; font-weight: 600; }
+    .muted { color: var(--text-dim); }
+    .row-flex { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .btn {
+      background: var(--accent); color: white; border: 0; padding: 7px 12px;
+      border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600;
+    }
+    .btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn[disabled] { opacity: .5; cursor: not-allowed; }
+    kbd {
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1px 6px; font-family: 'SF Mono', ui-monospace, monospace;
+      font-size: 11px; color: var(--text);
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
+      font-size: 11px; background: rgba(0,0,0,.2);
+    }
+    .chip.pos { color: var(--up); border-color: rgba(16,185,129,.4); }
+    .chip.neg { color: var(--down); border-color: rgba(239,68,68,.4); }
+    .chip.neu { color: var(--text-dim); }
 
-    /* Sidebar */
-    .sidebar { display: flex; flex-direction: column; gap: 16px; }
-    .ticker-list { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+    /* ---------------- Hero ---------------- */
+    .hero {
+      display: grid; grid-template-columns: 320px 1fr 320px;
+      gap: 16px; margin-bottom: 16px;
+    }
+    @media (max-width: 1050px) {
+      .hero { grid-template-columns: 1fr; }
+    }
+
+    /* Ticker + model controls */
+    .controls-card { display: flex; flex-direction: column; gap: 14px; }
+    .controls-card .lbl {
+      font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .8px;
+      margin-bottom: 6px;
+    }
+    .ticker-list { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
     .ticker-btn {
       background: var(--panel-2); border: 1px solid var(--border);
-      color: var(--text); padding: 8px; border-radius: 8px; cursor: pointer;
-      font-weight: 600; font-size: 12px; transition: transform .05s ease, border-color .12s ease;
+      color: var(--text); padding: 7px 4px; border-radius: 8px; cursor: pointer;
+      font-weight: 600; font-size: 12px;
     }
     .ticker-btn:hover { border-color: var(--accent); }
     .ticker-btn.active {
       background: linear-gradient(135deg, rgba(99,102,241,.25), rgba(34,211,238,.18));
       border-color: var(--accent);
     }
-
-    /* Model switcher */
     .switcher { display: flex; flex-wrap: wrap; gap: 6px; }
     .model-btn {
       background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
-      padding: 7px 11px; border-radius: 999px; cursor: pointer; font-size: 12px;
+      padding: 6px 11px; border-radius: 999px; cursor: pointer; font-size: 12px;
     }
     .model-btn.active { background: var(--accent); border-color: var(--accent); }
 
-    /* Headline prediction */
-    .headline-card {
-      display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px;
-      padding: 18px 20px; background: var(--panel-2);
-      border: 1px solid var(--border); border-radius: 14px; margin-bottom: 16px;
+    /* Latest call card */
+    .call-card { display: flex; flex-direction: column; gap: 6px; }
+    .call-head {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
     }
+    .call-title { font-size: 20px; font-weight: 700; }
+    .call-sub { color: var(--text-dim); font-size: 12px; }
     .direction {
       padding: 10px 16px; border-radius: 10px; font-weight: 700; font-size: 16px;
-      min-width: 140px; text-align: center;
+      min-width: 120px; text-align: center;
     }
     .direction.up   { color: var(--up);   background: rgba(16,185,129,.12); border: 1px solid rgba(16,185,129,.35); }
     .direction.down { color: var(--down); background: rgba(239,68,68,.12);  border: 1px solid rgba(239,68,68,.35); }
+    .direction.unk  { color: var(--text-dim); background: rgba(255,255,255,.03); border: 1px solid var(--border); }
     .conf-bar { width: 100%; height: 6px; background: #0a0f1f; border-radius: 3px; overflow: hidden; margin-top: 8px; }
-    .conf-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+    .conf-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .2s ease; }
+    .conf-line { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+    .conf-line .empirical { color: var(--text); font-weight: 600; }
 
-    /* Per-model grid */
+    /* Prediction vs Actual card */
+    .pva { display: flex; flex-direction: column; gap: 10px; }
+    .pva-status {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 10px;
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    .pva-status.hit     { border-color: rgba(16,185,129,.5); background: rgba(16,185,129,.08); }
+    .pva-status.miss    { border-color: rgba(239,68,68,.5);  background: rgba(239,68,68,.08); }
+    .pva-status.pending { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.05); }
+    .pva-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border-radius: 50%;
+      font-size: 15px; font-weight: 700; color: var(--text);
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    .pva-badge.hit     { background: var(--up);   border-color: var(--up);   color: #fff; }
+    .pva-badge.miss    { background: var(--down); border-color: var(--down); color: #fff; }
+    .pva-badge.pending { background: var(--warn); border-color: var(--warn); color: #fff; }
+    .pva-status-text { font-weight: 700; font-size: 13.5px; }
+    .pva-status-text .sub { display: block; font-weight: 400; color: var(--text-dim); font-size: 11.5px; margin-top: 1px; }
+
+    .pva-split {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+    .pva-col {
+      padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .pva-label { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .6px; }
+    .pva-val { font-weight: 700; font-size: 14px; margin-top: 2px; }
+    .pva-val.up   { color: var(--up); }
+    .pva-val.down { color: var(--down); }
+    .pva-val.pending { color: var(--warn); }
+    .pva-return { font-size: 11.5px; margin-top: 2px; font-family: 'SF Mono', ui-monospace, monospace; }
+    .pva-return.pos { color: var(--up); }
+    .pva-return.neg { color: var(--down); }
+
+    .dot-strip { display: flex; gap: 6px; margin-top: 6px; }
+    .hit-dot {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--panel-2); border: 1px solid var(--border);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: transparent;
+      cursor: pointer;
+    }
+    .hit-dot.hit  { background: var(--up);   border-color: rgba(16,185,129,.5); color: #fff; }
+    .hit-dot.miss { background: var(--down); border-color: rgba(239,68,68,.5);  color: #fff; }
+    .hit-dot.current { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+
+    /* Rewind card */
+    .rewind-card { background: linear-gradient(180deg, rgba(34,211,238,.06), var(--panel)); }
+    .rewind-head {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+      margin-bottom: 10px;
+    }
+    .rewind-cur { text-align: right; }
+    .rewind-cur-val {
+      font-family: 'SF Mono', ui-monospace, monospace; font-size: 18px; font-weight: 700;
+      color: var(--accent-2);
+    }
+    .rewind-quick { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+    .btn-small { padding: 4px 10px; font-size: 11px; }
+
+    /* Per-model mini grid (unchanged) */
     .per-model-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 10px; margin-top: 12px;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(130px,1fr)); gap: 8px; margin-top: 10px;
     }
     .mini {
-      padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+      padding: 9px 11px; border: 1px solid var(--border); border-radius: 10px;
       background: rgba(0,0,0,.15);
     }
-    .mini .name { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
-    .mini .val  { font-size: 15px; font-weight: 700; margin-top: 4px; }
-    .mini .sub  { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+    .mini .name { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; }
+    .mini .val  { font-size: 14px; font-weight: 700; margin-top: 3px; }
+    .mini .sub  { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; }
+
+    /* Configurable accuracy window */
+    .accsum-summary {
+      display: grid; grid-template-columns: 120px 1fr; grid-template-rows: auto auto; gap: 6px 14px;
+      align-items: center; margin-bottom: 10px;
+    }
+    .accsum-big {
+      grid-row: 1 / span 2; font-size: 34px; font-weight: 800; line-height: 1; color: var(--accent-2);
+      font-family: 'SF Mono', ui-monospace, monospace;
+    }
+    .accsum-sub { font-size: 12.5px; color: var(--text-dim); }
+    .accsum-bar-wrap {
+      grid-column: 2; position: relative; height: 10px; border-radius: 6px;
+      background: var(--panel-2); border: 1px solid var(--border); overflow: hidden;
+    }
+    .accsum-bar {
+      position: absolute; inset: 0 auto 0 0;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width .35s ease;
+    }
+    .accsum-baseline {
+      position: absolute; left: 50%; top: -3px; bottom: -3px;
+      width: 1px; background: rgba(255,255,255,.35);
+    }
+    .accsum-legend { grid-column: 2; font-size: 11px; display: flex; gap: 12px; }
+    .accsum-legend .lg {
+      display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      margin-right: 4px; vertical-align: middle; border: 1px solid var(--border);
+    }
+    .accsum-legend .lg.up   { background: var(--up); }
+    .accsum-legend .lg.down { background: var(--down); }
+    .accsum-legend .lg.unk  { background: var(--panel-2); }
+    .accsum-strip {
+      display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px;
+      max-height: 120px; overflow-y: auto; padding: 4px 2px;
+    }
+    .accsum-dot {
+      width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border);
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; color: #fff; font-weight: 700; cursor: pointer;
+      background: var(--panel-2);
+    }
+    .accsum-dot.hit  { background: var(--up);   border-color: rgba(16,185,129,.5); }
+    .accsum-dot.miss { background: var(--down); border-color: rgba(239,68,68,.5); }
+    .accsum-dot.current { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+
+    /* Header nav jumps (section shortcuts) */
+    .nav-jumps {
+      display: flex; gap: 4px; flex-wrap: wrap;
+      padding: 3px; border-radius: 999px;
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    .nav-jump {
+      padding: 5px 11px; border-radius: 999px; cursor: pointer;
+      font-size: 12px; color: var(--text-dim); white-space: nowrap;
+      background: transparent; border: 0;
+    }
+    .nav-jump:hover { color: var(--text); background: rgba(255,255,255,.04); }
+    .nav-jump.active { color: var(--text); background: var(--panel); box-shadow: 0 0 0 1px var(--accent-2); }
+    .nav-sep {
+      width: 1px; align-self: stretch; background: var(--border); margin: 0 4px;
+    }
+
+    /* Data freshness chip */
+    .data-chip {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 10px; border-radius: 999px;
+      background: var(--panel-2); border: 1px solid var(--border);
+      color: var(--text-dim); font-size: 11.5px;
+    }
+    .data-chip strong { color: var(--text); font-family: 'SF Mono', ui-monospace, monospace; }
+    .data-chip.stale { border-color: rgba(245,158,11,.45); color: #fde68a; }
+    .data-chip.stale strong { color: #fde68a; }
+    .data-chip-refresh {
+      cursor: pointer; border: 0; background: transparent; color: inherit;
+      padding: 0 2px; font-size: 13px;
+    }
+    .data-chip-refresh:hover { color: var(--accent-2); }
+
+    /* Jump chips in the Latest Call card */
+    .call-jumps { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    .jump-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 10px; border-radius: 999px; font-size: 11.5px;
+      background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim);
+      cursor: pointer;
+    }
+    .jump-chip:hover { color: var(--text); border-color: var(--accent-2); }
 
     /* Chart */
-    .chart-box { position: relative; height: 380px; margin-top: 8px; }
+    .chart-box { position: relative; height: 340px; margin-top: 8px; }
     .range-btns { display: flex; gap: 6px; justify-content: flex-end; }
     .range-btn {
       background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
@@ -111,37 +316,91 @@
     }
     .range-btn.active { background: var(--accent); border-color: var(--accent); }
 
-    /* Headlines list */
-    .headlines ul { margin: 0; padding: 0 0 0 18px; color: var(--text); }
-    .headlines li { margin: 6px 0; color: var(--text-dim); }
+    /* Rewind */
+    .rewind { display: grid; grid-template-columns: 90px 1fr 90px; gap: 10px; align-items: center; }
+    .rewind input[type=range] { width: 100%; accent-color: var(--accent-2); }
+    .rewind .curdate { text-align: center; font-weight: 600; color: var(--accent-2); font-size: 13px; }
+    .rewind .edge { font-size: 11px; color: var(--text-dim); font-family: 'SF Mono', ui-monospace, monospace; }
+    .rewind .edge.right { text-align: right; }
 
-    /* Metrics */
-    .metrics-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .metrics-table th, .metrics-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
-    .metrics-table th { color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; font-size: 11px; }
-    .metric-cell { font-weight: 600; }
+    /* Tabs */
+    .tabs { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+    .tab-btn {
+      background: var(--panel); border: 1px solid var(--border); color: var(--text-dim);
+      padding: 8px 14px; border-radius: 10px 10px 0 0; cursor: pointer; font-size: 13px;
+      font-weight: 600; border-bottom: 1px solid transparent;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      background: var(--panel); color: var(--text);
+      border-color: var(--border); border-bottom-color: var(--panel);
+      position: relative; top: 1px;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
 
-    /* Controls */
-    details.controls { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; }
-    details.controls > summary { cursor: pointer; padding: 14px 16px; font-weight: 600; list-style: none; }
-    details.controls[open] > summary { border-bottom: 1px solid var(--border); }
-    .controls-body { padding: 16px; display: grid; grid-template-columns: repeat(2,1fr); gap: 20px; }
-    .control-group { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-    .control-group h3 { margin: 0 0 10px; font-size: 13px; }
-    .control-row { display: grid; grid-template-columns: 120px 1fr; gap: 6px; margin-bottom: 6px; align-items: center; }
-    .control-row label { color: var(--text-dim); font-size: 12px; }
-    .control-row input {
-      background: var(--bg); color: var(--text); border: 1px solid var(--border);
-      padding: 6px 8px; border-radius: 6px; font-size: 12px;
+    /* Headline cards */
+    .hcard {
+      display: grid; grid-template-columns: 1fr auto; gap: 10px;
+      padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 12px; margin-bottom: 8px; text-decoration: none; color: inherit;
+      transition: border-color .12s ease, transform .05s ease;
     }
-    .control-buttons { display: flex; gap: 6px; margin-top: 10px; }
-    .btn {
-      background: var(--accent); color: white; border: 0; padding: 7px 12px;
-      border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600;
+    .hcard:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .hcard .htitle { font-weight: 600; font-size: 13.5px; line-height: 1.35; }
+    .hcard .hmeta  { font-size: 11px; color: var(--text-dim); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+    /* Rationale bars */
+    .rbar { display: grid; grid-template-columns: minmax(220px, 280px) 1fr 88px; gap: 14px;
+            align-items: center; padding: 8px 0; font-size: 13px;
+            border-bottom: 1px dashed rgba(255,255,255,.05); }
+    .rbar:last-child { border-bottom: 0; }
+    .rbar .bar { height: 8px; background: #0a0f1f; border-radius: 4px; overflow: hidden; }
+    .rbar .bar > span { display: block; height: 100%; transition: width .3s ease; }
+    .rbar .bar.pos > span { background: linear-gradient(90deg, rgba(16,185,129,.4), var(--up)); }
+    .rbar .bar.neg > span { background: linear-gradient(90deg, rgba(239,68,68,.4), var(--down)); }
+    .rbar .val { text-align: right; font-family: 'SF Mono', ui-monospace, monospace; color: var(--text); font-weight: 600; }
+    .rbar-dir.up   { color: var(--up); }
+    .rbar-dir.down { color: var(--down); }
+    @media (max-width: 720px) {
+      .rbar { grid-template-columns: 1fr 70px; }
+      .rbar .bar { grid-column: 1 / -1; }
     }
-    .btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-    .btn.danger    { background: rgba(239,68,68,.15); color: var(--down); border: 1px solid rgba(239,68,68,.4); }
-    .btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+    /* Accuracy + conviction */
+    .metrics-table, .conv-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+    .metrics-table th, .metrics-table td,
+    .conv-table th, .conv-table td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--border); }
+    .metrics-table th:first-child, .metrics-table td:first-child,
+    .conv-table th:first-child, .conv-table td:first-child { text-align: left; }
+    .metrics-table th, .conv-table th { color: var(--text-dim); text-transform: uppercase; letter-spacing: .5px; font-size: 10.5px; }
+
+    /* Drawer */
+    .drawer-backdrop {
+      position: fixed; inset: 0; background: rgba(5,8,20,.7);
+      opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 50;
+    }
+    .drawer-backdrop.show { opacity: 1; pointer-events: auto; }
+    .drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 92vw);
+      background: var(--panel); border-left: 1px solid var(--border);
+      transform: translateX(100%); transition: transform .2s ease; z-index: 51;
+      padding: 20px 22px; overflow-y: auto;
+    }
+    .drawer.show { transform: translateX(0); }
+    .drawer h2 { margin-top: 0; }
+    .drawer label { display: block; font-size: 12px; color: var(--text-dim); margin: 10px 0 4px; }
+    .drawer input[type="number"], .drawer input[type="text"], .drawer select {
+      width: 100%; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px;
+    }
+    .drawer .preset-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+    .preset-card {
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px; cursor: pointer; text-align: left; color: var(--text); font-size: 12px;
+    }
+    .preset-card.active { border-color: var(--accent); background: rgba(99,102,241,.12); }
+    .preset-card .pname { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
 
     /* Job status */
     .job-bar {
@@ -162,77 +421,6 @@
       padding: 16px 20px; border: 1px solid rgba(245,158,11,.4); border-radius: 12px;
       background: rgba(245,158,11,.08); color: #fde68a; margin-bottom: 16px;
     }
-
-    .muted { color: var(--text-dim); }
-    .row-flex { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-
-    kbd {
-      background: var(--panel-2); border: 1px solid var(--border);
-      border-radius: 4px; padding: 1px 6px; font-family: 'SF Mono', ui-monospace, monospace;
-      font-size: 11px; color: var(--text);
-    }
-
-    /* Headline cards */
-    .hcard {
-      display: grid; grid-template-columns: 1fr auto; gap: 10px;
-      padding: 12px 14px; background: var(--panel-2); border: 1px solid var(--border);
-      border-radius: 12px; margin-bottom: 8px; text-decoration: none; color: inherit;
-      transition: border-color .12s ease, transform .05s ease;
-    }
-    .hcard:hover { border-color: var(--accent); transform: translateY(-1px); }
-    .hcard .htitle { font-weight: 600; font-size: 13.5px; line-height: 1.35; }
-    .hcard .hmeta  { font-size: 11px; color: var(--text-dim); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
-    .chip {
-      display: inline-flex; align-items: center; gap: 4px;
-      padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border);
-      font-size: 11px; background: rgba(0,0,0,.2);
-    }
-    .chip.pos { color: var(--up); border-color: rgba(16,185,129,.4); }
-    .chip.neg { color: var(--down); border-color: rgba(239,68,68,.4); }
-    .chip.neu { color: var(--text-dim); }
-
-    /* Rationale bars */
-    .rbar { display: grid; grid-template-columns: 160px 1fr 60px; gap: 10px;
-            align-items: center; padding: 6px 0; font-size: 12px; }
-    .rbar .bar { height: 6px; background: #0a0f1f; border-radius: 3px; overflow: hidden; }
-    .rbar .bar > span { display: block; height: 100%;
-            background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
-    .rbar .val { text-align: right; font-family: 'SF Mono', ui-monospace, monospace; color: var(--text-dim); }
-
-    /* Drawer */
-    .drawer-backdrop {
-      position: fixed; inset: 0; background: rgba(5,8,20,.7);
-      opacity: 0; pointer-events: none; transition: opacity .2s ease; z-index: 50;
-    }
-    .drawer-backdrop.show { opacity: 1; pointer-events: auto; }
-    .drawer {
-      position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 92vw);
-      background: var(--panel); border-left: 1px solid var(--border);
-      transform: translateX(100%); transition: transform .2s ease; z-index: 51;
-      padding: 20px 22px; overflow-y: auto;
-    }
-    .drawer.show { transform: translateX(0); }
-    .drawer h2 { margin-top: 0; }
-    .drawer label { display: block; font-size: 12px; color: var(--text-dim); margin: 10px 0 4px; }
-    .drawer input[type="number"], .drawer select {
-      width: 100%; background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px;
-    }
-    .drawer .preset-grid {
-      display: grid; grid-template-columns: repeat(3,1fr); gap: 8px;
-    }
-    .preset-card {
-      background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
-      padding: 10px; cursor: pointer; text-align: left; color: var(--text); font-size: 12px;
-    }
-    .preset-card.active { border-color: var(--accent); background: rgba(99,102,241,.12); }
-    .preset-card .pname { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
-
-    /* Conviction table */
-    .conv-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
-    .conv-table th, .conv-table td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--border); }
-    .conv-table th:first-child, .conv-table td:first-child { text-align: left; }
-    .conv-table th { color: var(--text-dim); text-transform: uppercase; font-size: 10px; letter-spacing: .5px; }
   </style>
 </head>
 <body>
@@ -242,38 +430,59 @@
         <div class="mark"></div>
         <div>
           <h1>News-to-Alpha</h1>
-          <p class="muted">LSTM + news-powered next-day direction forecasts</p>
+          <p class="muted">LSTM + news-powered next-session direction forecasts</p>
         </div>
       </div>
-      <div style="display:flex; align-items:center; gap:14px;">
-        <div class="muted" id="latest-date-label">
-          {% if not missing_predictions %}latest: {{ latest_date }}{% endif %}
+      <div class="nav-right">
+        <span class="date-chip" id="header-date-chip" title="Currently viewing this prediction date (change with the rewind slider)">
+          <span class="dot"></span>
+          <span>Viewing:</span>
+          <strong id="header-date-value">&mdash;</strong>
+          <span class="muted" id="header-date-flag" style="font-size:11px;"></span>
+        </span>
+        <span class="data-chip" id="data-age-chip" title="When the latest prediction row was generated">
+          <span>Data to:</span>
+          <strong id="data-age-value">&mdash;</strong>
+          <span class="muted" id="data-age-gap"></span>
+          <button class="data-chip-refresh" id="btn-data-refresh" title="Pull new prices + news and rebuild the ensemble (keeps trained models)" aria-label="Refresh data">&#x21bb;</button>
+        </span>
+        <div class="nav-jumps" id="nav-jumps" aria-label="Jump to section">
+          <button class="nav-jump" data-target="section-accuracy-window">Accuracy</button>
+          <button class="nav-jump" data-target="section-chart">Chart</button>
+          <button class="nav-jump" data-tab="headlines">Headlines</button>
+          <button class="nav-jump" data-tab="rationale">Why</button>
+          <button class="nav-jump" data-tab="accuracy">History</button>
+          <button class="nav-jump" data-tab="reliability">Reliability</button>
         </div>
-        <button class="btn secondary" id="btn-reconfigure" title="Reconfigure (r)">Reconfigure</button>
+        <span class="nav-sep"></span>
+        <a class="nav-link" href="/" title="Configure / home">Home</a>
+        <a class="nav-link" href="/admin" title="Per-model training controls">Settings</a>
+        <button class="btn secondary" id="btn-reconfigure" title="Open reconfigure &amp; data controls (r)">Reconfigure</button>
       </div>
     </header>
 
     {% if missing_predictions %}
       <div class="banner">
         No predictions found at <code>data/processed/final_ensemble_predictions.csv</code>.
-        Run the full pipeline (<code>python scripts/demo.py --fast</code>) or click
-        "Retrain all" below once data is in place.
+        Go to <a href="/" style="color:var(--accent-2)">Home</a> to pick a preset and run the pipeline.
       </div>
     {% endif %}
 
-    <div class="layout">
-      <aside class="sidebar">
-        <div class="panel">
-          <h2>Ticker</h2>
+    <!-- ===================== HERO ROW ===================== -->
+    <a id="section-hero"></a>
+    <div class="hero">
+      <!-- Controls -->
+      <div class="panel controls-card">
+        <div>
+          <div class="lbl">Ticker</div>
           <div class="ticker-list" id="ticker-list">
             {% for t in tickers %}
               <button class="ticker-btn" data-ticker="{{ t }}" title="{{ ticker_to_company.get(t, t) }}">{{ t }}</button>
             {% endfor %}
           </div>
         </div>
-
-        <div class="panel">
-          <h2>Model</h2>
+        <div>
+          <div class="lbl">Model</div>
           <div class="switcher" id="model-switcher">
             <button class="model-btn active" data-model="ensemble">Ensemble</button>
             <button class="model-btn" data-model="lstm">LSTM</button>
@@ -281,101 +490,252 @@
             <button class="model-btn" data-model="embeddings">Embeddings</button>
           </div>
         </div>
-
-        <div class="panel">
-          <h2>Test-set metrics</h2>
-          <div id="metrics-box"><div class="muted">Run <code>scripts/evaluate_predictions.py</code> to populate.</div></div>
+        <div class="muted" style="font-size:11px;">
+          <kbd>&larr;</kbd>/<kbd>&rarr;</kbd> change ticker &middot; <kbd>1</kbd>&ndash;<kbd>4</kbd> switch model &middot; <kbd>r</kbd> reconfigure
         </div>
-      </aside>
+      </div>
 
-      <main>
-        <section>
-          <div class="headline-card" id="headline-card">
-            <div>
-              <div class="muted" style="font-size:12px;" id="headline-sub">Select a ticker</div>
-              <div style="font-size:22px; font-weight:700; margin-top:2px;" id="headline-ticker">—</div>
-              <div class="muted" id="headline-date" style="font-size:12px; margin-top:2px;"></div>
-              <div class="conf-bar" style="max-width:340px;"><div class="conf-fill" id="conf-fill" style="width:0"></div></div>
-              <div class="muted" style="font-size:12px; margin-top:4px;" id="headline-conf">Confidence —</div>
-            </div>
-            <div class="direction" id="headline-direction">—</div>
+      <!-- Latest call -->
+      <div class="panel call-card" id="call-card">
+        <div class="call-head">
+          <div>
+            <div class="call-sub" id="headline-sub">Select a ticker</div>
+            <div class="call-title" id="headline-ticker">&mdash;</div>
+            <div class="call-sub" id="headline-date"></div>
           </div>
+          <div class="direction unk" id="headline-direction">&mdash;</div>
+        </div>
+        <div class="conf-bar" style="max-width:440px;"><div class="conf-fill" id="conf-fill" style="width:0"></div></div>
+        <div class="conf-line" id="conf-line">
+          Confidence <span id="headline-conf">&mdash;</span>
+          <span id="conf-empirical" class="muted"></span>
+        </div>
+        <div class="per-model-grid" id="per-model-grid"></div>
+        <div class="call-jumps" aria-label="Justification shortcuts">
+          <button class="jump-chip" data-jump="headlines" title="See the headlines considered for this call">&#128240; Headlines</button>
+          <button class="jump-chip" data-jump="rationale" title="See which signals pushed this call up or down">&#129504; Why this call</button>
+          <button class="jump-chip" data-jump="accuracy"  title="How this model has done over time">&#128202; History</button>
+          <button class="jump-chip" data-jump="reliability" title="How well-calibrated the confidence number is">&#9878;&#65039; Reliability</button>
+        </div>
+      </div>
 
-          <div class="panel" style="margin-bottom:16px;">
-            <div class="row-flex" style="margin-bottom:8px;">
-              <h2 style="margin:0;">Rewind</h2>
-              <div class="muted" style="font-size:12px;" id="date-slider-meta">—</div>
-            </div>
-            <input type="range" id="date-slider" min="0" max="0" value="0" step="1" style="width:100%;">
-            <div class="row-flex muted" style="font-size:11px; margin-top:4px;">
-              <span id="date-slider-min">—</span>
-              <span id="date-slider-cur" style="color:var(--text);"></span>
-              <span id="date-slider-max">—</span>
-            </div>
-          </div>
+      <!-- Prediction vs Actual (driven by selected date) -->
+      <div class="panel pva">
+        <div class="row-flex" style="margin-bottom:2px;">
+          <h2 style="margin:0;">Prediction vs Actual</h2>
+          <span class="muted" style="font-size:11px;" id="pva-meta">&mdash;</span>
+        </div>
 
-          <div class="panel" style="margin-bottom:16px;">
-            <div class="row-flex">
-              <h2 style="margin:0;">Per-model breakdown</h2>
-              <div class="muted" style="font-size:12px;" id="per-model-date"></div>
-            </div>
-            <div class="per-model-grid" id="per-model-grid"></div>
-          </div>
+        <div class="pva-status" id="pva-status">
+          <span class="pva-badge unk" id="pva-badge">&mdash;</span>
+          <span class="pva-status-text" id="pva-status-text">Loading&hellip;</span>
+        </div>
 
-          <div class="panel" style="margin-bottom:16px;">
-            <div class="row-flex" style="margin-bottom:8px;">
-              <h2 style="margin:0;">Price &amp; prediction</h2>
-              <div class="range-btns" id="range-btns">
-                <button class="range-btn" data-window="30">30d</button>
-                <button class="range-btn active" data-window="90">90d</button>
-                <button class="range-btn" data-window="180">180d</button>
-                <button class="range-btn" data-window="all">All</button>
-              </div>
-            </div>
-            <div class="chart-box">
-              <canvas id="chart-canvas"></canvas>
-            </div>
+        <div class="pva-split">
+          <div class="pva-col">
+            <div class="pva-label">Predicted</div>
+            <div class="pva-val" id="pva-predicted">&mdash;</div>
           </div>
+          <div class="pva-col">
+            <div class="pva-label">Actual</div>
+            <div class="pva-val" id="pva-actual">&mdash;</div>
+            <div class="pva-return" id="pva-return"></div>
+          </div>
+        </div>
 
-          <div class="panel" style="margin-bottom:16px;">
-            <div class="row-flex" style="margin-bottom:8px;">
-              <h2 style="margin:0;">Headlines driving the call</h2>
-              <div class="muted" id="headline-count" style="font-size:12px;"></div>
-            </div>
-            <div id="headline-cards"><div class="muted">No ticker selected</div></div>
+        <div>
+          <div class="muted" style="font-size:11px; display:flex; justify-content:space-between;">
+            <span id="strip-label">Last resolved days (click a dot to jump)</span>
+            <span id="pva-hit-rate">&mdash;</span>
           </div>
+          <div class="dot-strip" id="hit-strip"></div>
+        </div>
+      </div>
+    </div>
 
-          <div class="panel" id="rationale-panel" style="margin-bottom:16px;">
-            <div class="row-flex" style="margin-bottom:8px;">
-              <h2 style="margin:0;">Why this call?</h2>
-              <div class="muted" style="font-size:12px;" id="rationale-meta"></div>
-            </div>
-            <div id="rationale-bars" class="muted" style="font-size:13px;">
-              Select a ticker to see feature contributions.
-            </div>
+    <!-- ===================== REWIND (site-wide date control) ===================== -->
+    <div class="panel rewind-card" style="margin-bottom:12px;">
+      <div class="rewind-head">
+        <div>
+          <h2 style="margin:0 0 2px;">Rewind</h2>
+          <div class="muted" style="font-size:11.5px;" id="date-slider-meta">
+            Drag to change the date shown in every card above and the tabs below.
           </div>
+        </div>
+        <div class="rewind-cur">
+          <div class="muted" style="font-size:10.5px; text-transform:uppercase; letter-spacing:.8px;">viewing</div>
+          <div class="rewind-cur-val" id="date-slider-cur">&mdash;</div>
+        </div>
+      </div>
+      <div class="rewind">
+        <span class="edge" id="date-slider-min">&mdash;</span>
+        <input type="range" id="date-slider" min="0" max="0" value="0" step="1">
+        <span class="edge right" id="date-slider-max">&mdash;</span>
+      </div>
+      <div class="rewind-quick">
+        <button class="btn secondary btn-small" id="btn-date-latest" title="Jump to the most recent prediction">Latest</button>
+        <button class="btn secondary btn-small" id="btn-date-prev" title="Previous prediction day (\u2190)">&larr; prev</button>
+        <button class="btn secondary btn-small" id="btn-date-next" title="Next prediction day (\u2192)">next &rarr;</button>
+      </div>
+    </div>
 
-          <div class="panel" style="margin-bottom:16px;">
-            <div class="row-flex" style="margin-bottom:8px;">
-              <h2 style="margin:0;">Accuracy over time</h2>
-              <div class="muted" style="font-size:12px;" id="accuracy-meta">rolling 30d</div>
-            </div>
-            <div class="chart-box" style="height:140px;">
-              <canvas id="accuracy-canvas"></canvas>
-            </div>
+    <!-- ===================== ACCURACY WINDOW ===================== -->
+    <a id="section-accuracy-window"></a>
+    <div class="panel" style="margin-bottom:12px;">
+      <div class="row-flex" style="margin-bottom:8px; flex-wrap:wrap; gap:10px;">
+        <div>
+          <h2 style="margin:0;">Accuracy over a window</h2>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">
+            Ensemble hit-rate across whatever window you pick. Good for spotting recent
+            streaks or bias. Only counts days where the actual outcome has resolved.
           </div>
+        </div>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <label class="muted" style="font-size:11px;">Scope</label>
+          <select id="accsum-scope" class="btn secondary" style="padding:5px 8px;">
+            <option value="ticker">This ticker</option>
+            <option value="ALL" selected>All tickers</option>
+          </select>
+          <label class="muted" style="font-size:11px; margin-left:6px;">Window</label>
+          <select id="accsum-window" class="btn secondary" style="padding:5px 8px;">
+            <option value="7" selected>Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="all">All time</option>
+          </select>
+        </div>
+      </div>
+      <div id="accsum-summary" class="accsum-summary">
+        <div class="accsum-big" id="accsum-acc">&mdash;</div>
+        <div class="accsum-sub" id="accsum-sub">Loading&hellip;</div>
+        <div class="accsum-bar-wrap">
+          <div class="accsum-bar" id="accsum-bar" style="width:0"></div>
+          <div class="accsum-baseline" title="50% = coin-flip baseline"></div>
+        </div>
+        <div class="accsum-legend muted">
+          <span class="lg up"></span> hit
+          <span class="lg down"></span> miss
+          <span class="lg unk"></span> unresolved
+        </div>
+      </div>
+      <div id="accsum-strip" class="accsum-strip"></div>
+    </div>
 
-          <div class="panel" id="conviction-panel" style="margin-bottom:16px;">
-            <h2>Accuracy by confidence</h2>
-            <div id="conviction-box" class="muted" style="font-size:12px;">Run evaluation to populate.</div>
+    <a id="section-chart"></a>
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="row-flex" style="margin-bottom:6px; flex-wrap:wrap; gap:10px;">
+        <h2 style="margin:0;">Price &amp; prediction</h2>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <div class="range-btns" id="chart-shape-btns" title="How to draw the probability line">
+            <button class="range-btn" data-shape="stepped">Stepped</button>
+            <button class="range-btn active" data-shape="smooth">Smooth</button>
           </div>
+          <div class="range-btns" id="range-btns">
+            <button class="range-btn active" data-window="7">7d</button>
+            <button class="range-btn" data-window="30">30d</button>
+            <button class="range-btn" data-window="90">90d</button>
+            <button class="range-btn" data-window="all">All</button>
+          </div>
+        </div>
+      </div>
+      <div class="chart-box">
+        <canvas id="chart-canvas"></canvas>
+      </div>
+      <details style="margin-top:4px;">
+        <summary class="muted" style="font-size:11px; cursor:pointer;">How to read this</summary>
+        <div class="muted" style="font-size:11px; margin-top:6px;">
+          Purple line = closing price. Cyan line = ensemble probability the next session closes UP (1.0 fully bullish, 0.5 coin-flip).
+          Dashed vertical line = the date you're viewing. <strong>Stepped</strong> is one discrete call per day; <strong>Smooth</strong> draws a trend line over the same data.
+        </div>
+      </details>
+    </div>
 
-          <div class="muted" style="margin-top:8px; font-size:12px;">
-            Admin controls moved to <a href="/admin" style="color:var(--accent-2)">/admin</a> ·
-            Press <kbd>r</kbd> to reconfigure.
-          </div>
-        </section>
-      </main>
+    <!-- ===================== TABS ===================== -->
+    <a id="section-tabs"></a>
+    <div class="tabs" id="tabs">
+      <button class="tab-btn active" data-tab="headlines">Headlines</button>
+      <button class="tab-btn" data-tab="rationale">Why this call</button>
+      <button class="tab-btn" data-tab="accuracy">Accuracy &amp; history</button>
+      <button class="tab-btn" data-tab="reliability">Reliability</button>
+    </div>
+
+    <div class="panel tab-panel active" id="tab-headlines">
+      <div class="row-flex" style="margin-bottom:8px;">
+        <h2 style="margin:0;">Headlines driving the call</h2>
+        <span class="muted" id="headline-count" style="font-size:12px;"></span>
+      </div>
+      <div id="headline-cards"><div class="muted">No ticker selected</div></div>
+    </div>
+
+    <div class="panel tab-panel" id="tab-rationale">
+      <div class="row-flex" style="margin-bottom:4px;">
+        <h2 style="margin:0;">Why this call</h2>
+        <span class="muted" style="font-size:12px;" id="rationale-meta"></span>
+      </div>
+      <div class="muted" style="font-size:12px; margin-bottom:10px;">
+        <span style="color:var(--up);">Green</span> = pushed toward UP &middot;
+        <span style="color:var(--down);">Red</span> = pushed toward DOWN &middot;
+        longer bar = bigger push for this specific day.
+      </div>
+      <div id="rationale-bars" class="muted" style="font-size:13px;">
+        Select a ticker to see signal contributions.
+      </div>
+    </div>
+
+    <div class="panel tab-panel" id="tab-accuracy">
+      <div class="row-flex" style="margin-bottom:4px;">
+        <h2 style="margin:0;">How the ensemble has been doing</h2>
+        <span class="muted" style="font-size:12px;" id="accuracy-meta">rolling 7-day accuracy</span>
+      </div>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">
+        Rolling share of the last 7 calls that turned out correct. <strong>0.5</strong> = coin-flip.
+      </div>
+      <div class="chart-box" style="height:160px;">
+        <canvas id="accuracy-canvas"></canvas>
+      </div>
+
+      <h2 style="margin-top:18px;">Full-backtest metrics</h2>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">
+        Measured on the held-out test set, all tickers.
+        <details style="display:inline; margin-left:4px;">
+          <summary style="cursor:pointer; display:inline;">What are the rows?</summary>
+          <ul style="margin:6px 0 0 18px; padding:0;">
+            <li><strong>ensemble</strong> — the stacked meta-model powering this dashboard.</li>
+            <li><strong>lstm_price</strong> — prices + indicators only (no news).</li>
+            <li><strong>news_tfidf</strong>, <strong>news_embeddings</strong> — news-only models.</li>
+            <li><strong>always_up</strong> — trivial baseline (always UP). Reveals market drift.</li>
+            <li><strong>previous_day_direction</strong> — predict yesterday's direction. A high score = the market was trending.</li>
+          </ul>
+        </details>
+      </div>
+      <div id="metrics-box"><div class="muted">Run <code>scripts/evaluate_predictions.py</code> to populate.</div></div>
+    </div>
+
+    <div class="panel tab-panel" id="tab-reliability">
+      <div class="row-flex" style="margin-bottom:4px;">
+        <h2 style="margin:0;">Reliability</h2>
+      </div>
+      <div class="muted" style="font-size:12px; margin-bottom:8px;">
+        Is the confidence number trustworthy? On the diagonal = "80% chance UP" is right ~80% of the time.
+        Below the line = overconfident, above = underconfident.
+      </div>
+      <div class="chart-box" style="height:220px;">
+        <canvas id="reliability-canvas"></canvas>
+      </div>
+
+      <h2 style="margin-top:18px;">Confidence spread</h2>
+      <div class="muted" style="font-size:12px; margin-bottom:6px;">
+        Where the probability lands across every day we've scored for this ticker. A few tall spikes = plateaus (calibrator was fit on too few rows).
+      </div>
+      <div class="chart-box" style="height:160px;">
+        <canvas id="proba-hist-canvas"></canvas>
+      </div>
+
+      <h2 style="margin-top:18px;">Accuracy by confidence bucket</h2>
+      <div class="muted" style="font-size:12px; margin-bottom:6px;">
+        Predictions grouped into 5 bands. A well-calibrated model's <em>acc</em> tracks <em>avg conf</em>.
+      </div>
+      <div id="conviction-box" class="muted" style="font-size:12px;">Run evaluation to populate.</div>
     </div>
 
     <div class="job-bar" id="job-bar">
@@ -384,6 +744,7 @@
     </div>
   </div>
 
+  <!-- ===================== Reconfigure drawer ===================== -->
   <div class="drawer-backdrop" id="drawer-backdrop"></div>
   <aside class="drawer" id="drawer">
     <div class="row-flex" style="margin-bottom:12px;">
@@ -419,32 +780,103 @@
     <label style="margin-top:14px;">
       <input type="checkbox" id="drawer-finbert"> Use FinBERT sentiment (slower, sharper)
     </label>
-    <label>
-      <input type="checkbox" id="drawer-skipcollect"> Skip price collection (faster re-runs)
-    </label>
-    <label>
-      <input type="checkbox" id="drawer-skipnews"> Skip news collection
-    </label>
 
-    <div style="display:flex; gap:8px; margin-top:20px;">
-      <button class="btn" id="drawer-run">Run pipeline</button>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer; font-size:12.5px; color: var(--text-dim);">Advanced: skip steps</summary>
+      <div style="padding:8px 0 2px;">
+        <label><input type="checkbox" id="drawer-skipcollect"> Skip price collection</label>
+        <label><input type="checkbox" id="drawer-skipnews"> Skip news collection</label>
+        <label><input type="checkbox" id="drawer-skiplstm"> Skip LSTM retrain</label>
+        <label><input type="checkbox" id="drawer-skipnlp"> Skip TF-IDF retrain</label>
+        <label><input type="checkbox" id="drawer-skipemb"> Skip embedding retrain</label>
+      </div>
+    </details>
+
+    <div style="display:flex; gap:8px; margin-top:18px;">
+      <button class="btn" id="drawer-run">Run full pipeline</button>
       <button class="btn secondary" id="drawer-close-2">Cancel</button>
+    </div>
+
+    <!-- ================= Data & reset ================= -->
+    <hr style="margin:22px 0; border:0; border-top:1px solid var(--border);">
+    <h3 style="margin:0 0 4px; font-size: 14px; letter-spacing:.02em;">Data &amp; reset</h3>
+    <div class="muted" style="font-size:12px; margin-bottom:10px;">
+      Freshen what the dashboard shows, or wipe artifacts to start clean.
+    </div>
+
+    <div id="data-status-block" class="muted" style="font-size:11.5px; line-height:1.5; margin-bottom:10px;">
+      <div>Latest prediction: <strong id="ds-latest-pred">—</strong></div>
+      <div>Latest price row: <strong id="ds-latest-price">—</strong></div>
+      <div>Latest news row: <strong id="ds-latest-news">—</strong> <span id="ds-news-count"></span></div>
+    </div>
+
+    <label style="margin-top:4px;">Refresh mode</label>
+    <div class="range-btns" id="refresh-mode-btns" role="radiogroup" aria-label="Refresh mode">
+      <button type="button" class="range-btn active" data-mode="quality" title="3-seed LSTM averaging. Smooth confidence numbers. ~3 min.">
+        Quality (3-seed · ~3 min)
+      </button>
+      <button type="button" class="range-btn" data-mode="fast" title="Single-seed LSTM. Dates advance fast but confidence will be blocky. ~1 min.">
+        Fast (1-seed · ~1 min)
+      </button>
+    </div>
+
+    <label style="margin-top:10px;">Refresh window (days to pull)</label>
+    <input type="number" id="data-refresh-days" placeholder="60" min="1" max="3650" value="60">
+
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+      <button class="btn" id="btn-refresh-data" title="Pull new prices + news and re-score every model so predictions advance to the latest trading day.">
+        Refresh now
+      </button>
+      <button class="btn secondary" id="btn-refresh-news-only" title="Refresh but skip news collection (use what's already in the DB).">
+        Skip news
+      </button>
+    </div>
+    <div class="muted" style="font-size:11px; margin-top:6px;">
+      Pulls the last N days of prices + news, re-runs each model to score the new dates,
+      and rebuilds the ensemble. Quality mode is slower but gives smoother confidence numbers.
+    </div>
+
+    <label style="margin-top:16px;">Clear artifacts</label>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="btn secondary" id="btn-clear-preds" title="Delete the predictions CSV; models + DB stay intact.">
+        Clear predictions
+      </button>
+      <button class="btn secondary" id="btn-clear-models" title="Delete trained model files; DB + news stay. Requires re-train before the next run.">
+        Reset models
+      </button>
+      <button class="btn secondary" id="btn-clear-full" style="color:#fca5a5; border-color:rgba(239,68,68,.45);" title="Wipe DB, models, processed files. Raw downloads stay. Full retrain required.">
+        Full reset
+      </button>
+    </div>
+    <div class="muted" style="font-size:11px; margin-top:8px;">
+      Prefer per-model resets? Use <a href="/admin">Settings</a>.
     </div>
   </aside>
 
 <script>
 const DEFAULT_TICKER = {{ default_ticker|tojson if default_ticker is defined else '"AAPL"' }};
+const ALL_TICKERS = {{ tickers|tojson }};
 const state = {
   ticker: DEFAULT_TICKER,
   model: "ensemble",
-  window: "90",
+  window: "7",
+  chartShape: "smooth",  // "stepped" | "smooth"
   chart: null,
+  accuracyChart: null,
+  reliabilityChart: null,
+  probaHistChart: null,
+  dates: [],
+  selectedDate: null,
+  priceData: null,
+  predictionData: null,
+  convictionBuckets: [],
 };
 
 function qs(sel) { return document.querySelector(sel); }
 function qsa(sel) { return Array.from(document.querySelectorAll(sel)); }
+function _esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
-// ---------- ticker + model switching ----------
+// ---------- ticker / model / window ----------
 qsa("#ticker-list .ticker-btn").forEach(btn => {
   btn.addEventListener("click", () => selectTicker(btn.dataset.ticker));
 });
@@ -453,6 +885,124 @@ qsa("#model-switcher .model-btn").forEach(btn => {
 });
 qsa("#range-btns .range-btn").forEach(btn => {
   btn.addEventListener("click", () => selectWindow(btn.dataset.window));
+});
+qsa("#tabs .tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => selectTab(btn.dataset.tab));
+});
+qsa("#chart-shape-btns .range-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    state.chartShape = btn.dataset.shape;
+    qsa("#chart-shape-btns .range-btn").forEach(b =>
+      b.classList.toggle("active", b.dataset.shape === state.chartShape));
+    renderChart();
+  });
+});
+
+// Jump chips in the Latest Call card -> switch tab + scroll to it.
+qsa(".call-jumps .jump-chip").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const name = btn.dataset.jump;
+    selectTab(name);
+    const el = qs("#section-tabs");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    highlightSubnav(name);
+  });
+});
+
+// Header nav-jump buttons: scroll to section and/or switch tab.
+qsa(".nav-jumps .nav-jump").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const tabName = btn.dataset.tab;
+    const targetId = btn.dataset.target;
+    if (tabName) {
+      selectTab(tabName);
+      const anchor = document.getElementById("section-tabs");
+      if (anchor) anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (targetId) {
+      const anchor = document.getElementById(targetId);
+      if (anchor) anchor.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    highlightNavJumps(tabName || targetId);
+  });
+});
+
+function highlightNavJumps(key) {
+  qsa(".nav-jumps .nav-jump").forEach(b => {
+    const k = b.dataset.tab || b.dataset.target;
+    b.classList.toggle("active", k === key);
+  });
+}
+
+// Mirror header highlight when user clicks a tab directly.
+qsa(".tab-btn").forEach(b => {
+  b.addEventListener("click", () => highlightNavJumps(b.dataset.tab));
+});
+
+// ---------- data freshness chip ----------
+async function refreshDataAgeChip() {
+  const valueEl = document.getElementById("data-age-value");
+  const gapEl   = document.getElementById("data-age-gap");
+  const chip    = document.getElementById("data-age-chip");
+  if (!valueEl || !gapEl || !chip) return;
+  try {
+    const r = await fetch("/api/data-status");
+    if (!r.ok) return;
+    const d = await r.json();
+    const latest = d.latest_prediction_date;
+    const today  = d.today;
+    if (!latest) {
+      valueEl.textContent = "—";
+      gapEl.textContent = "no data";
+      chip.classList.add("stale");
+      return;
+    }
+    valueEl.textContent = latest;
+    // Rough business-day gap (calendar-day minus weekends).
+    const days = Math.max(0, Math.round(
+      (new Date(today) - new Date(latest)) / 86400000
+    ));
+    let bizDays = 0;
+    const cur = new Date(latest);
+    for (let i = 0; i < days; i++) {
+      cur.setDate(cur.getDate() + 1);
+      const dow = cur.getUTCDay();
+      if (dow !== 0 && dow !== 6) bizDays++;
+    }
+    if (days === 0)       gapEl.textContent = "(current)";
+    else if (bizDays === 0) gapEl.textContent = "(weekend)";
+    else                    gapEl.textContent = `(${bizDays} trading day${bizDays === 1 ? "" : "s"} behind)`;
+    chip.classList.toggle("stale", bizDays >= 1);
+    chip.title = [
+      `Latest prediction: ${latest}`,
+      d.latest_price_date ? `Latest price row: ${d.latest_price_date}` : null,
+      d.latest_news_date  ? `Latest news row: ${d.latest_news_date}`   : null,
+      `Today: ${today}`,
+      "Click refresh to pull new prices + news and rebuild the ensemble.",
+    ].filter(Boolean).join("\n");
+  } catch (e) { /* ignore */ }
+}
+
+document.getElementById("btn-data-refresh")?.addEventListener("click", async (e) => {
+  e.preventDefault();
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  const oldText = btn.textContent;
+  btn.textContent = "…";
+  try {
+    const r = await fetch("/api/data/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days: 60, include_news: true, mode: "quality" }),
+    });
+    const j = await r.json();
+    if (j && j.job) {
+      showJob(j.job);
+      pollJobs();
+    }
+  } catch (_) { /* ignore */ } finally {
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
 });
 
 function selectTicker(t) {
@@ -463,34 +1013,51 @@ function selectTicker(t) {
 function selectModel(m) {
   state.model = m;
   qsa(".model-btn").forEach(b => b.classList.toggle("active", b.dataset.model === m));
-  refreshPrediction();
+  refreshCallForSelectedDate();
 }
 function selectWindow(w) {
   state.window = w;
   qsa(".range-btn").forEach(b => b.classList.toggle("active", b.dataset.window === w));
   refreshChart();
 }
+function selectTab(name) {
+  qsa(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  qsa(".tab-panel").forEach(p => p.classList.toggle("active", p.id === "tab-" + name));
+}
 
-// ---------- data fetchers ----------
+// ---------- refresh ----------
 async function refreshAll() {
+  await refreshDates();
   await Promise.all([
-    refreshPrediction(),
     refreshChart(),
     refreshMetrics(),
     refreshAccuracy(),
-    refreshDates().then(refreshHeadlinesAndRationale),
+    refreshAccuracySummary(),
+    refreshCallForSelectedDate(),
   ]);
 }
 
-async function refreshPrediction() {
+function refreshCallForSelectedDate() {
+  // Updates: headline card + rationale + headlines list, keyed by selectedDate
+  const d = state.selectedDate;
+  refreshPrediction(d);
+  refreshHeadlinesAndRationale();
+  updateChartMarker();
+}
+
+async function refreshPrediction(date) {
   if (!state.ticker) return;
   try {
-    const r = await fetch(`/api/ticker?ticker=${state.ticker}&model=${state.model}`);
-    if (!r.ok) { setEmpty(); return; }
+    let url = `/api/ticker?ticker=${state.ticker}&model=${state.model}`;
+    if (date) url += `&date=${date}`;
+    const r = await fetch(url);
+    if (!r.ok) { setEmpty(); renderPvACard(null); return; }
     const data = await r.json();
     renderPrediction(data);
-    renderPerModel(data.per_model || {}, data.prediction_date);
-  } catch (_) { setEmpty(); }
+    renderPerModel(data.per_model || {});
+    // PvA card reflects the CURRENTLY-selected model for the selected date
+    renderPvACard(data);
+  } catch (_) { setEmpty(); renderPvACard(null); }
 }
 
 async function refreshChart() {
@@ -498,7 +1065,9 @@ async function refreshChart() {
   const r = await fetch(`/api/history?ticker=${state.ticker}&window=${state.window}`);
   if (!r.ok) return;
   const data = await r.json();
-  renderChart(data);
+  state.priceData = data.prices || [];
+  state.predictionData = data.predictions || [];
+  renderChart();
 }
 
 async function refreshMetrics() {
@@ -508,17 +1077,89 @@ async function refreshMetrics() {
   renderMetrics(data.overall || []);
 }
 
+// refreshAccuracySummary drives both:
+//   - the big %-hit card under the hero ("Accuracy over a window")
+//   - the 7-dot strip shown inside the Prediction vs Actual card
+async function refreshAccuracySummary() {
+  if (!state.ticker) { renderHitStrip(null); return; }
+  const scope  = qs("#accsum-scope").value;   // "ticker" | "ALL"
+  const window = qs("#accsum-window").value;  // "7" | "30" | "90" | "all"
+  const effectiveTicker = scope === "ALL" ? "ALL" : state.ticker;
+  const r = await fetch(`/api/accuracy-summary?ticker=${effectiveTicker}&window=${window}`);
+  if (!r.ok) { renderAccSum(null); renderHitStrip(null); return; }
+  const data = await r.json();
+  renderAccSum(data);
+
+  // Mini hit-strip inside PvA uses the last 7 resolved rows for the *current* ticker
+  // (independent of the scope toggle above) so the card stays ticker-focused.
+  try {
+    const r2 = await fetch(`/api/last-resolved?ticker=${state.ticker}&n=7`);
+    const d2 = r2.ok ? await r2.json() : null;
+    renderHitStrip(d2 ? (d2.rows || []) : null);
+  } catch (_) { renderHitStrip(null); }
+}
+
+function renderAccSum(data) {
+  const acc  = qs("#accsum-acc");
+  const sub  = qs("#accsum-sub");
+  const bar  = qs("#accsum-bar");
+  const strip = qs("#accsum-strip");
+
+  if (!data || !data.n) {
+    acc.textContent = "—";
+    sub.textContent = "No resolved calls in this window yet.";
+    bar.style.width = "0";
+    strip.innerHTML = "";
+    return;
+  }
+  const pct = Math.round(data.accuracy * 100);
+  acc.textContent = `${pct}%`;
+  const scopeLabel = data.scope === "ALL" ? "across all tickers" : `for ${data.scope}`;
+  const windowLabel = data.window === "all" ? "all time" : `last ${data.window} trading days`;
+  sub.innerHTML = `<strong>${data.hits}/${data.n}</strong> resolved calls correct ${scopeLabel} · ${windowLabel}.
+    ${pct >= 55 ? '<span style="color:var(--up)">beating coin-flip</span>' :
+     pct <= 45 ? '<span style="color:var(--down)">below coin-flip</span>' :
+                  '<span style="color:var(--text-dim)">around coin-flip (50%)</span>'}`;
+  bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+
+  // Render dots: one per row (most recent on the right). Cap to 200 dots visually for sanity.
+  const rows = (data.rows || []).slice(-200);
+  strip.innerHTML = "";
+  rows.forEach(r => {
+    const d = document.createElement("button");
+    d.type = "button";
+    d.className = "accsum-dot " + (r.hit === 1 ? "hit" : r.hit === 0 ? "miss" : "");
+    if (r.ticker === state.ticker && r.date === state.selectedDate) d.classList.add("current");
+    d.textContent = r.hit === 1 ? "✓" : r.hit === 0 ? "✗" : "·";
+    const predTxt = r.pred_binary == null ? "—" : (r.pred_binary === 1 ? "UP" : "DOWN");
+    const actTxt  = r.actual_binary == null ? "—" : (r.actual_binary === 1 ? "UP" : "DOWN");
+    const retTxt  = r.return == null ? "" : ` · return ${r.return >= 0 ? "+" : ""}${r.return.toFixed(2)}%`;
+    d.title = `${r.ticker} ${r.date}: predicted ${predTxt}, actual ${actTxt}${retTxt} — click to jump`;
+    d.addEventListener("click", () => {
+      if (data.scope !== "ALL" || r.ticker === state.ticker) {
+        jumpToDate(r.date);
+      } else {
+        selectTicker(r.ticker);
+        setTimeout(() => jumpToDate(r.date), 250);
+      }
+    });
+    strip.appendChild(d);
+  });
+}
+
+qs("#accsum-scope").addEventListener("change", refreshAccuracySummary);
+qs("#accsum-window").addEventListener("change", refreshAccuracySummary);
+
 // ---------- renderers ----------
 function setEmpty() {
   qs("#headline-direction").textContent = "—";
-  qs("#headline-direction").className = "direction";
+  qs("#headline-direction").className = "direction unk";
   qs("#headline-sub").textContent = "No prediction available";
   qs("#headline-date").textContent = "";
-  qs("#headline-conf").textContent = "Confidence —";
+  qs("#headline-conf").textContent = "—";
+  qs("#conf-empirical").textContent = "";
   qs("#conf-fill").style.width = "0";
   qs("#per-model-grid").innerHTML = "";
-  const host = qs("#headline-cards");
-  if (host) host.innerHTML = '<div class="muted">—</div>';
 }
 
 function renderPrediction(d) {
@@ -528,12 +1169,16 @@ function renderPrediction(d) {
   const dir = qs("#headline-direction");
   dir.textContent = d.binary === 1 ? `UP  ${(d.proba*100).toFixed(1)}%` : `DOWN  ${((1-d.proba)*100).toFixed(1)}%`;
   dir.className = "direction " + (d.binary === 1 ? "up" : "down");
-  qs("#headline-conf").textContent = `Confidence ${(d.confidence*100).toFixed(1)}%`;
+  qs("#headline-conf").textContent = `${(d.confidence*100).toFixed(1)}%`;
   qs("#conf-fill").style.width = `${Math.min(100, d.confidence*100)}%`;
+  // Empirical win-rate at this bucket from /api/conviction (ensemble rows)
+  const emp = lookupEmpiricalAccuracy(d.confidence);
+  qs("#conf-empirical").textContent = emp != null
+    ? ` · historical win-rate at this level ${(emp*100).toFixed(0)}%`
+    : "";
 }
 
-function renderPerModel(perModel, dateStr) {
-  qs("#per-model-date").textContent = dateStr ? `as of ${dateStr}` : "";
+function renderPerModel(perModel) {
   const labels = { ensemble: "Ensemble", lstm: "LSTM", tfidf: "TF-IDF", embeddings: "Embeddings" };
   const grid = qs("#per-model-grid");
   grid.innerHTML = "";
@@ -549,23 +1194,115 @@ function renderPerModel(perModel, dateStr) {
       el.innerHTML = `
         <div class="name">${labels[key]}</div>
         <div class="val" style="color:${color}">${arrow} ${(m.proba*100).toFixed(1)}%</div>
-        <div class="sub">confidence ${(m.confidence*100).toFixed(1)}%</div>`;
+        <div class="sub">conf ${(m.confidence*100).toFixed(1)}%</div>`;
     }
     grid.appendChild(el);
   }
 }
 
-// headlines are now rendered via refreshHeadlines() keyed by selected date
+function renderPvACard(pred) {
+  // pred is the /api/ticker payload for the selected date (may have actual_binary null if unresolved)
+  const status     = qs("#pva-status");
+  const badge      = qs("#pva-badge");
+  const statusText = qs("#pva-status-text");
+  const predictedEl = qs("#pva-predicted");
+  const actualEl    = qs("#pva-actual");
+  const returnEl    = qs("#pva-return");
+
+  if (!pred) {
+    qs("#pva-meta").textContent = "—";
+    status.className = "pva-status";
+    badge.className = "pva-badge unk"; badge.textContent = "—";
+    statusText.innerHTML = 'Loading&hellip;';
+    predictedEl.textContent = "—"; predictedEl.className = "pva-val";
+    actualEl.textContent = "—";    actualEl.className = "pva-val";
+    returnEl.textContent = ""; returnEl.className = "pva-return";
+    return;
+  }
+
+  qs("#pva-meta").textContent = pred.prediction_date;
+
+  // Predicted side
+  const predDir = pred.binary === 1 ? "UP" : "DOWN";
+  const predPct = pred.binary === 1 ? (pred.proba*100) : ((1 - pred.proba)*100);
+  predictedEl.textContent = `${predDir} ${predPct.toFixed(1)}%`;
+  predictedEl.className = "pva-val " + (pred.binary === 1 ? "up" : "down");
+
+  // Actual side
+  const act = pred.actual_binary;
+  const hit = pred.hit;
+  const ret = pred.realized_return;
+
+  if (act == null) {
+    actualEl.textContent = "Pending";
+    actualEl.className = "pva-val pending";
+    returnEl.textContent = "";
+    returnEl.className = "pva-return";
+    badge.className = "pva-badge pending";
+    badge.textContent = "⧖";
+    statusText.innerHTML = `<strong>Awaiting resolution</strong><span class="sub">Outcome not yet observed for ${pred.prediction_date}.</span>`;
+    status.className = "pva-status pending";
+  } else {
+    actualEl.textContent = act === 1 ? "UP" : "DOWN";
+    actualEl.className = "pva-val " + (act === 1 ? "up" : "down");
+    if (ret != null) {
+      returnEl.textContent = `realized ${ret >= 0 ? "+" : ""}${ret.toFixed(2)}%`;
+      returnEl.className = "pva-return " + (ret >= 0 ? "pos" : "neg");
+    } else {
+      returnEl.textContent = "";
+      returnEl.className = "pva-return";
+    }
+    if (hit === 1) {
+      badge.className = "pva-badge hit"; badge.textContent = "✓";
+      statusText.innerHTML = `<strong style="color:var(--up)">Correct call</strong><span class="sub">Predicted ${predDir}, actual ${act === 1 ? "UP" : "DOWN"}.</span>`;
+      status.className = "pva-status hit";
+    } else {
+      badge.className = "pva-badge miss"; badge.textContent = "✗";
+      statusText.innerHTML = `<strong style="color:var(--down)">Wrong call</strong><span class="sub">Predicted ${predDir}, actual ${act === 1 ? "UP" : "DOWN"}.</span>`;
+      status.className = "pva-status miss";
+    }
+  }
+}
+
+function renderHitStrip(rows) {
+  // Compact 7-dot strip inside the Prediction-vs-Actual card.
+  // Click a dot to jump the site-wide date to that day.
+  const strip = qs("#hit-strip");
+  strip.innerHTML = "";
+  const label = qs("#strip-label");
+  if (label) label.textContent = "Last 7 resolved days · click a dot to jump";
+  if (!rows || !rows.length) {
+    strip.innerHTML = '<div class="muted" style="font-size:11px;">No resolved calls yet.</div>';
+    qs("#pva-hit-rate").textContent = "—";
+    return;
+  }
+  let hits = 0, n = 0;
+  rows.forEach(r => {
+    if (r.hit === 1 || r.hit === 0) { n++; if (r.hit === 1) hits++; }
+    const d = document.createElement("button");
+    d.type = "button";
+    d.className = "hit-dot " + (r.hit === 1 ? "hit" : r.hit === 0 ? "miss" : "");
+    if (r.date === state.selectedDate) d.classList.add("current");
+    d.textContent = r.hit === 1 ? "✓" : r.hit === 0 ? "✗" : "";
+    const predTxt = r.pred_binary == null ? "—" : (r.pred_binary === 1 ? "UP" : "DOWN");
+    const actTxt  = r.actual_binary == null ? "—" : (r.actual_binary === 1 ? "UP" : "DOWN");
+    const retTxt  = r.return == null ? "" : ` · return ${r.return >= 0 ? "+" : ""}${r.return.toFixed(2)}%`;
+    d.title = `${r.date}: predicted ${predTxt}, actual ${actTxt}${retTxt} — click to jump`;
+    d.addEventListener("click", () => jumpToDate(r.date));
+    strip.appendChild(d);
+  });
+  qs("#pva-hit-rate").textContent = n ? `${hits}/${n} correct (${((hits/n)*100).toFixed(0)}%)` : "—";
+}
 
 function renderMetrics(overall) {
   if (!overall.length) return;
-  const preferredOrder = ["ensemble", "lstm_price", "news_tfidf", "news_embeddings", "always_up", "previous_day_direction"];
-  overall.sort((a,b) => preferredOrder.indexOf(a.model) - preferredOrder.indexOf(b.model));
+  const order = ["ensemble", "lstm_price", "news_tfidf", "news_embeddings", "always_up", "previous_day_direction"];
+  overall.sort((a,b) => order.indexOf(a.model) - order.indexOf(b.model));
   const rows = overall.map(r => `
     <tr>
-      <td>${r.model}</td>
-      <td class="metric-cell">${(r.accuracy*100).toFixed(1)}%</td>
-      <td class="metric-cell">${(r.f1_up*100).toFixed(1)}%</td>
+      <td>${_esc(r.model)}</td>
+      <td>${(r.accuracy*100).toFixed(1)}%</td>
+      <td>${(r.f1_up*100).toFixed(1)}%</td>
       <td class="muted">${r.n}</td>
     </tr>
   `).join("");
@@ -576,30 +1313,71 @@ function renderMetrics(overall) {
     </table>`;
 }
 
-function renderChart(data) {
-  const ctx = qs("#chart-canvas").getContext("2d");
-  const pricePoints = (data.prices || []).map(p => ({ x: p.date, y: p.close }));
-  const probPoints = (data.predictions || []).map(p => ({ x: p.prediction_date, y: p.ensemble_pred_proba }));
+// ---------- Chart with selected-date vertical marker ----------
+const verticalLinePlugin = {
+  id: "verticalLine",
+  afterDatasetsDraw(chart) {
+    const d = state.selectedDate;
+    if (!d) return;
+    const xScale = chart.scales.x;
+    if (!xScale) return;
+    const labels = xScale.getLabels ? xScale.getLabels() : [];
+    const idx = labels.indexOf(d);
+    if (idx < 0) return;
+    const x = xScale.getPixelForValue(d, idx);
+    const top = chart.chartArea.top, bot = chart.chartArea.bottom;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(34,211,238,0.75)";
+    ctx.setLineDash([4,4]);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(x, top); ctx.lineTo(x, bot); ctx.stroke();
+    ctx.restore();
+  },
+};
 
+function renderChart() {
+  const ctx = qs("#chart-canvas").getContext("2d");
+  const prices = state.priceData || [];
+  const preds  = state.predictionData || [];
+
+  // Build union of dates as categories; price axis uses left, proba uses right
+  const priceDates = new Set(prices.map(p => p.date));
+  const predDates  = new Set(preds.map(p => p.prediction_date));
+  const all = Array.from(new Set([...priceDates, ...predDates])).sort();
+
+  // Map dates -> values
+  const priceByDate = new Map(prices.map(p => [p.date, p.close]));
+  const probaByDate = new Map(preds.map(p => [p.prediction_date, p.ensemble_pred_proba]));
+
+  const priceSeries = all.map(d => priceByDate.has(d) ? priceByDate.get(d) : null);
+  const probaSeries = all.map(d => probaByDate.has(d) ? probaByDate.get(d) : null);
+
+  const smooth = state.chartShape === "smooth";
   const datasets = [
     { label: "Close",
-      data: pricePoints,
+      data: priceSeries,
       yAxisID: "yPrice",
-      borderColor: "rgba(99,102,241,0.9)",
+      borderColor: "rgba(99,102,241,0.95)",
       backgroundColor: "rgba(99,102,241,0.15)",
-      fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2 },
+      fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2,
+      spanGaps: true },
     { label: "Ensemble P(up)",
-      data: probPoints,
+      data: probaSeries,
       yAxisID: "yProba",
       borderColor: "rgba(34,211,238,0.95)",
-      backgroundColor: "rgba(34,211,238,0.12)",
-      fill: false, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3], tension: 0.2 },
+      backgroundColor: "rgba(34,211,238,0.10)",
+      fill: false, pointRadius: 0, borderWidth: 2,
+      tension: smooth ? 0.35 : 0,
+      stepped: smooth ? false : "after",
+      spanGaps: smooth },  // smoothed line spans gaps so the curve isn't choppy
   ];
 
   if (state.chart) state.chart.destroy();
   state.chart = new Chart(ctx, {
     type: "line",
-    data: { datasets },
+    data: { labels: all, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
@@ -613,14 +1391,15 @@ function renderChart(data) {
       },
       plugins: { legend: { labels: { color: "#e6eaf5" } } },
     },
+    plugins: [verticalLinePlugin],
   });
 }
 
-// ---------- headlines / rationale / dates / conviction / accuracy ----------
-state.dates = [];
-state.selectedDate = null;
-state.accuracyChart = null;
+function updateChartMarker() {
+  if (state.chart) state.chart.update("none");
+}
 
+// ---------- Rewind slider ----------
 async function refreshDates() {
   if (!state.ticker) return;
   const r = await fetch(`/api/dates?ticker=${state.ticker}`);
@@ -631,20 +1410,74 @@ async function refreshDates() {
   const n = state.dates.length;
   slider.min = 0;
   slider.max = Math.max(0, n - 1);
-  slider.value = Math.max(0, n - 1);
-  state.selectedDate = n ? state.dates[n - 1] : null;
+  slider.disabled = n <= 1;
+  // Preserve the user's currently-selected date when switching tickers,
+  // only falling back to the most recent date when the previous selection
+  // doesn't exist for this ticker.
+  const preferred = state.selectedDate;
+  let idx = n - 1;
+  if (preferred) {
+    const match = state.dates.indexOf(preferred);
+    if (match >= 0) idx = match;
+  }
+  slider.value = String(Math.max(0, idx));
+  state.selectedDate = n ? state.dates[Math.max(0, idx)] : null;
   qs("#date-slider-min").textContent = state.dates[0] || "—";
   qs("#date-slider-max").textContent = state.dates[n - 1] || "—";
-  qs("#date-slider-cur").textContent = state.selectedDate || "";
-  qs("#date-slider-meta").textContent = n ? `${n} prediction days` : "no predictions yet";
+  updateDateDisplay();
+  qs("#date-slider-meta").textContent = n
+    ? `${n} prediction days available · ${state.dates[0]} → ${state.dates[n-1]}${n <= 1 ? " (slider disabled)" : ""}`
+    : "no predictions yet";
+  qs("#btn-date-prev").disabled = n <= 1;
+  qs("#btn-date-next").disabled = n <= 1;
+  qs("#btn-date-latest").disabled = n === 0;
+}
+
+function updateDateDisplay() {
+  const n = state.dates.length;
+  qs("#date-slider-cur").textContent = state.selectedDate || "—";
+  qs("#header-date-value").textContent = state.selectedDate || "—";
+  const latest = n ? state.dates[n - 1] : null;
+  qs("#header-date-flag").textContent =
+    state.selectedDate && latest && state.selectedDate === latest ? "(latest)" : "";
+}
+
+function jumpToDate(d) {
+  const idx = state.dates.indexOf(d);
+  if (idx < 0) return;
+  state.selectedDate = d;
+  qs("#date-slider").value = String(idx);
+  updateDateDisplay();
+  refreshCallForSelectedDate();
+  refreshAccuracySummary();
 }
 
 qs("#date-slider").addEventListener("input", (e) => {
   const idx = Number(e.target.value);
   state.selectedDate = state.dates[idx] || null;
-  qs("#date-slider-cur").textContent = state.selectedDate || "";
+  updateDateDisplay();
+  updateChartMarker();
 });
-qs("#date-slider").addEventListener("change", () => refreshHeadlinesAndRationale());
+qs("#date-slider").addEventListener("change", () => {
+  refreshCallForSelectedDate();
+  refreshAccuracySummary();
+});
+
+qs("#btn-date-latest").addEventListener("click", () => {
+  if (!state.dates.length) return;
+  jumpToDate(state.dates[state.dates.length - 1]);
+});
+qs("#btn-date-prev").addEventListener("click", () => {
+  if (!state.dates.length) return;
+  const idx = Math.max(0, state.dates.indexOf(state.selectedDate) - 1);
+  jumpToDate(state.dates[idx]);
+});
+qs("#btn-date-next").addEventListener("click", () => {
+  if (!state.dates.length) return;
+  const cur = state.dates.indexOf(state.selectedDate);
+  const idx = Math.min(state.dates.length - 1, (cur < 0 ? state.dates.length - 1 : cur + 1));
+  jumpToDate(state.dates[idx]);
+});
 
 async function refreshHeadlinesAndRationale() {
   if (!state.ticker || !state.selectedDate) return;
@@ -656,11 +1489,11 @@ async function refreshHeadlinesAndRationale() {
 
 async function refreshHeadlines(ticker, date) {
   const r = await fetch(`/api/headlines?ticker=${ticker}&date=${date}`);
-  if (!r.ok) { qs("#headline-cards").innerHTML = '<div class="muted">Could not load headlines.</div>'; return; }
+  const host = qs("#headline-cards");
+  if (!r.ok) { host.innerHTML = '<div class="muted">Could not load headlines.</div>'; return; }
   const data = await r.json();
   const items = data.headlines || [];
-  qs("#headline-count").textContent = `${items.length} headline${items.length === 1 ? "" : "s"}`;
-  const host = qs("#headline-cards");
+  qs("#headline-count").textContent = `${items.length} headline${items.length === 1 ? "" : "s"} on ${date}`;
   if (!items.length) { host.innerHTML = '<div class="muted">No headlines for this date.</div>'; return; }
   host.innerHTML = "";
   items.slice(0, 15).forEach(h => {
@@ -686,43 +1519,102 @@ async function refreshHeadlines(ticker, date) {
   });
 }
 
-function _esc(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+const FEATURE_LABELS = {
+  financial_pred_proba:       { label: "LSTM price model",       hint: "Probability up from the LSTM on 60 days of prices + technical indicators." },
+  news_tfidf_pred_proba:      { label: "TF-IDF news model",      hint: "Probability up from a logistic regression over bag-of-words headlines." },
+  news_embeddings_pred_proba: { label: "Embeddings news model",  hint: "Probability up from sentence-embedding features over headlines + content." },
+  lstm_confidence:            { label: "LSTM confidence",        hint: "How far the LSTM's probability is from 50/50 (|p−0.5|×2)." },
+  tfidf_confidence:           { label: "TF-IDF confidence",      hint: "How far the TF-IDF model's probability is from 50/50." },
+  emb_confidence:             { label: "Embeddings confidence",  hint: "How far the embeddings model's probability is from 50/50." },
+  all_agree:                  { label: "All 3 base models agree",hint: "1 if LSTM, TF-IDF, and Embeddings all point the same way, else 0." },
+  has_news:                   { label: "News available?",        hint: "1 if at least one headline was seen for this ticker before cutoff." },
+  n_headlines:                { label: "Headlines (count)",      hint: "How many headlines were aggregated into the news features." },
+  spy_return_5d:              { label: "S&P 500 5-day return %", hint: "Broad-market trend context (negative = market pulling down)." },
+};
+
+function _formatFeatureValue(name, value) {
+  if (value == null || Number.isNaN(value)) return "—";
+  const v = Number(value);
+  if (name === "has_news" || name === "all_agree") return v >= 0.5 ? "yes" : "no";
+  if (name === "n_headlines") return v.toFixed(0);
+  if (name.endsWith("_proba") || name.endsWith("confidence")) return (v * 100).toFixed(1) + "%";
+  if (name === "spy_return_5d") return (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+  return v.toFixed(3);
+}
+
+function _rbarHtml(c, maxMag) {
+  const contribution = c.contribution != null ? c.contribution : 0;
+  const mag = Math.abs(contribution);
+  const w = Math.round(mag / Math.max(maxMag, 1e-6) * 100);
+  const isUp = contribution > 0;
+  const dirLabel = mag < 1e-9
+    ? "neutral today"
+    : (isUp ? "→ pushed UP" : "→ pushed DOWN");
+  const meta = FEATURE_LABELS[c.feature] || { label: c.feature, hint: "" };
+  const title = `${meta.label}${meta.hint ? " — " + meta.hint : ""}\\nValue today: ${_formatFeatureValue(c.feature, c.value)}\\n${dirLabel}`;
+  const barCls = "bar " + (isUp ? "pos" : "neg");
+  return `
+    <div class="rbar" title="${_esc(title)}">
+      <div>
+        <div>${_esc(meta.label)}</div>
+        <div class="muted" style="font-size:10.5px; margin-top:2px;">${_esc(meta.hint || "")}</div>
+        <div class="rbar-dir ${isUp ? "up" : "down"}" style="font-size:10.5px; margin-top:2px;">${_esc(dirLabel)}</div>
+      </div>
+      <div class="${barCls}"><span style="width:${w}%"></span></div>
+      <div class="val">${_esc(_formatFeatureValue(c.feature, c.value))}</div>
+    </div>`;
+}
 
 async function refreshRationale(ticker, date) {
   const r = await fetch(`/api/rationale?ticker=${ticker}&date=${date}`);
-  if (!r.ok) return;
+  const host = qs("#rationale-bars");
+  if (!r.ok) { host.innerHTML = '<div class="muted">No rationale available.</div>'; return; }
   const data = await r.json();
   qs("#rationale-meta").textContent = `as of ${data.date} · ensemble ${data.ensemble_proba != null ? (data.ensemble_proba*100).toFixed(1)+"%" : "—"}`;
-  const host = qs("#rationale-bars");
   const contribs = data.contributions || [];
   if (!contribs.length) { host.innerHTML = '<div class="muted">No rationale (meta-model not built).</div>'; return; }
-  const maxImp = Math.max(0.0001, ...contribs.map(c => Math.abs(c.importance)));
-  host.innerHTML = contribs.map(c => {
-    const w = Math.round(Math.abs(c.importance) / maxImp * 100);
-    return `
-      <div class="rbar">
-        <div>${_esc(c.feature)}</div>
-        <div class="bar"><span style="width:${w}%"></span></div>
-        <div class="val">${c.value.toFixed(3)}</div>
-      </div>`;
-  }).join("");
+
+  const maxMag = Math.max(0.0001, ...contribs.map(c => Math.abs(c.contribution ?? 0)));
+  // Anything whose relative contribution is < 5% of the biggest is "minor for today" and collapsed.
+  const majorThreshold = maxMag * 0.05;
+  const major = [];
+  const minor = [];
+  for (const c of contribs) {
+    const mag = Math.abs(c.contribution ?? 0);
+    (mag >= majorThreshold && mag > 1e-9 ? major : minor).push(c);
+  }
+  const majorHtml = (major.length ? major : contribs.slice(0, 3))
+    .map(c => _rbarHtml(c, maxMag)).join("");
+  const minorHtml = minor.map(c => _rbarHtml(c, maxMag)).join("");
+  host.innerHTML = `
+    <div>${majorHtml}</div>
+    ${minor.length ? `
+      <details class="minor-signals" style="margin-top:10px;">
+        <summary class="muted" style="font-size:12px; cursor:pointer;">
+          Show ${minor.length} quiet signal${minor.length === 1 ? "" : "s"}
+          <span class="muted" style="font-size:11px;">&nbsp;— near-zero impact today</span>
+        </summary>
+        <div style="margin-top:6px;">${minorHtml}</div>
+      </details>` : ""}
+  `;
 }
 
+// ---------- Accuracy sparkline + conviction ----------
 async function refreshAccuracy() {
   if (!state.ticker) return;
-  const r = await fetch(`/api/accuracy-trace?ticker=${state.ticker}&window=30`);
+  const r = await fetch(`/api/accuracy-trace?ticker=${state.ticker}&window=7`);
   if (!r.ok) return;
   const data = await r.json();
-  const points = (data.series || [])
-    .filter(p => p.accuracy != null)
-    .map(p => ({ x: p.date, y: p.accuracy }));
+  const pts = (data.series || []).filter(p => p.accuracy != null);
+  const labels = pts.map(p => p.date);
+  const values = pts.map(p => p.accuracy);
   const ctx = qs("#accuracy-canvas").getContext("2d");
   if (state.accuracyChart) state.accuracyChart.destroy();
   state.accuracyChart = new Chart(ctx, {
     type: "line",
-    data: { datasets: [{
+    data: { labels, datasets: [{
       label: "rolling acc",
-      data: points,
+      data: values,
       borderColor: "rgba(34,211,238,0.95)",
       backgroundColor: "rgba(34,211,238,0.12)",
       fill: true, tension: 0.25, pointRadius: 0, borderWidth: 2,
@@ -743,25 +1635,151 @@ async function refreshConviction() {
   if (!r.ok) return;
   const data = await r.json();
   const buckets = data.buckets || [];
+  state.convictionBuckets = buckets;
   const host = qs("#conviction-box");
-  if (!buckets.length) { host.innerHTML = '<div class="muted">Run evaluation to populate.</div>'; return; }
-  const rows = buckets.map(b => `
-    <tr>
-      <td>${_esc(b.bucket ?? b.decile ?? "")}</td>
-      <td>${b.n}</td>
-      <td>${(Number(b.accuracy)*100).toFixed(1)}%</td>
-      <td>${(Number(b.avg_confidence)*100).toFixed(1)}%</td>
-    </tr>`).join("");
-  host.innerHTML = `
-    <table class="conv-table">
-      <thead><tr><th>bucket</th><th>n</th><th>acc</th><th>avg conf</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  if (!buckets.length) {
+    host.innerHTML = '<div class="muted">Run <code>scripts/evaluate_predictions.py</code> to populate.</div>';
+  } else {
+    const ens = buckets.filter(b => (b.model || "ensemble") === "ensemble");
+    const rows = (ens.length ? ens : buckets).map(b => {
+      const lo = b.conf_min != null ? Number(b.conf_min) : null;
+      const hi = b.conf_max != null ? Number(b.conf_max) : null;
+      const mid = (lo != null && hi != null) ? (lo + hi) / 2 : null;
+      return `
+        <tr>
+          <td>${_esc(b.bucket ?? "")}</td>
+          <td>${b.n}</td>
+          <td>${(Number(b.accuracy)*100).toFixed(1)}%</td>
+          <td>${mid != null ? (mid*100).toFixed(1)+"%" : "—"}</td>
+        </tr>`;
+    }).join("");
+    host.innerHTML = `
+      <table class="conv-table">
+        <thead><tr><th>bucket</th><th>n</th><th>acc</th><th>avg conf</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+  renderReliabilityChart();
 }
 
-// ---------- reconfigure drawer ----------
+function lookupEmpiricalAccuracy(confidence) {
+  const buckets = (state.convictionBuckets || []).filter(
+    b => !b.model || b.model === "ensemble"
+  );
+  if (!buckets.length || confidence == null) return null;
+  for (const b of buckets) {
+    const lo = b.conf_min != null ? Number(b.conf_min) : null;
+    const hi = b.conf_max != null ? Number(b.conf_max) : null;
+    if (lo != null && hi != null) {
+      if (confidence >= lo && confidence <= hi) return Number(b.accuracy);
+    }
+  }
+  // Nearest-midpoint fallback
+  let best = null, bestDist = Infinity;
+  for (const b of buckets) {
+    const lo = b.conf_min != null ? Number(b.conf_min) : null;
+    const hi = b.conf_max != null ? Number(b.conf_max) : null;
+    if (lo == null || hi == null) continue;
+    const mid = (lo + hi) / 2;
+    const d = Math.abs(mid - confidence);
+    if (d < bestDist) { bestDist = d; best = b; }
+  }
+  return best ? Number(best.accuracy) : null;
+}
+
+// ---------- Reliability panel ----------
+function renderReliabilityChart() {
+  // calibration chart: x = midpoint of confidence bucket, y = empirical accuracy
+  const buckets = (state.convictionBuckets || [])
+    .filter(b => (!b.model || b.model === "ensemble") && b.accuracy != null);
+  const points = buckets.map(b => {
+    const lo = b.conf_min != null ? Number(b.conf_min) : 0;
+    const hi = b.conf_max != null ? Number(b.conf_max) : 1;
+    return { x: (lo + hi) / 2, y: Number(b.accuracy), n: Number(b.n || 0) };
+  });
+
+  const canvas = qs("#reliability-canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (state.reliabilityChart) state.reliabilityChart.destroy();
+  state.reliabilityChart = new Chart(ctx, {
+    type: "scatter",
+    data: {
+      datasets: [
+        {
+          label: "perfect calibration",
+          data: [{x:0, y:0.5}, {x:1, y:1}],
+          type: "line",
+          borderColor: "rgba(148,163,184,0.5)",
+          borderDash: [4,3],
+          pointRadius: 0, borderWidth: 1.2,
+        },
+        {
+          label: "ensemble (buckets)",
+          data: points,
+          backgroundColor: "rgba(34,211,238,0.85)",
+          borderColor: "rgba(34,211,238,1)",
+          pointRadius: points.map(p => Math.max(4, Math.min(14, Math.sqrt(p.n || 1)*2))),
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { min: 0, max: 1, title: { display: true, text: "Confidence (|p-.5|*2)", color: "#94a3b8" },
+             ticks: { color: "#94a3b8" }, grid: { color: "rgba(255,255,255,.04)" } },
+        y: { min: 0, max: 1, title: { display: true, text: "Empirical accuracy", color: "#94a3b8" },
+             ticks: { color: "#94a3b8" }, grid: { color: "rgba(255,255,255,.04)" } },
+      },
+      plugins: { legend: { labels: { color: "#e6eaf5" } } },
+    },
+  });
+
+  renderProbaHist();
+}
+
+async function renderProbaHist() {
+  // Build histogram from /api/history across all available predictions (current ticker)
+  if (!state.ticker) return;
+  const r = await fetch(`/api/history?ticker=${state.ticker}&window=all`);
+  if (!r.ok) return;
+  const data = await r.json();
+  const probas = (data.predictions || [])
+    .map(p => p.ensemble_pred_proba)
+    .filter(v => v != null);
+  // 20 bins across [0,1]
+  const bins = new Array(20).fill(0);
+  probas.forEach(v => {
+    const idx = Math.min(19, Math.max(0, Math.floor(v * 20)));
+    bins[idx]++;
+  });
+  const labels = bins.map((_, i) => `${(i/20).toFixed(2)}–${((i+1)/20).toFixed(2)}`);
+
+  const ctx = qs("#proba-hist-canvas").getContext("2d");
+  if (state.probaHistChart) state.probaHistChart.destroy();
+  state.probaHistChart = new Chart(ctx, {
+    type: "bar",
+    data: { labels, datasets: [{
+      label: `${state.ticker} P(up) count (n=${probas.length})`,
+      data: bins,
+      backgroundColor: "rgba(99,102,241,0.7)",
+      borderColor: "rgba(99,102,241,1)",
+      borderWidth: 1,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: "#94a3b8", maxRotation: 90, minRotation: 60, autoSkip: false, font: { size: 9 } }, grid: { display: false } },
+        y: { beginAtZero: true, ticks: { color: "#94a3b8" }, grid: { color: "rgba(255,255,255,.04)" } },
+      },
+      plugins: { legend: { labels: { color: "#e6eaf5" } } },
+    },
+  });
+}
+
+// ---------- Reconfigure drawer ----------
 const drawer = qs("#drawer"), backdrop = qs("#drawer-backdrop");
-function openDrawer()  { drawer.classList.add("show"); backdrop.classList.add("show"); }
+function openDrawer()  { drawer.classList.add("show"); backdrop.classList.add("show"); refreshDrawerDataStatus(); }
 function closeDrawer() { drawer.classList.remove("show"); backdrop.classList.remove("show"); }
 qs("#btn-reconfigure").addEventListener("click", openDrawer);
 qs("#drawer-close").addEventListener("click", closeDrawer);
@@ -812,6 +1830,9 @@ qs("#drawer-run").addEventListener("click", async () => {
       use_finbert: qs("#drawer-finbert").checked,
       skip_collect: qs("#drawer-skipcollect").checked,
       skip_news: qs("#drawer-skipnews").checked,
+      skip_lstm: qs("#drawer-skiplstm").checked,
+      skip_nlp: qs("#drawer-skipnlp").checked,
+      skip_emb: qs("#drawer-skipemb").checked,
     },
   };
   const res = await fetch("/api/run", {
@@ -825,15 +1846,84 @@ qs("#drawer-run").addEventListener("click", async () => {
   pollJobs();
 });
 
+// ---------- drawer: data management ----------
+async function refreshDrawerDataStatus() {
+  try {
+    const r = await fetch("/api/data-status");
+    if (!r.ok) return;
+    const d = await r.json();
+    const elP = qs("#ds-latest-pred");
+    const elPr = qs("#ds-latest-price");
+    const elN = qs("#ds-latest-news");
+    const elNc = qs("#ds-news-count");
+    if (elP)  elP.textContent  = d.latest_prediction_date || "—";
+    if (elPr) elPr.textContent = d.latest_price_date      || "—";
+    if (elN)  elN.textContent  = d.latest_news_date       || "—";
+    if (elNc) elNc.textContent = d.news_rows ? `(${d.news_rows.toLocaleString()} articles)` : "";
+  } catch (_) {}
+}
+
+async function kickJob(url, body, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "Could not start job"); return; }
+    if (j.job) showJob(j.job);
+    pollJobs();
+  } catch (e) {
+    alert("Request failed: " + e);
+  }
+}
+
+state.refreshMode = "quality";
+document.querySelectorAll("#refresh-mode-btns .range-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const m = btn.dataset.mode;
+    if (!m) return;
+    state.refreshMode = m;
+    document.querySelectorAll("#refresh-mode-btns .range-btn").forEach((b) => {
+      b.classList.toggle("active", b === btn);
+    });
+  });
+});
+qs("#btn-refresh-data")?.addEventListener("click", () => {
+  const days = Number(qs("#data-refresh-days")?.value) || 60;
+  kickJob("/api/data/refresh", {
+    days, include_news: true, mode: state.refreshMode || "quality",
+  });
+});
+qs("#btn-refresh-news-only")?.addEventListener("click", () => {
+  const days = Number(qs("#data-refresh-days")?.value) || 60;
+  kickJob("/api/data/refresh", {
+    days, include_news: false, mode: state.refreshMode || "quality",
+  });
+});
+qs("#btn-clear-preds")?.addEventListener("click", () => {
+  kickJob("/api/data/clear", { scope: "predictions" },
+    "Delete the predictions CSV? Models and DB stay intact; a quick rebuild will regenerate it.");
+});
+qs("#btn-clear-models")?.addEventListener("click", () => {
+  kickJob("/api/data/clear", { scope: "models" },
+    "Delete all trained model files? You'll need to retrain before the next pipeline run.");
+});
+qs("#btn-clear-full")?.addEventListener("click", () => {
+  kickJob("/api/data/clear", { scope: "full" },
+    "FULL RESET: wipe DB, models, and processed files. This cannot be undone. Proceed?");
+});
+
 // ---------- keyboard shortcuts ----------
 document.addEventListener("keydown", (e) => {
   if (["INPUT","TEXTAREA","SELECT"].includes(document.activeElement?.tagName)) return;
   if (e.key === "r") { openDrawer(); e.preventDefault(); return; }
   if (e.key === "Escape") { closeDrawer(); return; }
-  const tickers = {{ tickers|tojson }};
-  const idx = tickers.indexOf(state.ticker);
-  if (e.key === "ArrowRight" && idx >= 0) selectTicker(tickers[(idx+1) % tickers.length]);
-  if (e.key === "ArrowLeft"  && idx >= 0) selectTicker(tickers[(idx-1+tickers.length) % tickers.length]);
+  const idx = ALL_TICKERS.indexOf(state.ticker);
+  if (e.key === "ArrowRight" && idx >= 0) selectTicker(ALL_TICKERS[(idx+1) % ALL_TICKERS.length]);
+  if (e.key === "ArrowLeft"  && idx >= 0) selectTicker(ALL_TICKERS[(idx-1+ALL_TICKERS.length) % ALL_TICKERS.length]);
   const mm = {"1":"ensemble","2":"lstm","3":"tfidf","4":"embeddings"};
   if (mm[e.key]) selectModel(mm[e.key]);
 });
@@ -862,8 +1952,7 @@ async function pollJobs() {
     } else {
       if (_jobPollTimer) { clearInterval(_jobPollTimer); _jobPollTimer = null; }
       if (cur && cur.status !== "running") {
-        // refresh data after job finishes
-        setTimeout(() => { refreshAll(); }, 500);
+        setTimeout(() => { refreshAll(); refreshDataAgeChip(); }, 500);
         setTimeout(() => { qs("#job-bar").classList.remove("show"); }, 5000);
       }
     }
@@ -875,6 +1964,7 @@ async function pollJobs() {
   await loadPresets();
   await refreshConviction();
   selectTicker(DEFAULT_TICKER);
+  refreshDataAgeChip();
   pollJobs();
 })();
 </script>
