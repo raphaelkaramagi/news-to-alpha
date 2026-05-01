@@ -1,7 +1,11 @@
+import path from "path";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Monorepo: avoid Turbopack picking up a stray lockfile in the parent folder
+  turbopack: {
+    root: path.join(__dirname),
+  },
 };
 
 export default nextConfig;

@@ -54,6 +54,16 @@ export default async function HomePage() {
         </p>
       )}
 
+      {configured && !status && (
+        <p className="mx-auto mt-12 max-w-lg rounded-xl border border-warn/40 bg-warn/10 p-4 text-center text-sm text-warn">
+          Could not reach <code className="font-mono text-xs">API_BASE_URL</code> (e.g. connection
+          refused). Start Flask on that host/port, then reload. Example:{` `}
+          <code className="mt-2 block font-mono text-xs">
+            gunicorn -w 1 -b 127.0.0.1:8000 app.server:app
+          </code>
+        </p>
+      )}
+
       <section className="mt-16 grid gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border border-border bg-surface p-5 text-sm text-muted">
           <h2 className="font-semibold text-foreground">Data</h2>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { forwardToFlask } from "@/lib/backend";
 import { getApiBaseUrl } from "@/lib/env";
 
 export async function POST(req: NextRequest) {
@@ -10,21 +11,12 @@ export async function POST(req: NextRequest) {
     );
   }
   const body = await req.text();
-  const res = await fetch(`${base}/api/run`, {
+  return forwardToFlask(`${base}/api/run`, {
     method: "POST",
     headers: {
       "content-type":
         req.headers.get("content-type") || "application/json; charset=utf-8",
     },
     body: body || "{}",
-    cache: "no-store",
-  });
-  const text = await res.text();
-  return new NextResponse(text, {
-    status: res.status,
-    headers: {
-      "content-type":
-        res.headers.get("content-type") || "application/json; charset=utf-8",
-    },
   });
 }

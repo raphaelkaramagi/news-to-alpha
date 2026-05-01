@@ -14,6 +14,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Route Handlers under `app/api/*` proxy to `API_BASE_URL` so the browser never needs CORS or secrets.
 
+If the Flask process is not running, the **home page still loads**; you will see a short notice that `API_BASE_URL` could not be reached (`ECONNREFUSED`). Start the backend (e.g. `gunicorn -w 1 -b 127.0.0.1:8000 app.server:app` from the repo root) and reload.
+
 ## Deploy on Vercel
 
 1. New project → import this repo.
