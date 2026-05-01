@@ -135,7 +135,17 @@ page or via SSH).
 | GET    | `/api/conviction`              | `evaluation_by_confidence.csv` as JSON          |
 | GET    | `/api/metrics`                 | Overall + per-ticker evaluation metrics         |
 
-## 9. Scaling
+## 9. Next.js frontend (Vercel)
+
+The interactive UI in [`web/`](../web/) is a **separate deploy** from the Flask API:
+
+1. **Vercel:** create a project with **Root Directory** set to `web`.
+2. **Env:** set `API_BASE_URL` to the **public origin** of this Flask service (e.g. `https://your-app.onrender.com`), no trailing slash.
+3. **Routing:** Next.js Route Handlers (`web/app/api/*`) proxy to Flask so the browser does not call Flask directly and you do not need `NEXT_PUBLIC_*` API URLs.
+
+Local development: `cd web && cp .env.example .env.local` and point `API_BASE_URL` at `http://127.0.0.1:8000` (or your port). See [`web/README.md`](../web/README.md).
+
+## 10. Scaling
 
 - Keep `--workers 1` in `gunicorn` so the single-job lock in `app/jobs.py`
   actually prevents concurrent retrains. If you need more web throughput,

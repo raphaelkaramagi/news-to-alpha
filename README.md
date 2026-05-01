@@ -181,6 +181,7 @@ src/
 
 scripts/                  runnable CLI commands (all accept --help)
 app/                      Flask web app (server.py, jobs.py, templates/)
+web/                      Next.js UI for Vercel (proxies Flask via API_BASE_URL — see web/README.md)
 tests/unit/               pytest tests/ -v
 data/                     git-ignored — database, features, trained models (auto-created)
 docs/                     project overview, roadmap, deploy guide

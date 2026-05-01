@@ -137,6 +137,12 @@ celerybeat.pid
 # Project data (do not commit)
 data/
 
+# Next.js app under web/ uses paths named `lib` and `api/data` — do not treat as ignored
+!web/lib/
+!web/lib/**
+!web/app/api/data/
+!web/app/api/data/**
+
 # Environments
 .env
 .envrc
