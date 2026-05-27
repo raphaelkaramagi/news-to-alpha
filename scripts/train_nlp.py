@@ -181,8 +181,24 @@ def export_predictions(model: TfidfPublisherClassifier,
     out["news_confidence"] = conf
     out["top_headlines"] = df["top_headlines"].reset_index(drop=True)
     out["actual_binary"] = df["label_binary"].reset_index(drop=True)
-    out["model_version"] = MODEL_VERSION
+    out["model_version"] = getattr(model, "_model_version", None) or MODEL_VERSION
     return out
+
+
+def load_tfidf_model(path: str | Path) -> TfidfPublisherClassifier:
+    """Load ``nlp_baseline.joblib`` (dict payload or legacy classifier object)."""
+    payload = joblib.load(path)
+    if isinstance(payload, TfidfPublisherClassifier):
+        return payload
+    if not isinstance(payload, dict):
+        raise TypeError(f"Unexpected TF-IDF model format in {path}: {type(payload)}")
+    model = TfidfPublisherClassifier()
+    model.vectorizer = payload["vectorizer"]
+    model.publisher_encoder = payload["publisher_encoder"]
+    model.classifier = payload["classifier"]
+    model._calibrated = payload.get("calibrated")
+    model._model_version = payload.get("model_version")
+    return model
 
 
 def save_predictions_csv(model: TfidfPublisherClassifier,

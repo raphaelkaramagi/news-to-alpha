@@ -278,8 +278,28 @@ def export_predictions(model: NewsEmbeddingClassifier,
     out["news_confidence"] = conf
     out["top_headlines"] = df["top_headlines"].reset_index(drop=True)
     out["actual_binary"] = df["label_binary"].reset_index(drop=True)
-    out["model_version"] = MODEL_VERSION
+    out["model_version"] = getattr(model, "_model_version", None) or MODEL_VERSION
     return out
+
+
+def load_embedding_model(path: str | Path) -> NewsEmbeddingClassifier:
+    """Load ``news_embeddings.joblib`` (dict payload or legacy classifier object)."""
+    payload = joblib.load(path)
+    if isinstance(payload, NewsEmbeddingClassifier):
+        return payload
+    if not isinstance(payload, dict):
+        raise TypeError(f"Unexpected embedding model format in {path}: {type(payload)}")
+    model = NewsEmbeddingClassifier(
+        sentence_model_name=payload["sentence_model_name"],
+        classifier=payload["classifier"],
+        batch_size=payload.get("batch_size", 32),
+        use_finbert=payload.get("use_finbert", False),
+        finbert_cache_db=payload.get("finbert_cache_db"),
+        publisher_encoder=payload["publisher_encoder"],
+    )
+    model._calibrated = payload.get("calibrated")
+    model._model_version = payload.get("model_version")
+    return model
 
 
 def save_predictions_csv(model: NewsEmbeddingClassifier,

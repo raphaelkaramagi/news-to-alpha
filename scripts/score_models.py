@@ -76,42 +76,23 @@ def _score_tfidf(horizon: int, dry_run: bool) -> bool:
         print("[score_tfidf] DRY-RUN – would score all news-bearing days")
         return True
 
-    import joblib
-    import pandas as pd
     from src.models.news_pipeline import build_dataset  # noqa: E402
-    from scripts.train_nlp import (  # noqa: E402
-        export_predictions,
-        _text_with_snippet,
-        _SIDE_FEATURES,
-    )
-    from scipy import sparse as sp
+    from scripts.train_nlp import export_predictions, load_tfidf_model  # noqa: E402
 
-    model = joblib.load(model_path)
+    model = load_tfidf_model(model_path)
     df = build_dataset(DATABASE_PATH, drop_rows_without_news=True, horizon=horizon)
     if df.empty:
         print("[score_tfidf] No news-bearing rows – skipping.")
         return False
 
-    text = _text_with_snippet(df)
-    side = df[[f for f in _SIDE_FEATURES if f in df.columns]].fillna(0.0).values
-    tfidf_X = model.vectorizer_.transform(text)
-    pub_X = model.publisher_enc_.transform(df)
-    import numpy as np
-    X = sp.hstack([tfidf_X, pub_X, sp.csr_matrix(side)])
-    proba = model.calibrated_.predict_proba(X)[:, 1]
-
-    out_df = pd.DataFrame({
-        "ticker": df["ticker"].values,
-        "prediction_date": df["label_date"].values,
-        "split": df.get("split", pd.Series(["infer"] * len(df))).values,
-        "news_pred_proba": proba,
-        "news_pred_binary": (proba >= 0.5).astype(int),
-        "news_confidence": np.abs(proba - 0.5) * 2.0,
-        "actual_binary": df["label_binary"].values,
-        "top_headlines": df["headlines_text"].values if "headlines_text" in df.columns else "",
-    })
+    out_df = export_predictions(model, "daily", df)
+    col_order = [
+        "ticker", "prediction_date", "split", "model_name",
+        "news_pred_proba", "news_pred_binary", "news_confidence",
+        "top_headlines", "actual_binary", "model_version",
+    ]
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(out_csv, index=False)
+    out_df[col_order].to_csv(out_csv, index=False)
     print(f"[score_tfidf] Saved {len(out_df)} rows → {out_csv}")
     return True
 
@@ -133,45 +114,26 @@ def _score_embeddings(horizon: int, dry_run: bool) -> bool:
         print("[score_embeddings] DRY-RUN – would score all news-bearing days")
         return True
 
-    import joblib
-    import numpy as np
-    import pandas as pd
     from src.models.news_pipeline import build_dataset  # noqa: E402
+    from scripts.train_news_embeddings import (  # noqa: E402
+        export_predictions,
+        load_embedding_model,
+    )
 
-    model = joblib.load(model_path)
+    model = load_embedding_model(model_path)
     df = build_dataset(DATABASE_PATH, drop_rows_without_news=True, horizon=horizon)
     if df.empty:
         print("[score_embeddings] No news-bearing rows – skipping.")
         return False
 
-    # Embed using the stored encoder
-    headlines = df["headlines_text"].fillna("").astype(str).tolist()
-    embeddings = model.encoder_.encode(headlines, show_progress_bar=False, batch_size=64)
-
-    # Publisher features
-    from src.features.publisher_features import PublisherOneHot  # noqa: E402
-    pub_X = model.publisher_enc_.transform(df) if hasattr(model, "publisher_enc_") else np.zeros((len(df), 1))
-
-    # Side features
-    side_cols = ["n_headlines", "avg_finnhub_sentiment", "avg_relevance"]
-    side = df[[c for c in side_cols if c in df.columns]].fillna(0.0).values
-    import scipy.sparse as sp
-    X = np.hstack([embeddings, pub_X.toarray() if sp.issparse(pub_X) else pub_X, side])
-
-    proba = model.calibrated_.predict_proba(X)[:, 1]
-
-    out_df = pd.DataFrame({
-        "ticker": df["ticker"].values,
-        "prediction_date": df["label_date"].values,
-        "split": df.get("split", pd.Series(["infer"] * len(df))).values,
-        "news_embeddings_pred_proba": proba,
-        "news_embeddings_pred_binary": (proba >= 0.5).astype(int),
-        "news_embeddings_confidence": np.abs(proba - 0.5) * 2.0,
-        "actual_binary": df["label_binary"].values,
-        "top_headlines": df["headlines_text"].values if "headlines_text" in df.columns else "",
-    })
+    out_df = export_predictions(model, "daily", df)
+    col_order = [
+        "ticker", "prediction_date", "split", "model_name",
+        "news_pred_proba", "news_pred_binary", "news_confidence",
+        "top_headlines", "actual_binary", "model_version",
+    ]
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    out_df.to_csv(out_csv, index=False)
+    out_df[col_order].to_csv(out_csv, index=False)
     print(f"[score_embeddings] Saved {len(out_df)} rows → {out_csv}")
     return True
 

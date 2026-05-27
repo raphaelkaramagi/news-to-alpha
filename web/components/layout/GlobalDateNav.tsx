@@ -51,7 +51,7 @@ export function GlobalDateNav() {
         <button
           onClick={goLatest}
           className={cn(
-            "ml-1 px-2 py-0.5 rounded text-[10px]",
+            "ml-1 px-2 py-0.5 rounded text-[10px] hidden sm:inline",
             "text-muted-foreground hover:text-foreground hover:bg-accent"
           )}
         >
