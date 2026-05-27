@@ -1,41 +1,37 @@
 # Slim Railway image: serves the Flask API only (no training).
-# Artifacts (CSVs, models, DB) are uploaded separately to the /data volume
-# via publish_deploy_bundle.py.
+# Artifacts (CSVs, models, DB) live on the /data volume (see publish_deploy_bundle.py).
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    # Env flags for API-only mode
     SERVE_UI=false \
     INFERENCE_ONLY=true \
-    # HuggingFace / torch caches on the mounted volume
+    DATA_DIR=/data \
+    DATABASE_PATH=/data/database.db \
+    PROCESSED_DATA_DIR=/data/processed \
+    MODELS_DIR=/data/models \
     HF_HOME=/data/hf-cache \
     TRANSFORMERS_CACHE=/data/hf-cache \
     TORCH_HOME=/data/torch-cache
 
 WORKDIR /app
 
-# Minimal system deps (no build-essential needed for CPU torch wheel)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-inference.txt ./
 
-# Install CPU-only torch first from the PyTorch index, then the rest
 RUN pip install --upgrade pip \
  && pip install --index-url https://download.pytorch.org/whl/cpu torch \
  && pip install -r requirements-inference.txt
 
 COPY . .
 
-# Ensure data dirs exist (volume will shadow them when mounted)
-RUN mkdir -p /data/hf-cache /data/torch-cache \
-             /app/data/processed /app/data/models
+RUN mkdir -p /data/processed /data/models /data/hf-cache /data/torch-cache
 
 EXPOSE 8080
 
-# Railway injects $PORT; fall back to 8080.
 CMD ["sh", "-c", "gunicorn app.server:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:${PORT:-8080}"]

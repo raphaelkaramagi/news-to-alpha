@@ -77,15 +77,28 @@ So jumping from 5/22 to 5/26 is expected — there were no trading sessions in b
 
 ## Updating data locally
 
-### First-time or full retrain
+### First-time or full retrain (production)
+
+Use the **`max`** preset before your first deploy — all 15 tickers, 3 years of prices, next-day horizon (matches the UI), FinBERT embeddings, 3-seed LSTM with 120 epochs:
 
 ```bash
 source .venv/bin/activate
 cp .env.example .env   # NEWS_API_KEY=...
 
 python scripts/setup_database.py
-python scripts/run_pipeline.py --preset balanced
+python scripts/run_pipeline.py --preset max
 ```
+
+Retrain **replaces** prediction CSVs (no duplicate rows). The pipeline also prunes stale `predictions` DB rows and removes old `lstm_model_seed*.pt` files so seed ensembles stay in sync.
+
+Other presets:
+
+| Preset | Use case |
+|--------|----------|
+| `quick` | 2 tickers, smoke test (~minutes) |
+| `balanced` | 5 tickers, 3-day horizon, faster iteration |
+| `advanced` | All tickers, 3-day horizon, FinBERT |
+| **`max`** | **All tickers, next-day, most data — use before deploy** |
 
 This runs: collect → labels → split → train all models → ensemble → evaluate, and appends **live** LSTM rows automatically at the end of `train_lstm.py`.
 
@@ -128,12 +141,14 @@ Expected: `latest_prediction_date` matches `latest_price_date` (e.g. `2026-05-26
 
 ### Publish to Railway
 
+Volume on the **web** service must be mounted at **`/data`**. Then:
+
 ```bash
 python scripts/publish_deploy_bundle.py --dry-run
 python scripts/publish_deploy_bundle.py --target railway
 ```
 
-Or use the Mac cron wrapper: `scripts/local_cron.sh` (see `docs/local_cron.plist.example` — local only, gitignored).
+Requires `railway login` and `railway link` (service: **web**). The script streams files into `/data/` on the volume — do not use `railway run cp` with local Mac paths.
 
 ---
 
@@ -174,14 +189,14 @@ Open http://localhost:3000 — Markets, `/t/AAPL`, `/status`.
 
 | Script | When to use |
 |--------|-------------|
-| `run_pipeline.py` | Full retrain |
+| `run_pipeline.py` | Full retrain (`--preset max` for deploy) |
 | `daily_update.py` | Weekday refresh without retrain |
 | `score_models.py` | Live LSTM scoring only |
 | `publish_deploy_bundle.py` | Trim + upload to Railway |
 | `collect_prices.py` / `collect_news.py` | Manual data pull |
 | `generate_labels.py` | Rebuild labels after new prices |
 
-See also: [DEPLOY.md](DEPLOY.md) (Railway API), [DEPLOY_UI.md](DEPLOY_UI.md) (Vercel + full stack).
+See also: [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) (architecture deep dive).
 
 ---
 

@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -56,6 +58,8 @@ BUNDLE_FILES = [
 ]
 
 TRIM_DAYS = 180  # keep last N calendar days in the DB per ticker
+# Railway volume mount path (must match service volume settings)
+RAILWAY_DATA_ROOT = os.getenv("RAILWAY_DATA_ROOT", "/data")
 
 
 def _human_size(path: Path) -> str:
@@ -91,7 +95,7 @@ def copy_artifacts(source_data: Path, dest: Path, dry_run: bool) -> int:
             if required:
                 raise FileNotFoundError(
                     f"Required artifact missing: {src}\n"
-                    "Run `python scripts/run_pipeline.py --preset balanced` first."
+                    "Run `python scripts/run_pipeline.py --preset max` first."
                 )
             print(f"  [skip]   {rel}")
             continue
@@ -127,8 +131,10 @@ def trim_database(src_db: Path, dest_db: Path, trim_days: int, dry_run: bool) ->
                 )
             except sqlite3.OperationalError:
                 pass  # table might not exist or column differs
-        conn.execute("VACUUM")
         conn.commit()
+        # VACUUM cannot run inside a transaction (SQLite restriction)
+        conn.isolation_level = None
+        conn.execute("VACUUM")
     finally:
         conn.close()
     print(f"           DB size after trim: {_human_size(dest_db)}")
@@ -146,55 +152,80 @@ def write_manifest_stamp(dest: Path, dry_run: bool) -> None:
         stamp_path.write_text(json.dumps(stamp, indent=2))
 
 
+def _railway_upload_file(cli: str, local: Path, remote: str) -> tuple[bool, str]:
+    """Stream a local file into the Railway container volume via stdin."""
+    parent = str(Path(remote).parent)
+    mkdir = subprocess.run(
+        [cli, "run", "--", "mkdir", "-p", parent],
+        capture_output=True,
+        text=True,
+    )
+    if mkdir.returncode != 0:
+        err = (mkdir.stderr or mkdir.stdout or "mkdir failed").strip()
+        return False, err
+
+    with open(local, "rb") as handle:
+        result = subprocess.run(
+            [cli, "run", "--", "sh", "-c", f"cat > {shlex.quote(remote)}"],
+            stdin=handle,
+            capture_output=True,
+            text=True,
+        )
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "upload failed").strip()
+        return False, err
+    return True, ""
+
+
 def upload_to_railway(bundle_dir: Path) -> None:
-    """Upload via Railway CLI using `railway run`."""
+    """Upload via Railway CLI — streams files into the mounted /data volume."""
     cli = shutil.which("railway")
     if not cli:
         raise RuntimeError(
             "Railway CLI not found. Install: npm install -g @railway/cli\n"
-            "Then: railway login"
+            "Then: railway login && railway link"
         )
 
-    print("\n[railway] Uploading bundle ...")
-    # Copy each file via `railway run -- cp <local> /data/...`
+    root = RAILWAY_DATA_ROOT.rstrip("/")
+    print(f"\n[railway] Uploading bundle to {root}/ ...")
+    print("  (Volume must be mounted at this path on the web service.)")
+
+    ok_count = 0
     for rel, _ in BUNDLE_FILES:
         local = bundle_dir / rel
         if not local.exists():
             continue
-        remote = f"/data/{rel}"
-        # Ensure remote parent exists
-        parent = str(Path(remote).parent)
-        subprocess.run(
-            [cli, "run", "--", "mkdir", "-p", parent],
-            check=False, capture_output=True,
-        )
-        result = subprocess.run(
-            [cli, "run", "--", "cp", "-f", str(local), remote],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            print(f"  [warn] Failed to upload {rel}: {result.stderr.strip()}")
-        else:
+        remote = f"{root}/{rel}"
+        ok, err = _railway_upload_file(cli, local, remote)
+        if ok:
             print(f"  [ok]   {rel}")
+            ok_count += 1
+        else:
+            print(f"  [warn] Failed {rel}: {err}")
 
-    # Upload stamp
     stamp_local = bundle_dir / "processed" / "last_published.json"
     if stamp_local.exists():
-        subprocess.run(
-            [cli, "run", "--", "cp", "-f",
-             str(stamp_local), "/data/processed/last_published.json"],
-            check=False,
-        )
+        remote = f"{root}/processed/last_published.json"
+        ok, err = _railway_upload_file(cli, stamp_local, remote)
+        if ok:
+            print("  [ok]   processed/last_published.json")
+        else:
+            print(f"  [warn] Failed stamp: {err}")
 
-    # Upload DB
     db_local = bundle_dir / "database.db"
     if db_local.exists():
-        subprocess.run(
-            [cli, "run", "--", "cp", "-f", str(db_local), "/data/database.db"],
-            check=False,
-        )
-        print("  [ok]   database.db")
+        ok, err = _railway_upload_file(cli, db_local, f"{root}/database.db")
+        if ok:
+            print("  [ok]   database.db")
+            ok_count += 1
+        else:
+            print(f"  [warn] Failed database.db: {err}")
 
+    if ok_count == 0:
+        raise RuntimeError(
+            "No files uploaded. Check: railway link, service running, "
+            f"volume mounted at {root}/"
+        )
     print("[railway] Upload complete.")
 
 

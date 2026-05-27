@@ -29,7 +29,7 @@ pip install -r requirements.txt
 cp .env.example .env          # add NEWS_API_KEY
 
 python scripts/setup_database.py
-python scripts/run_pipeline.py --preset balanced
+python scripts/run_pipeline.py --preset max
 ```
 
 **Terminal 1 — API**
@@ -59,9 +59,7 @@ python scripts/publish_deploy_bundle.py --target railway
 
 Full docs: **[docs/DATA.md](docs/DATA.md)** (artifacts, scripts, freshness, confidence).
 
-Deploy: **[docs/DEPLOY_UI.md](docs/DEPLOY_UI.md)** (Vercel + Railway).
-
-Doc index: **[docs/README.md](docs/README.md)** (public vs gitignored personal docs).
+Doc index: **[docs/README.md](docs/README.md)**.
 
 ---
 
@@ -74,8 +72,6 @@ Doc index: **[docs/README.md](docs/README.md)** (public vs gitignored personal d
 | `/status` | Data freshness |
 
 Global date picker syncs all pages. **Restart Flask** after API changes (`python app/server.py --port 8000`).
-
-Personal references (gitignored, local only): `docs/PERSONAL_FULL_GUIDE.md`, `docs/DEPLOY_VERCEL.md`
 
 ---
 
@@ -98,10 +94,8 @@ src/
 data/                   Local only (gitignored) — DB, CSVs, models
 tests/unit/             pytest suite
 docs/
-  README.md             Doc index (public vs private)
-  DATA.md               How to update data
-  DEPLOY_UI.md          Vercel + Railway deploy
-  DEPLOY.md             Railway API details
+  README.md             Doc index
+  DATA.md               How to update data & train
   PROJECT_OVERVIEW.md   Deep architecture reference
 ```
 
@@ -121,8 +115,9 @@ python scripts/publish_deploy_bundle.py --dry-run
 
 ```bash
 python scripts/run_pipeline.py --preset quick      # 2 tickers, fast
-python scripts/run_pipeline.py --preset balanced   # 5 tickers, 3 seeds
-python scripts/run_pipeline.py --preset advanced   # full universe + FinBERT
+python scripts/run_pipeline.py --preset balanced   # 5 tickers, 3-day horizon
+python scripts/run_pipeline.py --preset advanced   # all tickers, 3-day + FinBERT
+python scripts/run_pipeline.py --preset max        # all tickers, next-day — deploy this
 ```
 
 All scripts accept `--help`.
