@@ -180,7 +180,7 @@ Thumbs.db
 *.swp
 *~
 
-# ── Personal / local-only docs (not for public repo) ────────
+# ── Personal / local-only docs────────
 # Public repo keeps: README.md, docs/DATA.md, docs/PROJECT_OVERVIEW.md
 docs/DEPLOY_UI.md
 docs/DEPLOY.md
