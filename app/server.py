@@ -395,6 +395,7 @@ def root():
 
 @app.route("/healthz")
 def healthz():
+    """Liveness probe for Railway. Vercel proxies via web/app/api/healthz → this path."""
     return jsonify({
         "status": "ok",
         "predictions_csv": PREDICTIONS_CSV.exists(),

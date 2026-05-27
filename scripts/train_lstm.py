@@ -107,7 +107,7 @@ def build_sequences_for_all_tickers(
 
     if not X_list:
         raise RuntimeError(
-            "No sequences built - run `python scripts/demo.py` or "
+            "No sequences built — run `python scripts/run_pipeline.py --preset quick` or "
             "`python scripts/collect_prices.py` to ingest more data."
         )
 
@@ -376,7 +376,7 @@ def main() -> None:
               f"dropped {dropped} train rows, kept {len(splits['train']['X'])}")
 
     if len(splits["train"]["X"]) == 0:
-        print("\nNo training data - run `python scripts/demo.py` to ingest data.")
+        print("\nNo training data — run `python scripts/run_pipeline.py --preset quick`.")
         return
 
     print("\n--- Fitting level scaler on training data ---")

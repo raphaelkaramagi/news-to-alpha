@@ -14,9 +14,19 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+/** Browser tab title + SEO. Individual pages can override via `title.template`. */
 export const metadata: Metadata = {
-  title: "News-to-Alpha",
-  description: "Next-session direction forecasts powered by price + news signals.",
+  title: {
+    default: "Stock Price and Sentiment Predictor",
+    template: "%s · Stock Price and Sentiment Predictor",
+  },
+  description:
+    "Next-session stock direction forecasts combining price signals, news sentiment, and ensemble ML.",
+  icons: {
+    icon: [{ url: "/icon.png", type: "image/png", sizes: "512x512" }],
+    apple: [{ url: "/apple-icon.png", type: "image/png", sizes: "180x180" }],
+    shortcut: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({

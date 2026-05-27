@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """Build and upload the deploy bundle to Railway (or a local directory).
 
-Selects only the artifacts needed to serve the API (no training data, no
-raw downloads, no tests). Trims the SQLite DB to the last 180 trading days
-per ticker to keep the bundle small.
+Selects only inference artifacts needed to serve the API (no raw downloads).
+Trims SQLite to the last N trading days to keep the bundle small (~10 MB).
 
-Outputs to deploy_bundle/ (local) or uploads to Railway via CLI.
+Upload path
+-----------
+Uses ``railway ssh`` to stream files into the **running** container's ``/data``
+volume. ``railway run`` does NOT work — it executes locally without the volume.
 
 Usage
 -----
   python scripts/publish_deploy_bundle.py --dry-run
   python scripts/publish_deploy_bundle.py --target local --output deploy_bundle/
-  python scripts/publish_deploy_bundle.py --target railway
-
-Environment
------------
-  RAILWAY_TOKEN     - required for --target railway (set via Railway CLI or env)
+  python scripts/publish_deploy_bundle.py --target railway --service web
 """
 from __future__ import annotations
 
@@ -152,11 +150,42 @@ def write_manifest_stamp(dest: Path, dry_run: bool) -> None:
         stamp_path.write_text(json.dumps(stamp, indent=2))
 
 
-def _railway_upload_file(cli: str, local: Path, remote: str) -> tuple[bool, str]:
-    """Stream a local file into the Railway container volume via stdin."""
+def _ensure_railway_ssh(cli: str) -> None:
+    """Fail fast if Railway SSH is not set up (keys + linked project)."""
+    keys = subprocess.run(
+        [cli, "ssh", "keys", "list"],
+        capture_output=True,
+        text=True,
+    )
+    out = (keys.stdout or "") + (keys.stderr or "")
+    if keys.returncode != 0:
+        raise RuntimeError(f"Railway CLI error:\n{out.strip()}")
+    if "No SSH keys registered" in out:
+        raise RuntimeError(
+            "No SSH keys registered with Railway. One-time setup:\n"
+            "  railway ssh keys add\n"
+            "  ssh-keyscan ssh.railway.com >> ~/.ssh/known_hosts   # if host key fails\n"
+            "  railway ssh config -i ~/.ssh/id_ed25519\n"
+            "Then retry the upload."
+        )
+
+
+def _railway_ssh_cmd(cli: str, service: str | None) -> list[str]:
+    cmd = [cli, "ssh"]
+    if service:
+        cmd.extend(["-s", service])
+    return cmd
+
+
+def _railway_upload_file(
+    cli: str, local: Path, remote: str, service: str | None = None,
+) -> tuple[bool, str]:
+    """Stream a local file into the running Railway container (volume via SSH)."""
+    # railway run = local shell with env vars (NO volume). railway ssh = live container.
+    ssh = _railway_ssh_cmd(cli, service)
     parent = str(Path(remote).parent)
     mkdir = subprocess.run(
-        [cli, "run", "--", "mkdir", "-p", parent],
+        ssh + ["--", "mkdir", "-p", parent],
         capture_output=True,
         text=True,
     )
@@ -166,7 +195,7 @@ def _railway_upload_file(cli: str, local: Path, remote: str) -> tuple[bool, str]
 
     with open(local, "rb") as handle:
         result = subprocess.run(
-            [cli, "run", "--", "sh", "-c", f"cat > {shlex.quote(remote)}"],
+            ssh + ["--", "sh", "-c", f"cat > {shlex.quote(remote)}"],
             stdin=handle,
             capture_output=True,
             text=True,
@@ -177,8 +206,8 @@ def _railway_upload_file(cli: str, local: Path, remote: str) -> tuple[bool, str]
     return True, ""
 
 
-def upload_to_railway(bundle_dir: Path) -> None:
-    """Upload via Railway CLI — streams files into the mounted /data volume."""
+def upload_to_railway(bundle_dir: Path, service: str | None = None) -> None:
+    """Upload via `railway ssh` into the running container's /data volume."""
     cli = shutil.which("railway")
     if not cli:
         raise RuntimeError(
@@ -187,8 +216,12 @@ def upload_to_railway(bundle_dir: Path) -> None:
         )
 
     root = RAILWAY_DATA_ROOT.rstrip("/")
-    print(f"\n[railway] Uploading bundle to {root}/ ...")
-    print("  (Volume must be mounted at this path on the web service.)")
+    svc = service or os.getenv("RAILWAY_SERVICE")
+    _ensure_railway_ssh(cli)
+    print(f"\n[railway] Uploading bundle to {root}/ via SSH ...")
+    print("  (Service must be Online; volume mounted at this path.)")
+    if svc:
+        print(f"  service: {svc}")
 
     ok_count = 0
     for rel, _ in BUNDLE_FILES:
@@ -196,7 +229,7 @@ def upload_to_railway(bundle_dir: Path) -> None:
         if not local.exists():
             continue
         remote = f"{root}/{rel}"
-        ok, err = _railway_upload_file(cli, local, remote)
+        ok, err = _railway_upload_file(cli, local, remote, service=svc)
         if ok:
             print(f"  [ok]   {rel}")
             ok_count += 1
@@ -206,7 +239,7 @@ def upload_to_railway(bundle_dir: Path) -> None:
     stamp_local = bundle_dir / "processed" / "last_published.json"
     if stamp_local.exists():
         remote = f"{root}/processed/last_published.json"
-        ok, err = _railway_upload_file(cli, stamp_local, remote)
+        ok, err = _railway_upload_file(cli, stamp_local, remote, service=svc)
         if ok:
             print("  [ok]   processed/last_published.json")
         else:
@@ -214,7 +247,7 @@ def upload_to_railway(bundle_dir: Path) -> None:
 
     db_local = bundle_dir / "database.db"
     if db_local.exists():
-        ok, err = _railway_upload_file(cli, db_local, f"{root}/database.db")
+        ok, err = _railway_upload_file(cli, db_local, f"{root}/database.db", service=svc)
         if ok:
             print("  [ok]   database.db")
             ok_count += 1
@@ -223,8 +256,9 @@ def upload_to_railway(bundle_dir: Path) -> None:
 
     if ok_count == 0:
         raise RuntimeError(
-            "No files uploaded. Check: railway link, service running, "
-            f"volume mounted at {root}/"
+            "No files uploaded. Check: service is Online, `railway link` → web, "
+            f"volume at {root}/, and SSH access (try: railway ssh -- ls {root}). "
+            "Do NOT use `railway run` for uploads — it runs locally without the volume."
         )
     print("[railway] Upload complete.")
 
@@ -239,6 +273,8 @@ def main() -> None:
                         help=f"Keep last N days in SQLite (default: {TRIM_DAYS})")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print manifest and exit without writing files.")
+    parser.add_argument("--service", default=None,
+                        help="Railway service name for SSH upload (default: linked service)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -273,7 +309,7 @@ def main() -> None:
     print(f"\nBundle ready: {dest}  ({n} artifacts + db)")
 
     if args.target == "railway":
-        upload_to_railway(dest)
+        upload_to_railway(dest, service=args.service)
 
     print("\nDone.")
 

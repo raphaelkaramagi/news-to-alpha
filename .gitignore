@@ -180,17 +180,15 @@ Thumbs.db
 *.swp
 *~
 
-# ── Personal / local-only docs (not for public repo) ────────
-# Public repo keeps: README.md, docs/DATA.md, docs/PROJECT_OVERVIEW.md
+# ── Personal / local-only docs ────────────────────────────────
+# Public repo keeps: README.md, docs/DATA.md, docs/PROJECT_OVERVIEW.md, docs/README.md
 docs/DEPLOY_UI.md
-docs/DEPLOY.md
-docs/DEPLOY_VERCEL.md
 docs/PERSONAL_FULL_GUIDE.md
 docs/local_cron.plist.example
-docs/session1_contract.md
-docs/session2_contract.md
-docs/ROADMAP.md
 docs/CONTEXT_FOR_NEW_CHAT.md
 
 # Local cron wrapper (often contains machine-specific paths)
 scripts/local_cron.sh
+
+# Optional source icon dropped at repo root before resizing into web/app/
+/icon.png

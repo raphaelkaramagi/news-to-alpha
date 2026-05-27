@@ -1,6 +1,6 @@
 # Data & predictions
 
-How data flows through News-to-Alpha, what each artifact does, and how to keep predictions current.
+How data flows through the Stock Price and Sentiment Predictor pipeline, what each artifact does, and how to keep predictions current.
 
 ## Architecture (local train → lean serve)
 
@@ -145,10 +145,10 @@ Volume on the **web** service must be mounted at **`/data`**. Then:
 
 ```bash
 python scripts/publish_deploy_bundle.py --dry-run
-python scripts/publish_deploy_bundle.py --target railway
+python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
-Requires `railway login` and `railway link` (service: **web**). The script streams files into `/data/` on the volume — do not use `railway run cp` with local Mac paths.
+Requires `railway login`, `railway link` (service: **web**), registered SSH key (`railway ssh keys add`), and the service **Online**. Upload uses `railway ssh` (not `railway run` — run is local-only and has no volume). If `Host key verification failed`, run `ssh-keyscan ssh.railway.com >> ~/.ssh/known_hosts`. If writes fail, add Railway variable `RAILWAY_RUN_UID=0`.
 
 ---
 

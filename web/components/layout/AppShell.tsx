@@ -15,8 +15,12 @@ export async function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex flex-col min-h-screen">
         <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
           <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
-            <Link href="/" className="font-semibold tracking-tight text-sm shrink-0">
-              News-to-Alpha
+            <Link
+              href="/"
+              className="font-semibold tracking-tight text-[11px] sm:text-sm leading-tight max-w-[9rem] sm:max-w-none shrink min-w-0"
+              title="Stock Price and Sentiment Predictor"
+            >
+              Stock Price and Sentiment Predictor
             </Link>
             <nav className="flex items-center gap-4 text-sm text-muted-foreground">
               <Link href="/" className="hover:text-foreground transition-colors">

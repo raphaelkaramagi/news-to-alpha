@@ -48,19 +48,15 @@ See [DATA.md](DATA.md) for manual catch-up commands.
 python scripts/setup_database.py                     # create tables (once)
 python scripts/collect_prices.py                     # all tickers, 365 days
 python scripts/collect_news.py                       # latest headlines (run weekly to accumulate)
-python scripts/collect_all_data.py                   # prices + news + validation in one step
 
 # Labels + split
 python scripts/generate_labels.py                    # up/down label per (ticker, date)
 python scripts/split_dataset.py                      # chronological 70/15/15 split
 
-# Features
-python scripts/build_features.py                     # compute indicators, build LSTM sequences
-
-# Training
+# Training (or use run_pipeline.py to run all steps)
 python scripts/train_lstm.py                         # price-based LSTM
-python scripts/train_lstm.py --epochs 100 --lr 0.0003
-python scripts/train_nlp.py                          # news-based NLP baseline
+python scripts/train_nlp.py                          # news TF-IDF baseline
+python scripts/train_news_embeddings.py              # MiniLM embeddings
 
 # Checks
 python scripts/validate_data.py                      # data quality report
@@ -149,24 +145,23 @@ All scripts accept `--help`.
 
 | Script | What it does |
 |--------|-------------|
-| `run_pipeline.py` | Full train orchestrator (`--preset quick\|balanced\|advanced`) |
+| `run_pipeline.py` | Full train orchestrator (`--preset quick\|balanced\|advanced\|max`) |
 | `daily_update.py` | Collect + score + ensemble without retrain |
 | `score_models.py` | Live LSTM append for dates after last label |
-| `publish_deploy_bundle.py` | Trim + upload artifacts to Railway `/data` |
+| `publish_deploy_bundle.py` | Trim + upload artifacts to Railway `/data` via SSH |
 | `build_ensemble.py` | Meta-model + `final_ensemble_predictions.csv` |
-| `demo.py` | End-to-end pipeline. Options: `--reset`, `--quick`, `--tickers`, `--days`, `--skip-training`. |
-| `reset_data.py` | Clear processed features and trained models. Database is kept by default (preserving accumulated news). `--full` deletes everything. |
-| `setup_database.py` | Create the SQLite database and all 5 tables. Run once. |
+| `build_eval_dataset.py` | Join per-model prediction CSVs for ensemble training |
+| `evaluate_predictions.py` | Accuracy / conviction metrics CSVs |
+| `reset_data.py` | Clear processed features and trained models. Database kept by default. |
+| `setup_database.py` | Create the SQLite database and all tables. Run once. |
 | `collect_prices.py` | Download OHLCV data from Yahoo Finance. `--tickers`, `--days`. |
-| `collect_news.py` | Fetch headlines from Finnhub. `--tickers`, `--days`. Run weekly to accumulate news. |
-| `collect_all_data.py` | Prices + news + validation in one step. `--days`. |
+| `collect_news.py` | Fetch headlines from Finnhub. `--tickers`, `--days`. |
 | `generate_labels.py` | Compute up/down labels from price data. Safe to re-run. |
-| `split_dataset.py` | Chronological 70/15/15 split. Saves to `data/processed/split_info.json`. |
-| `build_features.py` | Compute technical indicators and generate 60-day LSTM sequences. `--tickers`. |
+| `split_dataset.py` | Chronological 70/15/15 split → `split_info.json`. |
 | `validate_data.py` | Run price and news data quality checks. |
-| `train_lstm.py` | Train LSTM, evaluate, and export `price_predictions.csv`. `--epochs`, `--batch-size`, `--lr`, `--no-db-export`. |
-| `train_nlp.py` | Cutoff-aligned TF-IDF baseline: train, evaluate, export `news_tfidf_predictions.csv`, optional DB upsert. `--max-features`, `--no-db-export`. |
-| `train_news_embeddings.py` | Sentence-embedding model (MiniLM + LR): train, evaluate, export `news_embeddings_predictions.csv`. `--sentence-model`, `--no-db-export`. |
+| `train_lstm.py` | Train LSTM, evaluate, export `price_predictions.csv`. |
+| `train_nlp.py` | TF-IDF baseline → `news_tfidf_predictions.csv`. |
+| `train_news_embeddings.py` | MiniLM embeddings → `news_embeddings_predictions.csv`. |
 
 ### `tests/unit/`
 134+ automated tests. Run with `pytest tests/unit -q`.
@@ -216,9 +211,7 @@ All scripts accept `--help`.
 
 **"No module named src"** — you're not in the project root, or the venv isn't active. Run `source .venv/bin/activate` from the `news-to-alpha/` directory.
 
-**"Not enough data for sequences"** — need ≥250 calendar days of price history. Run `python scripts/demo.py --days 365` or `python scripts/collect_prices.py --days 365` then rebuild features.
-
-**"sequence_dates.json not found"** — re-run `python scripts/build_features.py` to regenerate the feature files.
+**"Not enough data for sequences"** — need ≥250 calendar days of price history. Run `python scripts/run_pipeline.py --preset quick` or `python scripts/collect_prices.py --days 365` then retrain LSTM.
 
 **"No data from yfinance"** — Yahoo Finance returns no data for weekends/holidays. Use `--days 365` to ensure enough trading days are covered.
 
