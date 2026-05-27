@@ -181,7 +181,9 @@ Thumbs.db
 *~
 
 # ── Personal / local-only docs (not for public repo) ────────
-# See docs/README.md for which docs are public vs private.
+# Public repo keeps: README.md, docs/DATA.md, docs/PROJECT_OVERVIEW.md
+docs/DEPLOY_UI.md
+docs/DEPLOY.md
 docs/DEPLOY_VERCEL.md
 docs/PERSONAL_FULL_GUIDE.md
 docs/local_cron.plist.example

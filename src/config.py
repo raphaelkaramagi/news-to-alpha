@@ -9,11 +9,19 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # Load .env from the project root (explicit path so it works from any cwd)
 load_dotenv(PROJECT_ROOT / ".env")
-DATA_DIR = PROJECT_ROOT / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
-PROCESSED_DATA_DIR = DATA_DIR / "processed"
-MODELS_DIR = DATA_DIR / "models"
-DATABASE_PATH = DATA_DIR / "database.db"
+
+
+def _env_path(key: str, default: Path) -> Path:
+    raw = os.getenv(key)
+    return Path(raw) if raw else default
+
+
+# Local dev: repo/data. Railway: set DATA_DIR=/data (or individual path env vars).
+DATA_DIR = _env_path("DATA_DIR", PROJECT_ROOT / "data")
+RAW_DATA_DIR = _env_path("RAW_DATA_DIR", DATA_DIR / "raw")
+PROCESSED_DATA_DIR = _env_path("PROCESSED_DATA_DIR", DATA_DIR / "processed")
+MODELS_DIR = _env_path("MODELS_DIR", DATA_DIR / "models")
+DATABASE_PATH = _env_path("DATABASE_PATH", DATA_DIR / "database.db")
 
 # Create directories if needed
 for _dir in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,

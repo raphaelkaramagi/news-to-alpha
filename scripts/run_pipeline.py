@@ -53,6 +53,7 @@ class PipelineConfig:
     skip_ensemble: bool = False
     skip_evaluate: bool = False
     temperature_scale: bool = True
+    lstm_epochs: int | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -82,6 +83,15 @@ PRESETS: dict[str, dict] = {
         "min_move_pct": 0.3,
         "seeds": [42, 1337, 2024],
         "use_finbert": True,
+    },
+    "max": {
+        "tickers": TICKERS,
+        "lookback_days": 1095,
+        "horizon": 1,
+        "min_move_pct": 0.0,
+        "seeds": [42, 1337, 2024],
+        "use_finbert": True,
+        "lstm_epochs": 120,
     },
 }
 
@@ -136,11 +146,11 @@ def run(cfg: PipelineConfig) -> None:
 
     if not cfg.skip_lstm:
         seed_args = ["--seeds", *[str(s) for s in cfg.seeds]] if cfg.seeds else []
-        _run(
-            [_py(), "scripts/train_lstm.py", *horizon_args, *move_args,
-             *seed_args, *ticker_args],
-            "train_lstm",
-        )
+        lstm_args = [_py(), "scripts/train_lstm.py", *horizon_args, *move_args,
+                     *seed_args, *ticker_args]
+        if cfg.lstm_epochs is not None:
+            lstm_args.extend(["--epochs", str(cfg.lstm_epochs)])
+        _run(lstm_args, "train_lstm")
     if not cfg.skip_nlp:
         _run(
             [_py(), "scripts/train_nlp.py", *horizon_args, *move_args],
@@ -169,6 +179,13 @@ def run(cfg: PipelineConfig) -> None:
     # Save config after a successful full run so infer-only jobs preserve it.
     _save_cfg(cfg.to_dict(), run_type="full_train")
 
+    from src.config import DATABASE_PATH  # noqa: E402
+    from src.utils.pipeline_cleanup import prune_predictions_db  # noqa: E402
+
+    pruned = prune_predictions_db(DATABASE_PATH)
+    if pruned:
+        print(f"\n[cleanup] Pruned {pruned} stale rows from predictions table.")
+
 
 def _build_config_from_args(args: argparse.Namespace) -> PipelineConfig:
     preset = PRESETS.get(args.preset or "", {}) if args.preset else {}
@@ -194,6 +211,10 @@ def _build_config_from_args(args: argparse.Namespace) -> PipelineConfig:
         skip_ensemble=args.skip_ensemble,
         skip_evaluate=args.skip_evaluate,
         temperature_scale=not args.no_temperature_scale,
+        lstm_epochs=(
+            args.lstm_epochs if args.lstm_epochs is not None
+            else preset.get("lstm_epochs")
+        ),
     )
     return cfg
 
@@ -208,6 +229,8 @@ def main() -> None:
     parser.add_argument("--min-move-pct", type=float, default=None)
     parser.add_argument("--seeds", type=int, nargs="+", default=None)
     parser.add_argument("--use-finbert", action="store_true")
+    parser.add_argument("--lstm-epochs", type=int, default=None,
+                        help="Override LSTM training epochs (max preset uses 120).")
     parser.add_argument("--no-temperature-scale", action="store_true")
 
     parser.add_argument("--skip-collect", action="store_true")

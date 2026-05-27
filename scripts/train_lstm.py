@@ -336,6 +336,11 @@ def main() -> None:
 
     tickers = [t.upper() for t in args.tickers] if args.tickers else list(TICKERS)
 
+    from src.utils.pipeline_cleanup import clear_stale_lstm_seed_models  # noqa: E402
+    n_cleared = clear_stale_lstm_seed_models(MODELS_DIR)
+    if n_cleared:
+        log.info("Removed %d stale lstm_model_seed*.pt file(s) before training.", n_cleared)
+
     print("=" * 70)
     print("LSTM TRAINING + EXPORT")
     print("=" * 70)

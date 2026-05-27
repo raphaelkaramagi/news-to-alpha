@@ -181,6 +181,10 @@ def main() -> None:
 
     out_cols = [c for c in OUTPUT_COLS if c in df.columns]
     df = df[out_cols]
+    before = len(df)
+    df = df.drop_duplicates(subset=["ticker", "prediction_date"], keep="last")
+    if len(df) < before:
+        print(f"  Deduped {before - len(df)} duplicate (ticker, date) rows")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(output_path, index=False)

@@ -51,10 +51,10 @@ Mutation routes (`/api/run`, `/api/train`) are **not** exposed — training is C
 ## Deploy (Vercel)
 
 1. Root directory: **`web`**
-2. Env: `API_BASE_URL=https://your-railway-app.up.railway.app` (no trailing slash)
+2. Env: `API_BASE_URL=https://your-railway-api.up.railway.app` (no trailing slash)
 3. Deploy
 
-See [../docs/DEPLOY_UI.md](../docs/DEPLOY_UI.md) for the full guide.
+Railway hosts the Flask API; Vercel hosts this UI only.
 
 ## Build
 

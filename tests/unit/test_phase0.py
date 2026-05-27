@@ -220,3 +220,62 @@ class TestInferenceOnlyGuard:
         resp = client.post("/api/data/refresh", json={"days": 30})
         # 202 accepted (or 409 conflict); either is fine — just not 403
         assert resp.status_code in (202, 409)
+
+
+# ---------------------------------------------------------------------------
+# max preset + retrain cleanup
+# ---------------------------------------------------------------------------
+
+class TestMaxPresetAndCleanup:
+    def test_max_preset_includes_all_tickers(self):
+        from scripts.run_pipeline import PRESETS
+        from src.config import TICKERS
+
+        max_cfg = PRESETS["max"]
+        assert max_cfg["tickers"] == TICKERS
+        assert max_cfg["horizon"] == 1
+        assert max_cfg["use_finbert"] is True
+        assert max_cfg["lstm_epochs"] == 120
+
+    def test_prune_predictions_db_keeps_latest(self, tmp_path):
+        from src.utils.pipeline_cleanup import prune_predictions_db
+
+        db = tmp_path / "test.db"
+        conn = sqlite3.connect(db)
+        conn.execute(
+            """CREATE TABLE predictions (
+                id INTEGER PRIMARY KEY, ticker TEXT, date TEXT, model_version TEXT
+            )"""
+        )
+        conn.executemany(
+            "INSERT INTO predictions (ticker, date, model_version) VALUES (?, ?, ?)",
+            [("AAPL", "2026-01-01", "v1"), ("AAPL", "2026-01-01", "v2")],
+        )
+        conn.commit()
+        conn.close()
+
+        removed = prune_predictions_db(db)
+        assert removed == 1
+        conn = sqlite3.connect(db)
+        rows = conn.execute("SELECT model_version FROM predictions").fetchall()
+        conn.close()
+        assert rows == [("v2",)]
+
+    def test_config_paths_from_env(self, monkeypatch, tmp_path):
+        data = tmp_path / "raildata"
+        monkeypatch.setenv("DATA_DIR", str(data))
+        monkeypatch.setenv("DATABASE_PATH", str(data / "database.db"))
+        monkeypatch.setenv("PROCESSED_DATA_DIR", str(data / "processed"))
+        monkeypatch.setenv("MODELS_DIR", str(data / "models"))
+        import importlib
+        import src.config as cfg
+        importlib.reload(cfg)
+        assert cfg.DATA_DIR == data
+        assert cfg.DATABASE_PATH == data / "database.db"
+        assert cfg.PROCESSED_DATA_DIR == data / "processed"
+        assert cfg.MODELS_DIR == data / "models"
+        monkeypatch.delenv("DATA_DIR", raising=False)
+        monkeypatch.delenv("DATABASE_PATH", raising=False)
+        monkeypatch.delenv("PROCESSED_DATA_DIR", raising=False)
+        monkeypatch.delenv("MODELS_DIR", raising=False)
+        importlib.reload(cfg)

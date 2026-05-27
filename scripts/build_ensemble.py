@@ -517,6 +517,10 @@ def main() -> None:
             print(f"  {split:5s} accuracy ({len(sub):,} rows): {acc:.3f}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    before = len(out)
+    out = out.drop_duplicates(subset=["ticker", "prediction_date"], keep="last")
+    if len(out) < before:
+        print(f"  Deduped {before - len(out)} duplicate (ticker, date) rows")
     out.to_csv(output_path, index=False)
     print(f"  Saved {len(out):,} rows to {output_path}")
 
