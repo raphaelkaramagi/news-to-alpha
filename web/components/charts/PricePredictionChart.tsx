@@ -1,0 +1,196 @@
+"use client";
+import { useQuery } from "@tanstack/react-query";
+import {
+  ComposedChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  ResponsiveContainer,
+  Area,
+} from "recharts";
+import type { HistoryResponse } from "@/lib/types";
+import type { ChartWindow } from "@/lib/chartWindow";
+import { chartWindowDays } from "@/lib/chartWindow";
+
+interface Props {
+  ticker: string;
+  selectedDate: string;
+  model?: string;
+  window: ChartWindow;
+}
+
+async function fetchHistory(ticker: string, window = 90): Promise<HistoryResponse> {
+  const res = await fetch(`/api/history?ticker=${ticker}&window=${window}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("fetch failed");
+  const text = await res.text();
+  // Browsers reject NaN in JSON; sanitize if an older API returns it.
+  const safe = text.replace(/:\s*NaN\b/g, ": null").replace(/:\s*-NaN\b/g, ": null");
+  return JSON.parse(safe) as HistoryResponse;
+}
+
+const MODEL_PROBA_COL: Record<string, string> = {
+  ensemble: "ensemble_pred_proba",
+  lstm: "financial_pred_proba",
+  tfidf: "news_tfidf_pred_proba",
+  embeddings: "news_embeddings_pred_proba",
+};
+
+export function PricePredictionChart({
+  ticker,
+  selectedDate,
+  model = "ensemble",
+  window,
+}: Props) {
+  const days = chartWindowDays(window);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["history", ticker, days, model],
+    queryFn: () => fetchHistory(ticker, days),
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return <div className="h-60 w-full rounded-lg bg-muted animate-pulse" />;
+  }
+
+  if (isError || !data) {
+    return (
+      <p className="text-sm text-muted-foreground py-6 text-center">
+        Could not load price history for {ticker}.
+      </p>
+    );
+  }
+
+  const probaCol = MODEL_PROBA_COL[model] ?? "ensemble_pred_proba";
+  const priceMap = new Map(data.prices.map((p) => [p.date, p.close]));
+  const predMap = new Map(data.predictions.map((p) => [p.prediction_date, p]));
+
+  const allDates = Array.from(
+    new Set([
+      ...data.prices.map((p) => p.date),
+      ...data.predictions.map((p) => p.prediction_date),
+    ])
+  ).sort();
+
+  const chartData = allDates
+    .map((date) => {
+      const pred = predMap.get(date);
+      return {
+        date,
+        close: priceMap.get(date) ?? null,
+        proba: pred
+          ? ((pred as unknown as Record<string, number | null>)[probaCol] ?? null)
+          : null,
+      };
+    })
+    .slice(-days);
+
+  const prices = chartData.map((d) => d.close).filter((v): v is number => v !== null);
+
+  if (chartData.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground py-6 text-center">
+        No chart data for {ticker} yet.
+      </p>
+    );
+  }
+
+  const minPrice = prices.length ? Math.min(...prices) * 0.998 : 0;
+  const maxPrice = prices.length ? Math.max(...prices) * 1.002 : 100;
+  const hasPrices = prices.length > 0;
+  const hasProba = chartData.some((d) => d.proba !== null);
+
+  return (
+    <div className="w-full h-60 min-h-[240px]">
+      <ResponsiveContainer width="100%" height={240}>
+        <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            tickFormatter={(v) => String(v).slice(5)}
+            interval="preserveStartEnd"
+          />
+          {hasPrices && (
+            <YAxis
+              yAxisId="price"
+              domain={[minPrice, maxPrice]}
+              tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+              tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
+              width={48}
+            />
+          )}
+          {hasProba && (
+            <YAxis
+              yAxisId="proba"
+              orientation="right"
+              domain={[0, 1]}
+              tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+              tickFormatter={(v) => `${(Number(v) * 100).toFixed(0)}%`}
+              width={36}
+            />
+          )}
+          <Tooltip
+            contentStyle={{
+              background: "hsl(var(--card))",
+              border: "1px solid hsl(var(--border))",
+              borderRadius: "6px",
+              fontSize: 12,
+            }}
+            formatter={(val: unknown, name: unknown): [string, string] => {
+              const n = typeof val === "number" ? val : 0;
+              return String(name) === "close"
+                ? [`$${n.toFixed(2)}`, "Close"]
+                : [`${(n * 100).toFixed(1)}%`, "P(UP)"];
+            }}
+          />
+          {selectedDate && chartData.some((d) => d.date === selectedDate) && (
+            <ReferenceLine
+              x={selectedDate}
+              yAxisId={hasPrices ? "price" : "proba"}
+              stroke="hsl(var(--foreground))"
+              strokeDasharray="4 4"
+              strokeOpacity={0.4}
+            />
+          )}
+          {hasPrices && (
+            <Line
+              yAxisId="price"
+              type="monotone"
+              dataKey="close"
+              stroke="hsl(var(--foreground))"
+              strokeWidth={1.5}
+              dot={false}
+              connectNulls
+            />
+          )}
+          {hasProba && (
+            <>
+              <ReferenceLine y={0.5} yAxisId="proba" stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" strokeOpacity={0.35} />
+              <Area
+                yAxisId="proba"
+                type="monotone"
+                dataKey="proba"
+                stroke="hsl(var(--up))"
+                fill="hsl(var(--up))"
+                fillOpacity={0.08}
+                strokeWidth={1.5}
+                dot={false}
+                connectNulls
+              />
+            </>
+          )}
+        </ComposedChart>
+      </ResponsiveContainer>
+      {!hasPrices && hasProba && (
+        <p className="text-xs text-muted-foreground text-center mt-1">
+          Price line unavailable — showing P(UP) only.
+        </p>
+      )}
+    </div>
+  );
+}

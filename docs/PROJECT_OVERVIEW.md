@@ -7,9 +7,11 @@ Predicts whether a stock goes **up or down** the next trading day by combining t
 1. **LSTM (price)** — 60 days of price history + ~20 technical indicators (RSI, MACD, Bollinger, ATR, ROC, OBV, realized vol, SPY market-return). Includes a ticker embedding so the model knows which company it's looking at.
 2. **TF-IDF NLP** — bigram TF-IDF over cutoff-aligned news headlines into a Platt-calibrated logistic regression.
 3. **News embeddings** — per-headline MiniLM sentence embeddings, mean-pooled per ticker-day, fed to a calibrated logistic regression. Optionally concatenated with FinBERT sentiment features.
-4. **Ensemble** — a logistic-regression meta-model fit on the validation split of the three calibrated probability streams. Handles no-news rows by passing 0.5 to the news models and letting the LSTM weight dominate.
+4. **Ensemble** — a **HistGradientBoosting** meta-model fit on the validation split of the three calibrated probability streams plus interaction features (agreement, conviction, SPY context). Handles no-news rows by passing 0.5 to the news models.
 
-End goal (shipped): a Flask web app where you search a ticker, switch between Ensemble / LSTM / TF-IDF / Embeddings, see price + prediction charts, per-model breakdown, top headlines, and retrain any model on demand.
+End goal (shipped): a **Next.js UI** (`web/`) on Vercel plus a **Flask JSON API** (`app/server.py`) on Railway. Browse 15 tickers, switch Ensemble / LSTM / TF-IDF / Embeddings, see price + P(UP) charts, headlines (top 3 + expand), **Why this call** (counterfactual explanation), outcome dots on Markets, and accuracy. Training runs locally via CLI — not from the web UI.
+
+**Docs:** [README.md](README.md) (index), [DATA.md](DATA.md), [DEPLOY_UI.md](DEPLOY_UI.md).
 
 ---
 
@@ -19,23 +21,25 @@ End goal (shipped): a Flask web app where you search a ticker, switch between En
 source .venv/bin/activate
 ```
 
-### Easiest: full pipeline in one command
-
-Runs everything — data collection, labels, feature engineering, and model training:
+### Full pipeline (recommended)
 
 ```bash
-python scripts/demo.py --reset          # wipe and run fresh
-python scripts/demo.py                  # re-run, skips already-collected data
-python scripts/demo.py --skip-training  # data pipeline only, no model training
+python scripts/run_pipeline.py --preset balanced
 ```
 
-Customize scope:
+Quick test:
 
 ```bash
-python scripts/demo.py --quick                      # fast 2-ticker test (AAPL + TSLA)
-python scripts/demo.py --tickers AAPL NVDA TSLA     # specific tickers
-python scripts/demo.py --days 365                   # more price history
+python scripts/run_pipeline.py --preset quick
 ```
+
+### Daily refresh (no retrain)
+
+```bash
+python scripts/daily_update.py
+```
+
+See [DATA.md](DATA.md) for manual catch-up commands.
 
 ### Step by step (more control)
 
@@ -131,7 +135,13 @@ Two-layer stacked LSTM for binary price direction prediction.
 Logistic regression on TF-IDF headline features. Intentionally simple — it's a baseline to establish whether news carries any predictive signal before investing in heavier models (FinBERT, embeddings). Uses balanced class weights to handle class imbalance. Saves the vectorizer and classifier together so they can be loaded as a unit for inference.
 
 ### `src/evaluation/`
-Placeholder for Week 10. Will contain evaluation and backtesting logic once the ensemble is built.
+Evaluation metrics, conviction buckets, and prediction CSV analysis used by `scripts/evaluate_predictions.py` and the `/api/metrics` endpoints.
+
+### `src/ml/`
+| Module | Role |
+|--------|------|
+| `lstm_live_export.py` | Score dates after last label through latest price |
+| `ensemble_explain.py` | Counterfactual “Why this call” explanations for the UI |
 
 ### `scripts/`
 
@@ -139,7 +149,12 @@ All scripts accept `--help`.
 
 | Script | What it does |
 |--------|-------------|
-| `demo.py` | End-to-end pipeline. Options: `--reset`, `--quick`, `--tickers`, `--days`, `--skip-training`. Default runs all 15 tickers. |
+| `run_pipeline.py` | Full train orchestrator (`--preset quick\|balanced\|advanced`) |
+| `daily_update.py` | Collect + score + ensemble without retrain |
+| `score_models.py` | Live LSTM append for dates after last label |
+| `publish_deploy_bundle.py` | Trim + upload artifacts to Railway `/data` |
+| `build_ensemble.py` | Meta-model + `final_ensemble_predictions.csv` |
+| `demo.py` | End-to-end pipeline. Options: `--reset`, `--quick`, `--tickers`, `--days`, `--skip-training`. |
 | `reset_data.py` | Clear processed features and trained models. Database is kept by default (preserving accumulated news). `--full` deletes everything. |
 | `setup_database.py` | Create the SQLite database and all 5 tables. Run once. |
 | `collect_prices.py` | Download OHLCV data from Yahoo Finance. `--tickers`, `--days`. |
@@ -154,7 +169,7 @@ All scripts accept `--help`.
 | `train_news_embeddings.py` | Sentence-embedding model (MiniLM + LR): train, evaluate, export `news_embeddings_predictions.csv`. `--sentence-model`, `--no-db-export`. |
 
 ### `tests/unit/`
-83 automated tests. Run with `pytest tests/ -v`.
+134+ automated tests. Run with `pytest tests/unit -q`.
 
 | Test file | What it covers |
 |-----------|---------------|
@@ -193,7 +208,7 @@ All scripts accept `--help`.
 
 **Gradient clipping + orthogonal init** — LSTMs are prone to exploding/vanishing gradients. Clipping gradients to norm 1.0 and initializing recurrent weights orthogonally stabilizes training and prevents the model from collapsing to "predict everything the same class."
 
-**Shared prediction contract** (`docs/session1_contract.md`) — all model outputs are CSVs keyed by `(ticker, prediction_date)` with a common confidence formula `abs(pred_proba - 0.5) * 2`. This lets the ensemble join all three models (LSTM, TF-IDF, embeddings) on the same row key without column collisions. News models use cutoff-aligned `prediction_date`, not raw `published_at`.
+**Confidence formula** — all models use `abs(pred_proba - 0.5) * 2` (distance from 50/50, not accuracy). See [DATA.md](DATA.md).
 
 ---
 

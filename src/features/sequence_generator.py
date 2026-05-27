@@ -139,7 +139,7 @@ class SequenceGenerator:
         dates_index = indicator_df.index
 
         X_list, y_list, ret_list, date_list = [], [], [], []
-        for i in range(self.seq_len, len(indicator_df)):
+        for i in range(self.seq_len, len(indicator_df) + 1):
             window = values[i - self.seq_len : i]
             label_date = dates_index[i - 1]
             if label_date not in labels_df.index:
@@ -161,3 +161,49 @@ class SequenceGenerator:
         logger.info("%s: %d sequences (shape %s), %.0f%% up (h=%d)",
                     ticker, len(X), X.shape, y.mean() * 100, self.horizon)
         return X, y, returns, date_list
+
+    def generate_live(self, ticker: str) -> tuple[np.ndarray, list[str]]:
+        """Build sequences for dates after the last labeled row (forward inference).
+
+        Used to score the latest trading days where we have prices but no
+        realized label yet (e.g. after a holiday gap or before next close).
+        """
+        ti = TechnicalIndicators(self.db_path)
+        df = ti.compute(ticker)
+        if df.empty:
+            return np.array([]), []
+
+        conn = sqlite3.connect(self.db_path)
+        labels_df = pd.read_sql_query(
+            "SELECT date FROM labels WHERE ticker = ? ORDER BY date ASC",
+            conn,
+            params=(ticker,),
+        )
+        conn.close()
+
+        last_labeled = (
+            pd.to_datetime(labels_df["date"]).max()
+            if not labels_df.empty
+            else pd.Timestamp("1900-01-01")
+        )
+
+        indicator_df = df[FEATURE_COLUMNS].dropna()
+        if len(indicator_df) < self.seq_len + 1:
+            return np.array([]), []
+
+        values = indicator_df.to_numpy(dtype=np.float32)
+        dates_index = indicator_df.index
+
+        X_list: list[np.ndarray] = []
+        date_list: list[str] = []
+        for i in range(self.seq_len, len(indicator_df) + 1):
+            label_date = dates_index[i - 1]
+            if label_date <= last_labeled:
+                continue
+            X_list.append(values[i - self.seq_len : i])
+            date_list.append(label_date.strftime("%Y-%m-%d"))
+
+        if not X_list:
+            return np.array([]), []
+
+        return np.stack(X_list).astype(np.float32), date_list

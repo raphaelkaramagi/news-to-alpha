@@ -1,0 +1,133 @@
+"use client";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { HeadlinesResponse } from "@/lib/types";
+import { ChevronDown, ExternalLink } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const DEFAULT_VISIBLE = 3;
+
+interface Props {
+  ticker: string;
+  date: string;
+}
+
+async function fetchHeadlines(ticker: string, date: string): Promise<HeadlinesResponse> {
+  const res = await fetch(`/api/headlines?ticker=${ticker}&date=${date}`, { cache: "no-store" });
+  if (!res.ok) throw new Error("fetch failed");
+  return res.json();
+}
+
+function SentimentDot({ score }: { score: number | null | undefined }) {
+  if (score === null || score === undefined) {
+    return <span className="size-1.5 rounded-full bg-muted-foreground/30 inline-block flex-shrink-0 mt-2" />;
+  }
+  const color = score > 0.1 ? "bg-up" : score < -0.1 ? "bg-down" : "bg-muted-foreground/40";
+  return <span className={`size-1.5 rounded-full inline-block flex-shrink-0 mt-2 ${color}`} />;
+}
+
+function HeadlineRow({ h }: { h: HeadlinesResponse["headlines"][0] }) {
+  const text = h.headline || h.title || "";
+  const sentiment = h.finnhub_sentiment ?? h.sentiment_finnhub ?? null;
+
+  return (
+    <div className="flex items-start gap-3 py-3 border-b last:border-0">
+      <SentimentDot score={sentiment} />
+      <div className="flex-1 min-w-0">
+        {h.url ? (
+          <a
+            href={h.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm leading-snug hover:underline underline-offset-2"
+          >
+            {text || "View article"}
+          </a>
+        ) : (
+          <p className="text-sm leading-snug">{text || "Untitled"}</p>
+        )}
+        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+          {h.source && <span>{h.source}</span>}
+          {h.published_at && (
+            <span>
+              {new Date(h.published_at).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>
+          )}
+        </div>
+      </div>
+      {h.url && (
+        <a
+          href={h.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 mt-0.5"
+          aria-label="Open article"
+        >
+          <ExternalLink size={14} />
+        </a>
+      )}
+    </div>
+  );
+}
+
+export function HeadlinesList({ ticker, date }: Props) {
+  const [expanded, setExpanded] = useState(false);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["headlines", ticker, date],
+    queryFn: () => fetchHeadlines(ticker, date),
+    staleTime: 300_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-14 rounded-md bg-muted animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (error || !data?.headlines?.length) {
+    return (
+      <p className="text-sm text-muted-foreground py-4">
+        No headlines for {date}. Try another date or check that news was collected.
+      </p>
+    );
+  }
+
+  const headlines = data.headlines;
+  const hasMore = headlines.length > DEFAULT_VISIBLE;
+  const visible = expanded ? headlines : headlines.slice(0, DEFAULT_VISIBLE);
+
+  return (
+    <div>
+      <div className="space-y-1">
+        {visible.map((h, i) => (
+          <HeadlineRow key={`${h.url ?? h.title}-${i}`} h={h} />
+        ))}
+      </div>
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className={cn(
+            "mt-3 flex items-center gap-1.5 text-xs text-muted-foreground",
+            "hover:text-foreground transition-colors"
+          )}
+        >
+          <ChevronDown
+            size={14}
+            className={cn("transition-transform", expanded && "rotate-180")}
+          />
+          {expanded
+            ? "Show fewer"
+            : `Show ${headlines.length - DEFAULT_VISIBLE} more headline${headlines.length - DEFAULT_VISIBLE !== 1 ? "s" : ""}`}
+        </button>
+      )}
+    </div>
+  );
+}

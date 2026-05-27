@@ -1,29 +1,64 @@
-# News-to-Alpha — Next.js UI
+# News-to-Alpha Web UI
 
-This folder is the **Vercel-hosted** frontend. Heavy ML, SQLite, and pipelines stay in the parent Python project.
+Next.js 16 App Router frontend for the News-to-Alpha API.
 
-## Develop
+## Local development
 
 ```bash
+# Terminal 1 — from repo root
+source .venv/bin/activate
+python app/server.py --port 8000
+
+# Terminal 2 — must be in web/ (no package.json at repo root)
 cd web
-cp .env.example .env.local
-# set API_BASE_URL to your Flask origin (e.g. http://127.0.0.1:8000)
+cp .env.example .env.local   # API_BASE_URL=http://127.0.0.1:8000
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Route Handlers under `app/api/*` proxy to `API_BASE_URL` so the browser never needs CORS or secrets.
+Open http://localhost:3000
 
-If the Flask process is not running, the **home page still loads**; you will see a short notice that `API_BASE_URL` could not be reached (`ECONNREFUSED`). Start the backend (e.g. `gunicorn -w 1 -b 127.0.0.1:8000 app.server:app` from the repo root) and reload.
+If port 8000 is busy: `lsof -nP -iTCP:8000 -sTCP:LISTEN` → kill the old Flask process.
 
-## Deploy on Vercel
+## Pages
 
-1. New project → import this repo.
-2. **Root Directory:** `web`.
-3. **Environment variables:** `API_BASE_URL` = public `https://…` origin of your Flask app (Railway/Render/Fly).
+| Route | Description |
+|-------|-------------|
+| `/` | Markets — 15-ticker grid, outcome dots/legend, overview chart |
+| `/t/[symbol]` | Ticker detail — call, headlines (top 3 + expand), Why tab, Advanced, synced charts |
+| `/status` | Data freshness |
 
-`npm run build` should succeed; pages that call the backend will show a warning if `API_BASE_URL` is missing.
+Global date picker in the header syncs Markets + ticker views.
+
+## API proxies
+
+Read-only routes under `app/api/*` proxy to Flask (`API_BASE_URL`):
+
+- `ticker`, `data-status`, `dates`, `headlines`, `rationale`, `history`
+- `last-resolved`, `accuracy-summary`, `accuracy-trace`, `metrics`, `conviction`
+- `markets-overview`, `healthz`
+
+`markets-overview` falls back to client-side aggregation if Flask lacks the route.
+
+Mutation routes (`/api/run`, `/api/train`) are **not** exposed — training is CLI-only.
 
 ## Stack
 
-- Next.js App Router, TypeScript, Tailwind.
+- Tailwind CSS + zinc theme
+- TanStack Query (client cache)
+- Recharts (price + P(UP) chart)
+
+## Deploy (Vercel)
+
+1. Root directory: **`web`**
+2. Env: `API_BASE_URL=https://your-railway-app.up.railway.app` (no trailing slash)
+3. Deploy
+
+See [../docs/DEPLOY_UI.md](../docs/DEPLOY_UI.md) for the full guide.
+
+## Build
+
+```bash
+npm run build
+npm run lint
+```

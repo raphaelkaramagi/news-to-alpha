@@ -6,6 +6,20 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  async redirects() {
+    return [
+      {
+        source: "/ticker/:symbol",
+        destination: "/t/:symbol",
+        permanent: true,
+      },
+      {
+        source: "/pipeline",
+        destination: "/status",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
