@@ -39,11 +39,7 @@ Next.js App Router picks these up automatically (no manual `<link>` tags):
 
 Tab title: **Stock Price and Sentiment Predictor** — set in `app/layout.tsx`.
 
-To regenerate from `icon.png` at repo root (gitignored), flood-fill removes the dark panel background for a transparent Safari tab icon:
-
-```bash
-python scripts/generate_icons.py   # reads repo-root icon.png (gitignored)
-```
+Replace `app/icon.png`, `app/apple-icon.png`, and `app/favicon.ico` directly to update branding.
 
 ## API proxies
 
