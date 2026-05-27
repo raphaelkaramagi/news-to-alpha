@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
 """Build and upload the deploy bundle to Railway (or a local directory).
 
-Selects only the artifacts needed to serve the API (no training data, no
-raw downloads, no tests). Trims the SQLite DB to the last 180 trading days
-per ticker to keep the bundle small.
+Selects only inference artifacts needed to serve the API (no raw downloads).
+Trims SQLite to the last N trading days to keep the bundle small (~10 MB).
 
-Outputs to deploy_bundle/ (local) or uploads to Railway via CLI.
+Upload path
+-----------
+Uses ``railway ssh`` to stream files into the **running** container's ``/data``
+volume. ``railway run`` does NOT work — it executes locally without the volume.
 
 Usage
 -----
   python scripts/publish_deploy_bundle.py --dry-run
   python scripts/publish_deploy_bundle.py --target local --output deploy_bundle/
-  python scripts/publish_deploy_bundle.py --target railway
-
-Environment
------------
-  RAILWAY_TOKEN     - required for --target railway (set via Railway CLI or env)
+  python scripts/publish_deploy_bundle.py --target railway --service web
 """
 from __future__ import annotations
 

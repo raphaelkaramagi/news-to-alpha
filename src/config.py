@@ -1,4 +1,10 @@
-"""Centralized configuration for the entire project."""
+"""Centralized configuration for the entire project.
+
+Path layout
+-----------
+Local dev defaults to ``repo/data/``. Railway inference sets env vars so
+everything reads from the mounted volume at ``/data`` (see Dockerfile.inference).
+"""
 
 import os
 from pathlib import Path

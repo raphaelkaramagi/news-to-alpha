@@ -1,12 +1,11 @@
-# Slim Railway image: serves the Flask API only (no training).
-# Artifacts (CSVs, models, DB) live on the /data volume (see publish_deploy_bundle.py).
+# Slim Railway image: Flask API only (no training).
+# Artifacts (CSVs, models, DB) live on the /data volume — see publish_deploy_bundle.py.
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    SERVE_UI=false \
     INFERENCE_ONLY=true \
     DATA_DIR=/data \
     DATABASE_PATH=/data/database.db \

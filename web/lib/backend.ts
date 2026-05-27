@@ -5,7 +5,8 @@ export function backendConfigured(): boolean {
   return Boolean(getApiBaseUrl());
 }
 
-/** Build absolute URL to Flask, e.g. path `/api/ticker` + query from incoming request. */
+/** Build absolute URL to Flask.
+ *  Most routes are under `/api/*`; health check is `/healthz` at the root. */
 export function backendUrl(
   path: string,
   searchParams: URLSearchParams

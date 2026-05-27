@@ -1,6 +1,8 @@
-# News-to-Alpha
+# Stock Price and Sentiment Predictor
 
 Predict whether a stock will go **up or down** the next trading session by combining price (LSTM), news (TF-IDF + embeddings), and a learned ensemble meta-model.
+
+**Live site:** [stock.raphaelkaramagi.com](https://stock.raphaelkaramagi.com) (Vercel UI → Railway API)
 
 **15 tickers:** AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR
 
@@ -10,12 +12,12 @@ Predict whether a stock will go **up or down** the next trading session by combi
 
 | Component | Stack | Role |
 |-----------|-------|------|
-| **UI** | Next.js 16 (`web/`) | Markets grid, ticker detail, status — deployed on Vercel |
-| **API** | Flask (`app/server.py`) | JSON endpoints — deployed on Railway |
-| **ML** | PyTorch + scikit-learn | Trained locally; only artifacts uploaded to cloud |
+| **UI** | Next.js 16 (`web/`) | Markets grid, ticker detail, status — Vercel |
+| **API** | Flask (`app/server.py`) | JSON endpoints — Railway + `/data` volume |
+| **ML** | PyTorch + scikit-learn | Trained on your Mac; only artifacts uploaded |
 
 ```
-Mac: train + daily_update  →  publish bundle  →  Railway /data
+Mac: train + daily_update  →  publish bundle (SSH)  →  Railway /data
 Vercel (web/)  ──proxy──→  Flask API
 ```
 
@@ -54,10 +56,10 @@ After market close, advance dates without retraining:
 
 ```bash
 python scripts/daily_update.py
-python scripts/publish_deploy_bundle.py --target railway
+python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
-Full docs: **[docs/DATA.md](docs/DATA.md)** (artifacts, scripts, freshness, confidence).
+Full docs: **[docs/DATA.md](docs/DATA.md)** (artifacts, scripts, freshness).
 
 Doc index: **[docs/README.md](docs/README.md)**.
 
@@ -67,11 +69,11 @@ Doc index: **[docs/README.md](docs/README.md)**.
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets grid, outcome dots, all-ticker price/accuracy overview (7d/30d/90d) |
-| `/t/[symbol]` | Call, headlines, Why this call, Advanced, synced charts |
+| `/` | Markets grid, outcome dots, all-ticker overview |
+| `/t/[symbol]` | Call, headlines, Why this call, Advanced, charts |
 | `/status` | Data freshness |
 
-Global date picker syncs all pages. **Restart Flask** after API changes (`python app/server.py --port 8000`).
+Global date picker syncs all pages.
 
 ---
 
@@ -79,24 +81,15 @@ Global date picker syncs all pages. **Restart Flask** after API changes (`python
 
 ```
 app/server.py           Flask JSON API
-web/                    Next.js UI (Vercel) — npm commands run here
+web/                    Next.js UI — npm commands run here
 scripts/
   run_pipeline.py       Full train orchestrator
   daily_update.py       Collect + infer + ensemble (no retrain)
-  score_models.py       Live LSTM scoring
-  publish_deploy_bundle.py   Trim + upload to Railway
-src/
-  ml/lstm_live_export.py     Score dates after last label
-  ml/ensemble_explain.py     Why-this-call counterfactuals
-  features/sequence_generator.py
-  utils/pipeline_config.py
-  utils/trading_calendar.py
-data/                   Local only (gitignored) — DB, CSVs, models
+  publish_deploy_bundle.py   Trim + SSH upload to Railway
+src/                    ML pipeline modules
+data/                   Local only (gitignored)
 tests/unit/             pytest suite
-docs/
-  README.md             Doc index
-  DATA.md               How to update data & train
-  PROJECT_OVERVIEW.md   Deep architecture reference
+docs/                   Public reference docs
 ```
 
 ---

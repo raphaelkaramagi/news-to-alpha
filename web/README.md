@@ -1,6 +1,6 @@
-# News-to-Alpha Web UI
+# Stock Price and Sentiment Predictor — Web UI
 
-Next.js 16 App Router frontend for the News-to-Alpha API.
+Next.js 16 App Router frontend. Proxies read-only API calls to Flask via `API_BASE_URL`.
 
 ## Local development
 
@@ -9,7 +9,7 @@ Next.js 16 App Router frontend for the News-to-Alpha API.
 source .venv/bin/activate
 python app/server.py --port 8000
 
-# Terminal 2 — must be in web/ (no package.json at repo root)
+# Terminal 2 — must be in web/
 cd web
 cp .env.example .env.local   # API_BASE_URL=http://127.0.0.1:8000
 npm install
@@ -18,43 +18,40 @@ npm run dev
 
 Open http://localhost:3000
 
-If port 8000 is busy: `lsof -nP -iTCP:8000 -sTCP:LISTEN` → kill the old Flask process.
-
 ## Pages
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets — 15-ticker grid, outcome dots/legend, overview chart |
-| `/t/[symbol]` | Ticker detail — call, headlines (top 3 + expand), Why tab, Advanced, synced charts |
+| `/` | Markets — 15-ticker grid, outcome dots, overview chart |
+| `/t/[symbol]` | Ticker detail — call, headlines, Why tab, charts |
 | `/status` | Data freshness |
 
-Global date picker in the header syncs Markets + ticker views.
+## Icons & branding
+
+Next.js App Router picks these up automatically (no manual `<link>` tags):
+
+| File | Purpose |
+|------|---------|
+| `app/icon.png` | Favicon / tab icon (512×512) |
+| `app/apple-icon.png` | Apple touch icon (180×180) |
+| `app/favicon.ico` | Legacy browsers |
+| `public/icon-192.png`, `icon-512.png` | PWA manifest (`app/manifest.ts`) |
+
+Tab title: **Stock Price and Sentiment Predictor** — set in `app/layout.tsx`.
+
+To regenerate icons from a new source image, resize into the paths above (see repo root `icon.png` as optional local source, gitignored).
 
 ## API proxies
 
-Read-only routes under `app/api/*` proxy to Flask (`API_BASE_URL`):
+Server routes under `app/api/*` forward to Flask. Most Flask routes live under `/api/*`; **`/healthz`** is at the root (see `app/api/healthz/route.ts`).
 
-- `ticker`, `data-status`, `dates`, `headlines`, `rationale`, `history`
-- `last-resolved`, `accuracy-summary`, `accuracy-trace`, `metrics`, `conviction`
-- `markets-overview`, `healthz`
-
-`markets-overview` falls back to client-side aggregation if Flask lacks the route.
-
-Mutation routes (`/api/run`, `/api/train`) are **not** exposed — training is CLI-only.
-
-## Stack
-
-- Tailwind CSS + zinc theme
-- TanStack Query (client cache)
-- Recharts (price + P(UP) chart)
+Mutation routes (`/api/run`, `/api/train`) are not exposed — training is CLI-only.
 
 ## Deploy (Vercel)
 
 1. Root directory: **`web`**
 2. Env: `API_BASE_URL=https://your-railway-api.up.railway.app` (no trailing slash)
-3. Deploy
-
-Railway hosts the Flask API; Vercel hosts this UI only.
+3. Custom domain optional (e.g. `stock.yourdomain.com`)
 
 ## Build
 

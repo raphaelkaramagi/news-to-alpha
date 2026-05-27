@@ -1,7 +1,7 @@
 """Canonical dataset builder for news-based models (TF-IDF + embeddings).
 
-Joins the `labels` and `news` tables under the 4 PM ET cutoff rule from
-[docs/session1_contract.md](../../docs/session1_contract.md).
+Joins the `labels` and `news` tables under the 4 PM ET cutoff rule
+(see docs/PROJECT_OVERVIEW.md — News cutoff alignment).
 
 The `labels` table is keyed by the LSTM convention: `date` = t, representing
 the direction close(t) -> close(t+1).  We bucket each news item into the

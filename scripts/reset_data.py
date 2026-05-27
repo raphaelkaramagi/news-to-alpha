@@ -64,8 +64,8 @@ def reset(keep_db: bool = True, keep_raw: bool = False) -> None:
         print("Nothing to remove — already clean.")
 
     print("\nReady for a fresh run:")
-    print("  python scripts/demo.py            # full pipeline demo")
-    print("  python scripts/demo.py --reset     # reset + demo in one command")
+    print("  python scripts/run_pipeline.py --preset quick")
+    print("  python scripts/run_pipeline.py --preset max   # full production train")
 
 
 def main() -> None:
