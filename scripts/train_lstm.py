@@ -473,6 +473,13 @@ def main() -> None:
     save_predictions_csv(predictor, splits, csv_path)
     print(f"  CSV saved:   {csv_path}")
 
+    from src.ml.lstm_live_export import append_live_lstm_predictions  # noqa: E402
+    n_live = append_live_lstm_predictions(
+        tickers, horizon=args.horizon, predictor=predictor, ticker_to_idx=ticker_to_idx,
+    )
+    if n_live:
+        print(f"  Live rows:   {n_live} appended (dates after last label)")
+
     if not args.no_db_export:
         n = upsert_predictions_db(predictor, splits, DATABASE_PATH)
         print(f"  DB rows:     {n} upserted into predictions table")

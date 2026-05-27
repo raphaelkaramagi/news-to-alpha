@@ -109,6 +109,7 @@ def _join_tickers(tickers: Iterable[str]) -> list[str]:
 
 def run(cfg: PipelineConfig) -> None:
     """Run the full pipeline according to `cfg`. Raises on any step failure."""
+    from src.utils.pipeline_config import save as _save_cfg  # noqa: E402
     horizon_args = ["--horizon", str(cfg.horizon)]
     move_args = (
         ["--min-move-pct", str(cfg.min_move_pct)] if cfg.min_move_pct > 0 else []
@@ -122,10 +123,10 @@ def run(cfg: PipelineConfig) -> None:
             "collect_prices",
         )
     if not cfg.skip_news:
-        news_days = min(cfg.lookback_days, 365)
+        # Use full lookback; Finnhub free tier rate-limits per minute, not per day count.
         _run(
             [_py(), "scripts/collect_news.py",
-             "--days", str(news_days), *ticker_args],
+             "--days", str(cfg.lookback_days), *ticker_args],
             "collect_news",
         )
     if not cfg.skip_labels:
@@ -164,6 +165,9 @@ def run(cfg: PipelineConfig) -> None:
             [_py(), "scripts/evaluate_predictions.py", *horizon_args],
             "evaluate_predictions",
         )
+
+    # Save config after a successful full run so infer-only jobs preserve it.
+    _save_cfg(cfg.to_dict(), run_type="full_train")
 
 
 def _build_config_from_args(args: argparse.Namespace) -> PipelineConfig:

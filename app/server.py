@@ -1,41 +1,21 @@
 #!/usr/bin/env python3
-"""News-to-Alpha interactive Flask app.
+"""News-to-Alpha JSON API backend.
 
-Serves the ensemble + per-model predictions from `final_ensemble_predictions.csv`
-and exposes background-job endpoints for retraining / resetting models.
+Serves predictions from `final_ensemble_predictions.csv` and SQLite.
+The public UI is the Next.js app in `web/` (Vercel); this process is API-only.
 
-Routes
-------
-  GET  /                             -> configure landing page
-  GET  /dashboard                    -> interactive dashboard
-  GET  /admin                        -> training / reset controls
-  GET  /favicon.ico                  -> PNG favicon (tab icon; same bytes as 32×32 static file)
-  GET  /static/icons/*               -> favicons, apple-touch-icon, web manifest
-  GET  /healthz                      -> liveness
-  GET  /api/data-status              -> freshness summary for header chip
-  POST /api/data/refresh             -> fast refresh (collect + rebuild ensemble, no retraining)
-  POST /api/data/clear               -> clear predictions | models | full reset
-  GET  /api/ticker?ticker=AAPL[&model=ensemble|lstm|tfidf|embeddings][&date=YYYY-MM-DD]
-  GET  /api/history?ticker=AAPL&window=30|90|180|all
-  GET  /api/last-resolved?ticker=AAPL&n=7 -> last N rows with known actual_binary
-  GET  /api/metrics
-  GET  /api/presets                  -> available pipeline presets
-  GET  /api/headlines?ticker=X&date=Y -> full headline cards with urls + sentiment
-  GET  /api/rationale?ticker=X&date=Y -> meta-feature contributions for a call
-  GET  /api/dates?ticker=X           -> available prediction dates for slider
-  GET  /api/accuracy-trace?ticker=X&window=30 -> rolling accuracy for sparkline
-  GET  /api/accuracy-summary?ticker=AAPL|ALL&window=7|30|90|all -> configurable recent accuracy
-  GET  /api/conviction               -> accuracy by confidence bucket
-  POST /api/run                      -> kick off full pipeline run
-  POST /api/train                    -> kick off a per-model training job
-  POST /api/reset                    -> remove a model's artifacts
-  GET  /api/jobs                     -> current + recent jobs
+Key routes: `/healthz`, `/api/data-status`, `/api/ticker`, `/api/history`,
+`/api/headlines`, `/api/rationale`, `/api/dates`, etc.
+
+Training / pipeline mutations (`POST /api/run`, `/api/train`, …) are disabled
+when `INFERENCE_ONLY=true` (Railway production).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -44,7 +24,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
-from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
+from flask import Flask, Response, jsonify, request
 
 _APP_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _APP_DIR.parent
@@ -57,8 +37,16 @@ from src.config import (  # noqa: E402
     TICKER_TO_COMPANY,
     TICKERS,
 )
+from src.utils.pipeline_config import load_or_default as _load_pipeline_cfg  # noqa: E402
+from src.utils.trading_calendar import (  # noqa: E402
+    last_trading_session,
+    prediction_lag_sessions,
+)
 
 from app.jobs import JobRegistry, JobSpec  # noqa: E402
+
+# Runtime mode (Railway lean deployment)
+_INFERENCE_ONLY = os.getenv("INFERENCE_ONLY", "false").lower() in ("true", "1", "yes")
 
 # ----------------------------------------------------------------------------
 # Paths / constants
@@ -101,38 +89,41 @@ MODEL_ARTIFACTS: dict[str, list[Path]] = {
 # App setup
 # ----------------------------------------------------------------------------
 
-# Explicit paths so gunicorn/Docker always find templates + static (icons) regardless of cwd.
-app = Flask(
-    __name__,
-    template_folder=str(_APP_DIR / "templates"),
-    static_folder=str(_APP_DIR / "static"),
-    static_url_path="/static",
-)
+app = Flask(__name__)
 jobs = JobRegistry(project_root=_PROJECT_ROOT)
-
-# Bump when icons or manifest change so browsers/CDNs refetch (favicons are cached aggressively).
-ASSET_VERSION = "2"
-
-
-@app.context_processor
-def _inject_asset_version() -> dict[str, str]:
-    return {"asset_version": ASSET_VERSION}
-
-
-@app.route("/favicon.ico")
-def favicon_ico():
-    """Serve PNG at the conventional path (no redirect — some clients mishandle 302 here)."""
-    return send_from_directory(
-        str(Path(app.static_folder) / "icons"),
-        "favicon-32x32.png",
-        mimetype="image/png",
-        max_age=86400,
-    )
 
 
 # ----------------------------------------------------------------------------
 # Data accessors
 # ----------------------------------------------------------------------------
+
+def _json_safe(value: Any) -> Any:
+    """Recursively replace NaN/Inf so JSON is valid in browsers (JSON.parse rejects NaN)."""
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+def _jsonify_safe(payload: Any, status: int = 200) -> Response:
+    return Response(
+        json.dumps(_json_safe(payload)),
+        status=status,
+        mimetype="application/json",
+    )
+
+
+def _df_records(df: pd.DataFrame, cols: Optional[list[str]] = None) -> list[dict]:
+    """DataFrame → JSON-safe records (NaN → null)."""
+    sub = df[cols] if cols else df
+    cleaned = sub.where(pd.notna(sub), None)
+    return _json_safe(cleaned.to_dict(orient="records"))
+
 
 def _load_predictions() -> Optional[pd.DataFrame]:
     if not PREDICTIONS_CSV.exists():
@@ -392,47 +383,14 @@ TRAIN_RUNNERS = {
 # ----------------------------------------------------------------------------
 
 @app.route("/")
-def configure_page():
-    """New landing / configure page."""
-    from scripts.run_pipeline import PRESETS
-    predictions_exist = PREDICTIONS_CSV.exists()
-    return render_template(
-        "configure.html",
-        tickers=TICKERS,
-        ticker_to_company=TICKER_TO_COMPANY,
-        presets=PRESETS,
-        predictions_exist=predictions_exist,
-    )
-
-
-@app.route("/dashboard")
-def dashboard():
-    df = _load_predictions()
-    if df is None:
-        return render_template(
-            "dashboard.html",
-            tickers=TICKERS,
-            ticker_to_company=TICKER_TO_COMPANY,
-            missing_predictions=True,
-        )
-    latest_date = df["prediction_date"].max()
-    return render_template(
-        "dashboard.html",
-        tickers=TICKERS,
-        ticker_to_company=TICKER_TO_COMPANY,
-        missing_predictions=False,
-        latest_date=latest_date,
-        default_ticker=TICKERS[0] if TICKERS else "",
-    )
-
-
-@app.route("/admin")
-def admin():
-    return render_template(
-        "admin.html",
-        tickers=TICKERS,
-        ticker_to_company=TICKER_TO_COMPANY,
-    )
+def root():
+    """API root — UI is served by Next.js (`web/`)."""
+    return jsonify({
+        "service": "news-to-alpha-api",
+        "health": "/healthz",
+        "data_status": "/api/data-status",
+        "ui": "Deploy the Next.js app in web/ (see docs/DEPLOY_UI.md)",
+    })
 
 
 @app.route("/healthz")
@@ -447,7 +405,7 @@ def healthz():
 
 @app.route("/api/data-status")
 def api_data_status():
-    """Freshness summary - powers the header 'Data to:' chip + the reconfigure drawer."""
+    """Freshness summary powering the header chip and status page."""
     df = _load_predictions()
     latest_pred = None
     rows = 0
@@ -479,7 +437,26 @@ def api_data_status():
 
     from datetime import date as _date
     today = _date.today().isoformat()
-    return jsonify({
+
+    # Freshness: predictions should cover through latest price session
+    pipeline_cfg = _load_pipeline_cfg()
+    horizon = int(pipeline_cfg.get("horizon", 1))
+    last_session = last_trading_session().isoformat()
+    behind = prediction_lag_sessions(latest_pred, latest_price)
+    is_current = behind == 0 and latest_pred is not None
+    expected_latest = latest_price
+
+    # Last publish timestamp from bundle stamp
+    last_published = None
+    try:
+        stamp_path = PROCESSED_DATA_DIR / "last_published.json"
+        if stamp_path.exists():
+            import json as _json
+            last_published = _json.loads(stamp_path.read_text()).get("published_at")
+    except Exception:
+        pass
+
+    return _jsonify_safe({
         "today": today,
         "latest_prediction_date": latest_pred,
         "latest_price_date": latest_price,
@@ -487,6 +464,13 @@ def api_data_status():
         "prediction_rows": rows,
         "price_rows": price_count,
         "news_rows": news_count,
+        "last_trading_session": last_session,
+        "expected_latest_prediction_date": expected_latest,
+        "trading_sessions_behind": behind,
+        "is_current": is_current,
+        "horizon": horizon,
+        "last_published_at": last_published,
+        "deploy_mode": "inference_only" if _INFERENCE_ONLY else "full",
     })
 
 
@@ -619,11 +603,11 @@ def api_history():
                 "news_tfidf_pred_proba", "news_embeddings_pred_proba",
                 "ensemble_pred_binary", "actual_binary", "has_news"]
         existing = [c for c in cols if c in sub.columns]
-        preds_records = sub[existing].where(pd.notna(sub[existing]), None).to_dict(orient="records")
+        preds_records = _df_records(sub, existing)
 
     prices = _recent_prices(ticker, days=(window if window else None))
 
-    return jsonify({
+    return _jsonify_safe({
         "ticker": ticker,
         "window": window or "all",
         "prices": prices,
@@ -646,6 +630,8 @@ def api_jobs():
 
 @app.route("/api/train", methods=["POST"])
 def api_train():
+    if _INFERENCE_ONLY:
+        return jsonify({"error": "Training is disabled in inference-only mode."}), 403
     payload = request.get_json(silent=True) or {}
     model = str(payload.get("model") or "").lower()
     params = payload.get("params") or {}
@@ -668,6 +654,8 @@ def api_train():
 
 @app.route("/api/reset", methods=["POST"])
 def api_reset():
+    if _INFERENCE_ONLY:
+        return jsonify({"error": "Model reset is disabled in inference-only mode."}), 403
     payload = request.get_json(silent=True) or {}
     model = str(payload.get("model") or "").lower()
     if model not in MODEL_ARTIFACTS:
@@ -734,27 +722,38 @@ def api_presets():
 
 def _runner_data_refresh(days: int, include_news: bool = True,
                          mode: str = "quality"):
-    """Collect latest prices + news and re-score the whole pipeline.
+    """Collect latest prices + news, run inference-only scoring, rebuild ensemble.
 
-    Modes:
-      - ``quality`` (default): 3-seed LSTM averaging (~3 min). Confidence
-        numbers come out smooth and informative.
-      - ``fast``:              1-seed LSTM (~1 min). Good enough to advance
-        dates but confidence will be blocky.
+    When INFERENCE_ONLY=true (cloud mode): uses daily_update.py (no retrain).
+    Local mode: runs full run_pipeline.py (includes retraining).
 
-    We delegate to ``run_pipeline.py`` because every base model
-    (LSTM / TF-IDF / embeddings) only writes prediction rows for
-    (ticker, date) pairs it was *run* over - so just rebuilding the
-    ensemble off stale per-model CSVs would keep the dashboard
-    frozen at whatever date training last touched.
+    Modes (local only):
+      - ``quality`` (default): 3-seed LSTM retraining (~3 min).
+      - ``fast``:              1-seed LSTM retraining (~1 min).
     """
+    if _INFERENCE_ONLY:
+        def run(job: JobSpec) -> None:
+            cfg = _load_pipeline_cfg()
+            cmd_args: list[str] = ["--lookback-days", str(int(days))]
+            if not include_news:
+                cmd_args.append("--skip-news")
+            rc = jobs.python_script(job, "daily_update.py", *cmd_args)
+            if rc != 0:
+                raise RuntimeError("daily_update.py failed")
+        return run
+
+    # Full retrain path (local)
     seeds = ["42", "1337", "2024"] if str(mode).lower() != "fast" else ["42"]
+    saved_cfg = _load_pipeline_cfg()
+    horizon = str(saved_cfg.get("horizon", 1))
+    tickers: list[str] = saved_cfg.get("tickers") or list(TICKERS)
 
     def run(job: JobSpec) -> None:
         cmd_args: list[str] = [
-            "--tickers", *TICKERS,
+            "--tickers", *tickers,
             "--lookback-days", str(int(days)),
             "--seeds", *seeds,
+            "--horizon", horizon,
         ]
         if not include_news:
             cmd_args.append("--skip-news")
@@ -845,6 +844,8 @@ def api_data_clear():
 
 @app.route("/api/run", methods=["POST"])
 def api_run():
+    if _INFERENCE_ONLY:
+        return jsonify({"error": "Full pipeline runs are disabled in inference-only mode. Use /api/data/refresh."}), 403
     payload = request.get_json(silent=True) or {}
     preset = str(payload.get("preset") or "").lower()
     config = payload.get("config") or {}
@@ -902,17 +903,19 @@ def _load_headlines_for(ticker: str, date: str) -> list[dict]:
         label_date = map_published_to_label_date(r["published_at"])
         if label_date != date:
             continue
+        title = r["title"] or ""
+        sent = float(r["sentiment_score"]) if r["sentiment_score"] is not None else None
+        rel = float(r["relevance_score"]) if r["relevance_score"] is not None else None
         out.append({
-            "title": r["title"],
+            "title": title,
+            "headline": title,
             "source": r["source"] or "unknown",
             "published_at": r["published_at"],
             "content": (r["content"] or "")[:1200] if "content" in r.keys() else "",
-            "sentiment_finnhub": (
-                float(r["sentiment_score"]) if r["sentiment_score"] is not None else None
-            ),
-            "relevance": (
-                float(r["relevance_score"]) if r["relevance_score"] is not None else None
-            ),
+            "sentiment_finnhub": sent,
+            "finnhub_sentiment": sent,
+            "relevance": rel,
+            "relevance_score": rel,
             "url": r["url"],
         })
     return out
@@ -957,6 +960,29 @@ _FEATURE_BASELINES: dict[str, float] = {
     "has_news":                   0.5,
     "n_headlines":                0.0,  # overwritten with median below
     "spy_return_5d":              0.0,
+}
+
+_FEATURE_LABELS: dict[str, str] = {
+    "financial_pred_proba": "Price model (LSTM)",
+    "news_tfidf_pred_proba": "Headline keywords (TF-IDF)",
+    "news_embeddings_pred_proba": "Headline meaning (embeddings)",
+    "lstm_confidence": "How sure the price model is",
+    "tfidf_confidence": "How sure the keyword model is",
+    "emb_confidence": "How sure the embedding model is",
+    "all_agree": "All models point the same way",
+    "has_news": "News available that day",
+    "n_headlines": "Number of headlines",
+    "spy_return_5d": "Broad market (SPY) last 5 days",
+}
+
+_FEATURE_HINTS: dict[str, str] = {
+    "financial_pred_proba": "60-day price + technicals; above 50% favors UP.",
+    "news_tfidf_pred_proba": "Logistic model on headline word patterns.",
+    "news_embeddings_pred_proba": "Sentence embeddings of headlines, pooled per day.",
+    "spy_return_5d": "When the market has been weak, the ensemble tilts DOWN.",
+    "has_news": "No news → neutral news inputs (50%).",
+    "n_headlines": "More headlines can strengthen the news leg when present.",
+    "all_agree": "1 when LSTM, TF-IDF, and embeddings all agree on direction.",
 }
 
 
@@ -1016,26 +1042,35 @@ def api_rationale():
     imp_map = {k: v for k, v in importances}
     scales = _compute_feature_scales(df, features)
 
+    # Legacy linear contributions (kept for compatibility)
     contributions: list[dict] = []
     for name in features:
         if name not in row_df.columns or pd.isna(row[name]):
             continue
         value = float(row[name])
         imp = float(imp_map.get(name, 0.0))
+        if imp <= 1e-8:
+            continue
         sc = scales.get(name, {"baseline": 0.0, "scale": 1.0})
         baseline = sc["baseline"]
         scale = sc["scale"] if sc["scale"] > 0 else 1.0
-        # Signed local contribution: how much this feature nudged the call,
-        # relative to what the model considers a neutral value for it.
         contribution = imp * (value - baseline) / scale
+        if abs(contribution) < 1e-8:
+            direction = "neutral"
+        elif contribution > 0:
+            direction = "up"
+        else:
+            direction = "down"
         contributions.append({
             "feature": name,
+            "label": _FEATURE_LABELS.get(name, name.replace("_", " ").title()),
+            "hint": _FEATURE_HINTS.get(name, ""),
             "value": value,
             "importance": imp,
             "baseline": baseline,
             "contribution": contribution,
+            "direction": direction,
         })
-
     contributions.sort(key=lambda x: abs(x["contribution"]), reverse=True)
 
     per_model = {}
@@ -1048,13 +1083,36 @@ def api_rationale():
                 "binary": int(p >= 0.5),
             }
 
-    return jsonify({
+    explanation: dict[str, Any] = {}
+    try:
+        from src.ml.ensemble_explain import explain_ensemble_row
+
+        meta_payload = {
+            "meta": None,
+            "temperature": temperature,
+            "importances": importances,
+        }
+        if META_MODEL_PATH.exists():
+            full_payload = joblib.load(META_MODEL_PATH)
+            meta_payload["meta"] = full_payload.get("meta")
+            meta_payload["temperature"] = float(full_payload.get("temperature", temperature))
+            meta_payload["importances"] = full_payload.get("importances") or importances
+        if meta_payload["meta"] is not None:
+            explanation = explain_ensemble_row(row, meta_payload)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("ensemble explain failed: %s", exc)
+        explanation = {}
+
+    return _jsonify_safe({
         "ticker": ticker,
         "date": str(row["prediction_date"]),
         "per_model": per_model,
         "ensemble_proba": float(row.get("ensemble_pred_proba", 0.5)) if "ensemble_pred_proba" in row_df.columns else None,
         "ensemble_confidence": float(row.get("ensemble_confidence", 0.0)) if "ensemble_confidence" in row_df.columns else None,
         "contributions": contributions[:8],
+        "features": contributions[:8],
+        "explanation": explanation,
         "temperature": temperature,
     })
 
@@ -1083,7 +1141,105 @@ def api_accuracy_trace():
         {"date": d, "accuracy": (float(a) if pd.notna(a) else None)}
         for d, a in zip(sub["prediction_date"], sub["rolling_acc"])
     ]
-    return jsonify({"ticker": ticker, "window": window, "series": series})
+    return _jsonify_safe({"ticker": ticker, "window": window, "series": series})
+
+
+def _markets_price_index(window: int) -> list[dict[str, Any]]:
+    """Equal-weight normalized price index across TICKERS (100 at window start)."""
+    conn = _get_db()
+    try:
+        date_rows = conn.execute(
+            """SELECT DISTINCT date FROM prices ORDER BY date DESC LIMIT ?""",
+            (window,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not date_rows:
+        return []
+
+    dates = sorted(str(r["date"]) for r in date_rows)
+    by_date: dict[str, list[float]] = {d: [] for d in dates}
+
+    for ticker in TICKERS:
+        conn = _get_db()
+        try:
+            placeholders = ",".join(["?"] * len(dates))
+            rows = conn.execute(
+                f"""SELECT date, close FROM prices
+                    WHERE ticker = ? AND date IN ({placeholders})
+                    ORDER BY date ASC""",
+                (ticker, *dates),
+            ).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            continue
+        base = float(rows[0]["close"])
+        if base <= 0:
+            continue
+        for r in rows:
+            d = str(r["date"])
+            by_date.setdefault(d, []).append(float(r["close"]) / base * 100.0)
+
+    out: list[dict[str, Any]] = []
+    for d in dates:
+        vals = by_date.get(d, [])
+        if vals:
+            out.append({"date": d, "index": float(sum(vals) / len(vals))})
+    return out
+
+
+@app.route("/api/markets-overview")
+def api_markets_overview():
+    """Aggregate price index + daily ensemble accuracy for all tickers."""
+    try:
+        window = max(7, min(90, int(request.args.get("window") or "30")))
+    except ValueError:
+        window = 30
+
+    df = _load_predictions()
+    if df is None:
+        return _jsonify_safe({
+            "window": window,
+            "price_index": [],
+            "accuracy_series": [],
+            "summary": {"n": 0, "hits": 0, "accuracy": None},
+        })
+
+    sub = df[df["actual_binary"].notna()].copy()
+    sub["hit"] = (sub["ensemble_pred_binary"] == sub["actual_binary"]).astype(int)
+
+    daily = (
+        sub.groupby("prediction_date")
+        .agg(hits=("hit", "sum"), n=("hit", "count"))
+        .reset_index()
+        .sort_values("prediction_date")
+    )
+    daily["accuracy"] = daily["hits"] / daily["n"]
+    daily = daily.tail(window)
+
+    accuracy_series = [
+        {"date": str(r["prediction_date"]), "accuracy": float(r["accuracy"])}
+        for _, r in daily.iterrows()
+    ]
+
+    # Summary over the same calendar dates as the chart window
+    if daily.empty:
+        summary = {"n": 0, "hits": 0, "accuracy": None}
+    else:
+        window_dates = set(daily["prediction_date"].astype(str))
+        trim = sub[sub["prediction_date"].astype(str).isin(window_dates)]
+        n = int(len(trim))
+        hits = int(trim["hit"].sum())
+        summary = {"n": n, "hits": hits, "accuracy": (hits / n) if n else None}
+
+    return _jsonify_safe({
+        "window": window,
+        "price_index": _markets_price_index(window),
+        "accuracy_series": accuracy_series,
+        "summary": summary,
+    })
 
 
 @app.route("/api/accuracy-summary")

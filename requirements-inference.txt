@@ -1,0 +1,28 @@
+# Inference-only requirements for Railway (API-serving only, no training).
+# Uses CPU-only torch to avoid the 1.2+ GB CUDA wheel.
+# Install: pip install --index-url https://download.pytorch.org/whl/cpu -r requirements-inference.txt
+
+# ── Core ────────────────────────────────────────────────────────────────────
+pandas
+numpy
+
+# ── API keys / env ──────────────────────────────────────────────────────────
+python-dotenv
+requests
+
+# ── ML inference (CPU torch) ─────────────────────────────────────────────
+# torch CPU wheel is resolved from --index-url at install time (see Dockerfile.inference)
+torch
+scikit-learn
+joblib
+
+# ── Sentence embeddings (MiniLM) ─────────────────────────────────────────
+sentence-transformers
+
+# ── Timezone ────────────────────────────────────────────────────────────────
+pytz
+exchange_calendars
+
+# ── Web app ──────────────────────────────────────────────────────────────────
+flask
+gunicorn
