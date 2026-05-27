@@ -39,7 +39,11 @@ Next.js App Router picks these up automatically (no manual `<link>` tags):
 
 Tab title: **Stock Price and Sentiment Predictor** — set in `app/layout.tsx`.
 
-To regenerate icons from a new source image, resize into the paths above (see repo root `icon.png` as optional local source, gitignored).
+To regenerate from `icon.png` at repo root (gitignored), flood-fill removes the dark panel background for a transparent Safari tab icon:
+
+```bash
+python scripts/generate_icons.py   # reads repo-root icon.png (gitignored)
+```
 
 ## API proxies
 

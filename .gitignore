@@ -182,10 +182,13 @@ Thumbs.db
 
 # ── Personal / local-only docs ────────────────────────────────
 # Public repo keeps: README.md, docs/DATA.md, docs/PROJECT_OVERVIEW.md, docs/README.md
-docs/DEPLOY_UI.md
-docs/PERSONAL_FULL_GUIDE.md
+# If a file here was committed before being ignored, run: git rm --cached <path>
+docs/DEPLOY*.md
+docs/PERSONAL*.md
 docs/local_cron.plist.example
 docs/CONTEXT_FOR_NEW_CHAT.md
+docs/session*.md
+docs/ROADMAP.md
 
 # Local cron wrapper (often contains machine-specific paths)
 scripts/local_cron.sh

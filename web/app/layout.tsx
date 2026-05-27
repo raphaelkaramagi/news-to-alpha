@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { QueryProvider } from "@/components/layout/QueryProvider";
 import { AppShell } from "@/components/layout/AppShell";
@@ -23,7 +24,7 @@ export const metadata: Metadata = {
   description:
     "Next-session stock direction forecasts combining price signals, news sentiment, and ensemble ML.",
   icons: {
-    icon: [{ url: "/icon.png", type: "image/png", sizes: "512x512" }],
+    icon: [{ url: "/icon.png", type: "image/png", sizes: "1024x1024" }],
     apple: [{ url: "/apple-icon.png", type: "image/png", sizes: "180x180" }],
     shortcut: "/favicon.ico",
   },
@@ -40,6 +41,7 @@ export default function RootLayout({
         <QueryProvider>
           <AppShell>{children}</AppShell>
         </QueryProvider>
+        <Analytics />
       </body>
     </html>
   );
