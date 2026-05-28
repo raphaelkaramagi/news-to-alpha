@@ -25,7 +25,12 @@ export function SelectedDateProvider({
     fetch("/api/data-status", { cache: "no-store" })
       .then((r) => r.json())
       .then((s: DataStatus) => {
-        const latest = s.latest_prediction_date ?? null;
+        const latest =
+          s.primary_prediction_date ??
+          s.expected_latest_prediction_date ??
+          s.latest_price_date ??
+          s.latest_prediction_date ??
+          null;
         setLatestDate((oldLatest) => {
           setSelectedDateState((prev) => {
             if (!prev) return latest;

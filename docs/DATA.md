@@ -69,17 +69,16 @@ Dates after the last label are scored with saved model weights:
 | `src/ml/news_live_export.py` | TF-IDF + FinBERT for live dates with headlines |
 | `score_models.py` → `backfill_outcomes()` | Fills `actual_binary` once labels exist |
 
-The pipeline also emits a **forward session** forecast after the latest price bar (next NYSE session using data through the prior close).
+The pipeline scores **one live row per latest price session** (close T → close T+1). Predictions refresh on batch `daily_update` / cron only — not dynamically as news arrives.
 
 ### Outcome resolution
 
-Forecast for date **T** = move from close(T) → close(T+1). The UI shows both closes and the realized move when resolved (`price_context` on `/api/ticker`).
+Forecast for date **T** = move from close(T) → close(T+1). The UI shows both closes when resolved (`price_context` on `/api/ticker`).
 
 | Viewing date T | Requires | UI state |
 |----------------|----------|----------|
 | T (resolved) | Close T+1 in DB + backfill | ✓ / ✗ outcome mark |
 | T (latest price day) | Close T+1 not yet available | Pending (open ring) |
-| T (forward session) | Close T not yet available | Forecast only, pending |
 
 `has_news` is derived from cutoff-aligned headline count in SQLite (`n_headlines > 0`).
 
@@ -259,7 +258,7 @@ Restart Flask after retraining or API code changes.
 |-------|---------|
 | `price_context.start_close` / `end_close` | Closes for session T and T+1 when available |
 | `price_context.validation_basis` | Always `close_to_close` for next-day horizon |
-| `forecast_date` | Session the call applies to (same as selected date) |
+| `forecast_date` | Target close session (T+1), from `price_context.end_close_date` |
 
 Resolved history strip and accuracy panels use **`/api/accuracy-summary?ticker=&window=7|30|90`** so counts match the chart window.
 
@@ -269,9 +268,11 @@ Resolved history strip and accuracy panels use **`/api/accuracy-summary?ticker=&
 
 | Field | Meaning |
 |-------|---------|
-| `latest_prediction_date` | Newest ensemble row (includes forward session) |
+| `latest_prediction_date` | Max date in CSV (legacy forward rows pruned on next score) |
+| `primary_prediction_date` | **Default UI date** — latest price session with predictions |
 | `latest_resolved_prediction_date` | Newest date with `actual_binary` filled |
 | `latest_price_date` | Newest price in SQLite |
+| `expected_latest_prediction_date` | Same as `latest_price_date` |
 | `is_current` | Predictions cover through latest price |
 | `market_status` | `open` / `closed` / `pre_market` (4 PM ET cutoff) |
 | `pending_reason` | `awaiting_next_close` / `awaiting_data_refresh` / `resolved` |

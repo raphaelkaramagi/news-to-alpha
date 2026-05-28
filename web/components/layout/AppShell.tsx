@@ -8,7 +8,12 @@ import { GlobalDateNav } from "@/components/layout/GlobalDateNav";
 
 export async function AppShell({ children }: { children: React.ReactNode }) {
   const status = await fetchDataStatusServer().catch(() => null);
-  const latest = status?.latest_prediction_date ?? null;
+  const latest =
+    status?.primary_prediction_date ??
+    status?.expected_latest_prediction_date ??
+    status?.latest_price_date ??
+    status?.latest_prediction_date ??
+    null;
 
   return (
     <SelectedDateProvider initialLatest={latest}>

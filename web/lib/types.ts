@@ -47,6 +47,8 @@ export type TickerApiResponse = {
 export type DataStatus = {
   today: string;
   latest_prediction_date: string | null;
+  /** Default date for Markets / date picker — latest price session, not forward preview. */
+  primary_prediction_date?: string | null;
   latest_price_date: string | null;
   latest_news_date: string | null;
   latest_resolved_prediction_date: string | null;

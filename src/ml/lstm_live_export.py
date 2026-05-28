@@ -130,7 +130,43 @@ def append_live_lstm_predictions(
     else:
         combined = new_rows
 
+    combined = _drop_stale_live_rows(combined)
     combined = combined.sort_values(["ticker", "prediction_date"])
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     combined.to_csv(csv_path, index=False)
     return len(new_rows)
+
+
+def _drop_stale_live_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove live rows dated after a ticker's latest price bar (legacy forward-session rows)."""
+    from src.config import DATABASE_PATH
+    import sqlite3
+
+    if df.empty or not DATABASE_PATH.exists():
+        return df
+
+    conn = sqlite3.connect(str(DATABASE_PATH))
+    try:
+        max_prices = pd.read_sql_query(
+            "SELECT ticker, MAX(date) AS max_date FROM prices GROUP BY ticker",
+            conn,
+        )
+    finally:
+        conn.close()
+
+    if max_prices.empty:
+        return df
+
+    max_map = dict(zip(max_prices["ticker"], max_prices["max_date"].astype(str)))
+    out = df.copy()
+    out["prediction_date"] = out["prediction_date"].astype(str)
+
+    def _keep(row: pd.Series) -> bool:
+        if str(row.get("split", "")) != "live":
+            return True
+        max_date = max_map.get(row["ticker"])
+        if not max_date:
+            return True
+        return row["prediction_date"] <= max_date
+
+    return out[out.apply(_keep, axis=1)].reset_index(drop=True)

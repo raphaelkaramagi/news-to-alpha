@@ -326,6 +326,33 @@ def _parse_top_headlines(raw: Any) -> list[str]:
     return [h.strip() for h in s.split("|") if h.strip()]
 
 
+def _latest_price_date(ticker: str) -> Optional[str]:
+    conn = _get_db()
+    try:
+        row = conn.execute(
+            "SELECT MAX(date) AS d FROM prices WHERE ticker = ?",
+            (ticker,),
+        ).fetchone()
+        return str(row["d"]) if row and row["d"] else None
+    finally:
+        conn.close()
+
+
+def _primary_prediction_date(
+    df: Optional[pd.DataFrame],
+    latest_price: Optional[str],
+    latest_pred: Optional[str],
+) -> Optional[str]:
+    """Default UI date: latest price session with predictions, not forward preview rows."""
+    if latest_price and df is not None and not df.empty:
+        if not df[df["prediction_date"] == latest_price].empty:
+            return latest_price
+        prior = df[df["prediction_date"] <= latest_price]
+        if not prior.empty:
+            return str(prior["prediction_date"].max())
+    return latest_pred
+
+
 def _latest_for_ticker(
     df: pd.DataFrame,
     ticker: str,
@@ -343,7 +370,16 @@ def _latest_for_ticker(
             return None
         last = match.iloc[-1]
     else:
-        last = sub.iloc[-1]
+        latest_price = _latest_price_date(ticker)
+        if latest_price:
+            match = sub[sub["prediction_date"] == latest_price]
+            if not match.empty:
+                last = match.iloc[-1]
+            else:
+                prior = sub[sub["prediction_date"] <= latest_price]
+                last = prior.iloc[-1] if not prior.empty else sub.iloc[-1]
+        else:
+            last = sub.iloc[-1]
 
     col = MODEL_PROBA_COL[model]
     if col not in sub.columns:
@@ -554,8 +590,10 @@ def api_data_status():
     pipeline_cfg = _load_pipeline_cfg()
     horizon = int(pipeline_cfg.get("horizon", 1))
     last_session = last_trading_session().isoformat()
-    behind = prediction_lag_sessions(latest_pred, latest_price)
-    is_current = behind == 0 and latest_pred is not None
+    primary_pred = _primary_prediction_date(df, latest_price, latest_pred)
+    lag_pred = primary_pred or latest_pred
+    behind = prediction_lag_sessions(lag_pred, latest_price)
+    is_current = behind == 0 and lag_pred is not None
     expected_latest = latest_price
 
     # Last publish timestamp from bundle stamp
@@ -613,7 +651,7 @@ def api_data_status():
 
     # pending_reason for the latest forecast date
     pending_reason = "resolved"
-    if latest_pred and (not latest_resolved or latest_pred > latest_resolved):
+    if primary_pred and (not latest_resolved or primary_pred > latest_resolved):
         if market_status == "open" or market_status == "pre_market":
             pending_reason = "awaiting_next_close"
         elif behind == 0:
@@ -624,6 +662,7 @@ def api_data_status():
     return _jsonify_safe({
         "today": today,
         "latest_prediction_date": latest_pred,
+        "primary_prediction_date": primary_pred,
         "latest_price_date": latest_price,
         "latest_news_date": latest_news,
         "latest_resolved_prediction_date": latest_resolved,

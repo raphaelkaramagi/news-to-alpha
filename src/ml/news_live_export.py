@@ -28,25 +28,13 @@ _PRICE_CSV = PROCESSED_DATA_DIR / "price_predictions.csv"
 
 
 def _live_dates_needing_news(price_csv: Path, news_csv: Path) -> set[tuple[str, str]]:
-    """Return (ticker, date) pairs needing news scores (live + forward session)."""
+    """Return (ticker, date) pairs needing news scores for live price sessions."""
     pairs: set[tuple[str, str]] = set()
     if price_csv.exists():
         price = pd.read_csv(price_csv, usecols=["ticker", "prediction_date", "split"])
         live = price[price["split"] == "live"][["ticker", "prediction_date"]]
         if not live.empty:
             pairs |= set(zip(live["ticker"], live["prediction_date"].astype(str)))
-        # Forward session after each ticker's latest prediction date
-        from datetime import date as date_type
-        from src.utils.trading_calendar import next_trading_session
-
-        for ticker, grp in price.groupby("ticker"):
-            max_date = str(grp["prediction_date"].astype(str).max())
-            try:
-                lp = date_type.fromisoformat(max_date[:10])
-                next_str = next_trading_session(lp).strftime("%Y-%m-%d")
-                pairs.add((ticker, next_str))
-            except ValueError:
-                pass
 
     if news_csv.exists():
         news = pd.read_csv(news_csv, usecols=["ticker", "prediction_date"])

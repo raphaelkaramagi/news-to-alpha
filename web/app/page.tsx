@@ -5,7 +5,12 @@ export const dynamic = "force-dynamic";
 
 export default async function MarketsPage() {
   const status = await fetchDataStatusServer().catch(() => null);
-  const noData = !status?.latest_prediction_date;
+  const latest =
+    status?.primary_prediction_date ??
+    status?.expected_latest_prediction_date ??
+    status?.latest_price_date ??
+    null;
+  const noData = !latest;
 
   return (
     <div className="space-y-6">
