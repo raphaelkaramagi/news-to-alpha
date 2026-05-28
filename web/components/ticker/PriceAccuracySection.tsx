@@ -50,10 +50,10 @@ export function PriceAccuracySection({ ticker, selectedDate, model = "ensemble" 
         />
       </div>
 
-      <ResolvedStrip ticker={ticker} />
+      <ResolvedStrip ticker={ticker} window={window} />
 
       <div>
-        <p className="text-sm font-medium mb-3">Accuracy over window</p>
+        <p className="text-sm font-medium mb-3">Accuracy ({window}d window)</p>
         <AccuracyPanel ticker={ticker} window={window} />
       </div>
     </section>

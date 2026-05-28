@@ -1,5 +1,6 @@
 import { fetchDataStatusServer } from "@/lib/data";
-import type { DataStatus } from "@/lib/types";
+import { getApiBaseUrl } from "@/lib/env";
+import type { DataStatus, MetricsResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -25,8 +26,47 @@ function StatusIndicator({ ok }: { ok: boolean }) {
   );
 }
 
+async function fetchMetricsServer(): Promise<MetricsResponse | null> {
+  const base = getApiBaseUrl();
+  if (!base) return null;
+  try {
+    const res = await fetch(`${base}/api/metrics`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as MetricsResponse;
+  } catch {
+    return null;
+  }
+}
+
+function BenchRow({
+  label,
+  accuracy,
+  auc,
+  n,
+}: {
+  label: string;
+  accuracy: number;
+  auc: number;
+  n: number;
+}) {
+  return (
+    <div className="flex items-baseline justify-between py-2 border-b last:border-0 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="tabular-nums font-medium">
+        {(accuracy * 100).toFixed(1)}% acc · AUC {(auc * 100).toFixed(0)}% · n={n.toLocaleString()}
+      </span>
+    </div>
+  );
+}
+
 export default async function StatusPage() {
-  const status: DataStatus | null = await fetchDataStatusServer().catch(() => null);
+  const [status, metrics] = await Promise.all([
+    fetchDataStatusServer().catch(() => null),
+    fetchMetricsServer(),
+  ]);
 
   if (!status) {
     return (
@@ -48,6 +88,15 @@ export default async function StatusPage() {
         status.latest_price_date &&
         status.latest_prediction_date >= status.latest_price_date
     );
+
+  const ensembleRows =
+    metrics?.overall?.filter(
+      (r) => r.model === "ensemble" && r.split === "test"
+    ) ?? [];
+  const benchBySubset = Object.fromEntries(
+    ensembleRows.map((r) => [r.subset, r])
+  );
+  const cfg = status.train_config;
 
   return (
     <div className="space-y-8 max-w-lg">
@@ -108,6 +157,64 @@ export default async function StatusPage() {
           <Row label="News rows" value={status.news_rows.toLocaleString()} />
         </div>
       </div>
+
+      {benchBySubset.all && (
+        <div className="rounded-lg border">
+          <div className="px-4 py-3 border-b">
+            <p className="text-sm font-medium">Backtest (held-out test split)</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Offline accuracy from last train — not live trading performance.
+            </p>
+          </div>
+          <div className="px-4 py-1">
+            <BenchRow
+              label="All sessions"
+              accuracy={benchBySubset.all.accuracy}
+              auc={benchBySubset.all.auc}
+              n={benchBySubset.all.n}
+            />
+            {benchBySubset.has_news && (
+              <BenchRow
+                label="Days with headlines"
+                accuracy={benchBySubset.has_news.accuracy}
+                auc={benchBySubset.has_news.auc}
+                n={benchBySubset.has_news.n}
+              />
+            )}
+            {benchBySubset.high_conf && (
+              <BenchRow
+                label="High-confidence calls"
+                accuracy={benchBySubset.high_conf.accuracy}
+                auc={benchBySubset.high_conf.auc}
+                n={benchBySubset.high_conf.n}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {cfg && (
+        <div className="rounded-lg border">
+          <div className="px-4 py-3 border-b">
+            <p className="text-sm font-medium">Train config (local artifact)</p>
+          </div>
+          <div className="px-4">
+            <Row label="News encoder" value={cfg.encoder_model ?? "—"} mono />
+            <Row
+              label="Conditional ensemble"
+              value={cfg.conditional_ensemble ? "yes" : "no"}
+            />
+            <Row
+              label="Min move filter"
+              value={cfg.min_move_pct != null ? `${cfg.min_move_pct}%` : "—"}
+            />
+            <Row
+              label="LSTM epochs"
+              value={cfg.lstm_epochs != null ? String(cfg.lstm_epochs) : "—"}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border">
         <div className="px-4 py-3 border-b">

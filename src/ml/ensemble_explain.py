@@ -15,6 +15,9 @@ _NEUTRAL: dict[str, float] = {
     "emb_confidence": 0.0,
     "has_news": 0.0,
     "n_headlines": 0.0,
+    "news_tfidf_x_has_news": 0.5,
+    "news_emb_x_has_news": 0.5,
+    "lstm_x_agree": 0.5,
     "spy_return_5d": 0.0,
     "all_agree": 0.0,
 }
@@ -98,7 +101,7 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
     base_votes = [
         {"model": "lstm", "label": "Price", "proba": lstm_p, **_vote_fields(lstm_p)},
         {"model": "tfidf", "label": "Keywords", "proba": tfidf_p, **_vote_fields(tfidf_p)},
-        {"model": "embeddings", "label": "Meaning", "proba": emb_p, **_vote_fields(emb_p)},
+        {"model": "embeddings", "label": "FinBERT", "proba": emb_p, **_vote_fields(emb_p)},
     ]
     up_votes = sum(1 for v in base_votes if v["direction"] == "UP")
     down_votes = 3 - up_votes
@@ -109,8 +112,13 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
         ("financial_pred_proba", "Price model lean"),
         ("lstm_confidence", "Price conviction"),
         ("news_tfidf_pred_proba", "Keyword headlines"),
-        ("news_embeddings_pred_proba", "Headline meaning"),
-        ("spy_return_5d", "Broad market (5d)"),
+        ("news_embeddings_pred_proba", "FinBERT headlines"),
+        ("has_news", "Headlines present"),
+        ("n_headlines", "Headline count"),
+        ("spy_return_5d", "SPY 5-day return"),
+        ("news_tfidf_x_has_news", "Keywords × headlines"),
+        ("news_emb_x_has_news", "FinBERT × headlines"),
+        ("lstm_x_agree", "Price × agreement"),
     ]
     drivers: list[dict[str, Any]] = []
     for feat, label in driver_specs:

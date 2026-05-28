@@ -36,12 +36,14 @@ from src.config import DATABASE_PATH
 logger = logging.getLogger(__name__)
 
 MARKET_TICKER = "SPY"
+VIX_TICKER = "VIX"  # Stored in DB as "VIX"; yfinance fetches "^VIX"
 
 
 class TechnicalIndicators:
     def __init__(self, db_path: str | Path = DATABASE_PATH):
         self.db_path = Path(db_path)
         self._market_cache: pd.DataFrame | None = None
+        self._vix_cache: pd.DataFrame | None = None
 
     def compute(self, ticker: str) -> pd.DataFrame:
         """Pull price data for a ticker and add all indicator columns.
@@ -79,6 +81,7 @@ class TechnicalIndicators:
         df = self._merge_market_features(df)
         df = self._add_excess_return(df)
         df = self._add_derived_ratios(df)
+        df = self._merge_vix_features(df)
 
         return df
 
@@ -242,3 +245,48 @@ class TechnicalIndicators:
         df["macd_signal_rel"] = df["macd_signal"] / close
         df["macd_hist_rel"] = df["macd_histogram"] / close
         return df
+
+    def _merge_vix_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Left-join VIX level and daily change onto the ticker's date index.
+
+        vix_level  - CBOE Volatility Index closing value (regime context)
+        vix_change - daily % change in VIX (fear spike signal)
+
+        Both default to 0 when VIX data is absent so the rest of the pipeline
+        is unaffected.  Collect VIX via: ``collect_prices.py --tickers VIX``
+        (the collector maps "VIX" → "^VIX" for yfinance).
+        """
+        vix = self._load_vix()
+        if vix is None or vix.empty:
+            df["vix_level"] = 0.0
+            df["vix_change"] = 0.0
+            return df
+        df = df.join(vix, how="left")
+        df["vix_level"] = df["vix_level"].ffill().fillna(0.0)
+        df["vix_change"] = df["vix_change"].fillna(0.0)
+        return df
+
+    def _load_vix(self) -> pd.DataFrame | None:
+        """Pull VIX prices once per TechnicalIndicators instance."""
+        if self._vix_cache is not None:
+            return self._vix_cache
+
+        conn = sqlite3.connect(self.db_path)
+        vix = pd.read_sql_query(
+            "SELECT date, close FROM prices WHERE ticker = ? ORDER BY date ASC",
+            conn,
+            params=(VIX_TICKER,),
+        )
+        conn.close()
+        if vix.empty:
+            logger.info("VIX prices not in DB - VIX features will be 0. "
+                        "Run: collect_prices.py --tickers VIX")
+            self._vix_cache = pd.DataFrame()
+            return self._vix_cache
+
+        vix["date"] = pd.to_datetime(vix["date"])
+        vix = vix.set_index("date").sort_index()
+        vix["vix_level"] = vix["close"]
+        vix["vix_change"] = vix["close"].pct_change() * 100
+        self._vix_cache = vix[["vix_level", "vix_change"]]
+        return self._vix_cache

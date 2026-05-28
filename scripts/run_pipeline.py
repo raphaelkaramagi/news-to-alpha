@@ -43,6 +43,8 @@ class PipelineConfig:
     min_move_pct: float = 0.0
     seeds: list[int] = dataclasses.field(default_factory=lambda: [42])
     use_finbert: bool = False
+    encoder_model: str | None = None  # None = default MiniLM; "finbert" = ProsusAI/finbert
+    conditional_ensemble: bool = False  # fit separate HGB for has_news vs no_news rows
     skip_collect: bool = False
     skip_news: bool = False
     skip_labels: bool = False
@@ -92,6 +94,24 @@ PRESETS: dict[str, dict] = {
         "seeds": [42, 1337, 2024],
         "use_finbert": True,
         "lstm_epochs": 120,
+    },
+    # max_v2 activates all accuracy-improvement changes from the roadmap:
+    #   - min_move_pct=0.3: filter near-flat training days to reduce label noise
+    #   - encoder_model=finbert: use ProsusAI/finbert (768-d) as primary news encoder
+    #   - conditional_ensemble: separate HGB for has_news vs no_news rows
+    #   - VIX regime features (collected automatically via collect_prices.py)
+    #   - LSTM balanced-accuracy early stopping (always on after lstm_model.py update)
+    # The "max" preset is preserved unchanged for production deploy continuity.
+    "max_v2": {
+        "tickers": TICKERS,
+        "lookback_days": 1095,
+        "horizon": 1,
+        "min_move_pct": 0.3,
+        "seeds": [42, 1337, 2024],
+        "use_finbert": True,
+        "encoder_model": "finbert",
+        "conditional_ensemble": True,
+        "lstm_epochs": 150,
     },
 }
 
@@ -160,6 +180,8 @@ def run(cfg: PipelineConfig) -> None:
         emb_args = [*horizon_args, *move_args]
         if cfg.use_finbert:
             emb_args.append("--use-finbert")
+        if cfg.encoder_model:
+            emb_args.extend(["--encoder-model", cfg.encoder_model])
         _run(
             [_py(), "scripts/train_news_embeddings.py", *emb_args],
             "train_news_embeddings",
@@ -169,6 +191,8 @@ def run(cfg: PipelineConfig) -> None:
         ens_args = []
         if not cfg.temperature_scale:
             ens_args.append("--no-temperature-scale")
+        if cfg.conditional_ensemble:
+            ens_args.append("--conditional")
         _run([_py(), "scripts/build_ensemble.py", *ens_args], "build_ensemble")
     if not cfg.skip_evaluate:
         _run(
@@ -201,6 +225,11 @@ def _build_config_from_args(args: argparse.Namespace) -> PipelineConfig:
         ),
         seeds=list(seeds),
         use_finbert=args.use_finbert or preset.get("use_finbert", False),
+        encoder_model=(
+            args.encoder_model if args.encoder_model is not None
+            else preset.get("encoder_model")
+        ),
+        conditional_ensemble=args.conditional_ensemble or preset.get("conditional_ensemble", False),
         skip_collect=args.skip_collect,
         skip_news=args.skip_news,
         skip_labels=args.skip_labels,
@@ -222,13 +251,25 @@ def _build_config_from_args(args: argparse.Namespace) -> PipelineConfig:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run full news-to-alpha pipeline")
     parser.add_argument("--preset", choices=sorted(PRESETS.keys()), default=None,
-                        help="Start from a preset and override specific fields.")
+                        help=(
+                            "Start from a preset and override specific fields. "
+                            "Use 'max_v2' for all accuracy-improvement upgrades "
+                            "(FinBERT encoder, conditional ensemble, min_move_pct=0.3)."
+                        ))
     parser.add_argument("--tickers", nargs="+", default=None)
     parser.add_argument("--lookback-days", type=int, default=None)
     parser.add_argument("--horizon", type=int, default=None, choices=[1, 3])
     parser.add_argument("--min-move-pct", type=float, default=None)
     parser.add_argument("--seeds", type=int, nargs="+", default=None)
     parser.add_argument("--use-finbert", action="store_true")
+    parser.add_argument(
+        "--encoder-model", default=None,
+        help="News embedding encoder: 'finbert' (ProsusAI/finbert 768-d) or 'minilm' (default).",
+    )
+    parser.add_argument(
+        "--conditional-ensemble", action="store_true",
+        help="Fit separate HGB meta-models for has_news and no_news rows.",
+    )
     parser.add_argument("--lstm-epochs", type=int, default=None,
                         help="Override LSTM training epochs (max preset uses 120).")
     parser.add_argument("--no-temperature-scale", action="store_true")

@@ -22,7 +22,7 @@ class LabelGenerator:
         self.db_path = Path(db_path)
 
     def generate(self, tickers: list[str] | None = None) -> dict:
-        """Generate labels for all given tickers (default: all 15).
+        """Generate labels for all given tickers (default: full configured universe).
 
         Writes both 1-day (label_binary / label_return / close_t_plus_1) and
         3-day (label_binary_h3 / return_h3 / close_t_plus_3) targets into the

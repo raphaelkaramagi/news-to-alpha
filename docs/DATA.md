@@ -36,7 +36,7 @@ Used by: collection scripts, headlines API, chart price line, resolved-call badg
 | `news_embeddings_predictions.csv` | Embedding news scores |
 | `eval_dataset.csv` | Joined per-model CSVs |
 | **`final_ensemble_predictions.csv`** | **What the UI reads** — ensemble + all model columns |
-| `evaluation_*.csv` | Accuracy / conviction metrics |
+| `evaluation_*.csv` | Accuracy metrics (`all`, `has_news`, `high_conf` subsets) |
 | `pipeline_config.json` | Last train config (horizon, seeds, tickers) |
 | `last_published.json` | Timestamp written by publish script |
 
@@ -46,8 +46,8 @@ Used by: collection scripts, headlines API, chart price line, resolved-call badg
 |------|---------|
 | `lstm_model.pt` | LSTM weights + scaler (+ optional seed models) |
 | `nlp_baseline.joblib` | TF-IDF + logistic |
-| `news_embeddings.joblib` | MiniLM + classifier |
-| `ensemble_meta.joblib` | Meta-model + feature importances (Why tab) |
+| `news_embeddings.joblib` | FinBERT (max_v2) or MiniLM + classifier |
+| `ensemble_meta.joblib` | Meta-model(s) + feature importances (Why tab) |
 
 ---
 
@@ -79,7 +79,7 @@ So jumping from 5/22 to 5/26 is expected — there were no trading sessions in b
 
 ### First-time or full retrain (production)
 
-Use the **`max`** preset before your first deploy — all 15 tickers, 3 years of prices, next-day horizon (matches the UI), FinBERT embeddings, 3-seed LSTM with 120 epochs:
+Use the **`max`** preset before your first deploy — all 20 tickers, 3 years of prices, next-day horizon (matches the UI), FinBERT embeddings, 3-seed LSTM with 120 epochs:
 
 ```bash
 source .venv/bin/activate
@@ -98,7 +98,18 @@ Other presets:
 | `quick` | 2 tickers, smoke test (~minutes) |
 | `balanced` | 5 tickers, 3-day horizon, faster iteration |
 | `advanced` | All tickers, 3-day horizon, FinBERT |
-| **`max`** | **All tickers, next-day, most data — use before deploy** |
+| **`max`** | **All tickers, next-day — current production deploy preset** |
+| **`max_v2`** | **Accuracy experiment: FinBERT, conditional ensemble, 0.3% min-move filter, VIX features, 150 LSTM epochs** |
+
+`max_v2` is the recommended local retrain after the accuracy roadmap. Production still uses `max` until you publish a new bundle.
+
+```bash
+# Full retrain with all accuracy improvements (skips price re-download if already current)
+python scripts/run_pipeline.py --preset max_v2 --skip-collect --skip-news
+
+# Backfill historical news (Finnhub free tier ~1 year; uses 30-day chunks)
+python scripts/collect_news.py --backfill --start-date 2025-06-01 --chunk-days 30
+```
 
 This runs: collect → labels → split → train all models → ensemble → evaluate, and appends **live** LSTM rows automatically at the end of `train_lstm.py`.
 
@@ -219,17 +230,26 @@ Labels in the UI: **Low** (&lt;25%), **Moderate** (25–45%), **Strong** (≥45%
 
 ### Why this call tab
 
-The ensemble meta-model is **HistGradientBoosting** (non-linear). The UI uses counterfactual explanation (`src/ml/ensemble_explain.py`):
+**Layperson view (`Why this call`):** direction, confidence, short summary, three vote pills (Price / Keywords / Meaning).
 
-1. Final call + confidence (one card)
-2. Short summary (1–2 lines) — model split + simple avg vs ensemble
-3. Three vote pills — Price / Keywords / Meaning raw scores
-4. **What moved the final score** — counterfactual bars per factor
+**Advanced tab:** per-model probabilities, counterfactual driver bars, rolling accuracy, raw metadata.
 
-**Headline rows show “No impact”** when neutralizing that feature barely changes the ensemble (common when validation permutation importance for news features is ~0). News models still run and appear in the vote pills; the combiner simply did not rely on them for this call.
+The ensemble uses counterfactual explanation (`src/ml/ensemble_explain.py`). With `--conditional`, rows with headlines use a separate meta-model; the Advanced tab notes which route applied.
 
-Client-side fallback (`web/lib/ensembleExplainClient.ts`) fills in votes when Flask is stale; restart Flask for full driver bars:
+Restart Flask after retraining so driver bars load (client fallback shows votes only):
 
 ```bash
 python app/server.py --port 8000
 ```
+
+### Evaluation subsets
+
+`evaluate_predictions.py` reports three test slices:
+
+| Subset | Meaning |
+|--------|---------|
+| `all` | Every test row |
+| `has_news` | Days with at least one headline |
+| `high_conf` | Ensemble confidence ≥ 0.25 |
+
+Check `/status` in the UI or `data/processed/evaluation_summary.txt`.

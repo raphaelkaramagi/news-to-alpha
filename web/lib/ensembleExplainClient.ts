@@ -10,11 +10,11 @@ function leanDisplay(proba: number): { display: string; direction: "UP" | "DOWN"
 }
 
 const DRIVER_LABELS: Record<string, string> = {
-  financial_pred_proba: "Price model lean",
+  financial_pred_proba: "Price model",
   lstm_confidence: "Price conviction",
-  news_tfidf_pred_proba: "Keyword headlines",
-  news_embeddings_pred_proba: "Headline meaning",
-  spy_return_5d: "Broad market (5d)",
+  news_tfidf_pred_proba: "Keywords",
+  news_embeddings_pred_proba: "FinBERT",
+  spy_return_5d: "Market (5d)",
   all_agree: "Models agree",
 };
 
@@ -37,7 +37,7 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
   const base_votes = [
     { model: "lstm", label: "Price", proba: lstm, ...leanDisplay(lstm) },
     { model: "tfidf", label: "Keywords", proba: tfidf, ...leanDisplay(tfidf) },
-    { model: "embeddings", label: "Meaning", proba: emb, ...leanDisplay(emb) },
+    { model: "embeddings", label: "FinBERT", proba: emb, ...leanDisplay(emb) },
   ];
   const upVotes = base_votes.filter((v) => v.direction === "UP").length;
   const downVotes = 3 - upVotes;

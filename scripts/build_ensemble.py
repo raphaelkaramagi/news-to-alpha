@@ -20,6 +20,17 @@ Feature set (13 cols):
     news_tfidf_x_has_news, news_emb_x_has_news,  (gate news signals by news presence)
     lstm_x_agree                                 (boost LSTM when ensemble agrees)
 
+Conditional ensemble (--conditional flag)
+-----------------------------------------
+When enabled, two separate HGB meta-models are fitted:
+  - has_news model  : trained on rows where has_news == 1 (real news signal)
+  - no_news model   : trained on rows where has_news == 0 (price + regime only)
+
+At prediction time, each row is routed to the appropriate meta-model. This
+prevents no-news rows (94%+ of data) from swamping the news-specific weights,
+and lets the news model learn that sentiment matters without the 0.5-neutral
+fill diluting its gradients.
+
 Inputs
 ------
   data/processed/eval_dataset.csv     (from scripts/build_eval_dataset.py)
@@ -429,11 +440,80 @@ def fit_meta_model(
     }
 
 
+# Minimum number of val rows required for a conditional sub-model;
+# falls back to unified model when either subset is below this.
+_MIN_CONDITIONAL_ROWS = 50
+
+
+def fit_conditional_meta_model(df: pd.DataFrame, temperature_scale: bool = True) -> dict:
+    """Fit separate HGB meta-models for rows with and without news.
+
+    Rows where has_news == 1 train the ``has_news_model``; the remaining rows
+    train the ``no_news_model``. At prediction time each row is routed to the
+    appropriate sub-model, preventing the dominant no-news majority from
+    swamping news-specific weights.
+
+    Falls back to the unified ``fit_meta_model`` if either subset is too small.
+    """
+    val = df[(df["split"] == "val") & df["actual_binary"].notna()]
+    has_news_val = val[val["has_news"].fillna(0).astype(int) == 1]
+    no_news_val  = val[val["has_news"].fillna(0).astype(int) == 0]
+
+    n_news   = len(has_news_val)
+    n_no_news = len(no_news_val)
+    print(f"  [conditional] val rows: has_news={n_news}  no_news={n_no_news}")
+
+    if n_news < _MIN_CONDITIONAL_ROWS or n_no_news < _MIN_CONDITIONAL_ROWS:
+        print(f"  [conditional] *** falling back to unified model "
+              f"(need >= {_MIN_CONDITIONAL_ROWS} in each subset) ***")
+        meta = fit_meta_model(df, temperature_scale=temperature_scale)
+        meta["conditional"] = False
+        return meta
+
+    print("  [conditional] Fitting has_news meta-model ...")
+    meta_news = fit_meta_model(
+        df[df["has_news"].fillna(0).astype(int) == 1].copy(),
+        temperature_scale=temperature_scale,
+    )
+    print("  [conditional] Fitting no_news meta-model ...")
+    meta_no_news = fit_meta_model(
+        df[df["has_news"].fillna(0).astype(int) == 0].copy(),
+        temperature_scale=temperature_scale,
+    )
+
+    return {
+        "conditional": True,
+        "has_news_model": meta_news,
+        "no_news_model": meta_no_news,
+        # Expose top-level fields expected by the saver
+        "importances": meta_news["importances"],
+        "features": META_FEATURES,
+        "temperature": 1.0,  # applied inside sub-models
+    }
+
+
 def compute_ensemble(df: pd.DataFrame, meta: dict) -> pd.DataFrame:
+    """Score all rows. Routes to conditional sub-models when available."""
     df = df.copy()
-    X = _feature_matrix(df)
-    proba = meta["model"].predict_proba(X)[:, 1]
-    proba = _apply_temperature(proba, meta.get("temperature", 1.0))
+
+    if meta.get("conditional"):
+        has_news_mask = df["has_news"].fillna(0).astype(int) == 1
+        proba = np.empty(len(df), dtype=float)
+
+        for mask, sub_meta in [
+            (has_news_mask, meta["has_news_model"]),
+            (~has_news_mask, meta["no_news_model"]),
+        ]:
+            if mask.sum() == 0:
+                continue
+            X_sub = _feature_matrix(df[mask])
+            p = sub_meta["model"].predict_proba(X_sub)[:, 1]
+            p = _apply_temperature(p, sub_meta.get("temperature", 1.0))
+            proba[mask.to_numpy()] = p
+    else:
+        X = _feature_matrix(df)
+        proba = meta["model"].predict_proba(X)[:, 1]
+        proba = _apply_temperature(proba, meta.get("temperature", 1.0))
 
     df["ensemble_pred_proba"] = proba
     df["ensemble_pred_binary"] = (proba >= 0.5).astype(int)
@@ -470,6 +550,15 @@ def main() -> None:
         "--no-temperature-scale", action="store_true",
         help="Disable final temperature scaling step.",
     )
+    parser.add_argument(
+        "--conditional", action="store_true",
+        help=(
+            "Fit separate HGB meta-models for rows with news (has_news=1) and without "
+            "(has_news=0). Prevents no-news rows from dominating the news weights. "
+            "Falls back to unified model when either subset has fewer than "
+            f"{_MIN_CONDITIONAL_ROWS} val rows."
+        ),
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input) if args.input else PROCESSED_DATA_DIR / "eval_dataset.csv"
@@ -485,6 +574,7 @@ def main() -> None:
     print(f"Meta             : {meta_path}")
     print(f"DB (SPY + news)  : {db_path}")
     print(f"Temperature scale: {'off' if args.no_temperature_scale else 'on'}")
+    print(f"Conditional      : {'yes (has_news / no_news split)' if args.conditional else 'no'}")
     print()
 
     print("Step 1/4  Loading eval_dataset.csv ...")
@@ -496,7 +586,10 @@ def main() -> None:
     df = _augment(df, db_path)
 
     print("Step 3/4  Fitting meta-model ...")
-    meta = fit_meta_model(df, temperature_scale=not args.no_temperature_scale)
+    if args.conditional:
+        meta = fit_conditional_meta_model(df, temperature_scale=not args.no_temperature_scale)
+    else:
+        meta = fit_meta_model(df, temperature_scale=not args.no_temperature_scale)
 
     print("Step 4/4  Scoring + saving ...")
     out = compute_ensemble(df, meta)
@@ -525,17 +618,24 @@ def main() -> None:
     print(f"  Saved {len(out):,} rows to {output_path}")
 
     meta_path.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(
-        {
-            "meta": meta["model"],
-            "raw_model": meta["raw_model"],
-            "temperature": meta["temperature"],
-            "importances": meta["importances"],
-            "features": META_FEATURES,
-            "model_version": MODEL_VERSION,
-        },
-        meta_path,
-    )
+    save_payload: dict = {
+        "features": META_FEATURES,
+        "model_version": MODEL_VERSION,
+        "conditional": meta.get("conditional", False),
+    }
+    if meta.get("conditional"):
+        save_payload["has_news_model"] = meta["has_news_model"]["model"]
+        save_payload["has_news_temperature"] = meta["has_news_model"]["temperature"]
+        save_payload["no_news_model"] = meta["no_news_model"]["model"]
+        save_payload["no_news_temperature"] = meta["no_news_model"]["temperature"]
+        save_payload["importances"] = meta["has_news_model"]["importances"]
+    else:
+        save_payload["meta"] = meta["model"]
+        save_payload["raw_model"] = meta["raw_model"]
+        save_payload["temperature"] = meta["temperature"]
+        save_payload["importances"] = meta["importances"]
+
+    joblib.dump(save_payload, meta_path)
     print(f"  Saved meta-model to {meta_path}")
 
     print("=" * 70)

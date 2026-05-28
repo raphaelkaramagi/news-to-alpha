@@ -10,8 +10,12 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import type { ModelId } from "@/lib/tickers";
-import type { PerModelEntry, TickerApiResponse } from "@/lib/types";
+import { MODEL_DISPLAY_LABELS } from "@/lib/models";
+import type { PerModelEntry, RationaleResponse, TickerApiResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { buildClientExplanation } from "@/lib/ensembleExplainClient";
+import { ExplanationDrivers } from "@/components/ticker/ExplanationDrivers";
+import { EnsembleInputsTable, LstmContextTable } from "@/components/ticker/EnsembleInputsTable";
 
 interface Props {
   ticker: string;
@@ -33,12 +37,20 @@ async function fetchAccuracyTrace(ticker: string, window = 30): Promise<TracePoi
   return data.series ?? [];
 }
 
-const MODEL_NAMES: Record<string, string> = {
-  ensemble: "Ensemble",
-  lstm: "LSTM",
-  tfidf: "TF-IDF",
-  embeddings: "Embeddings",
-};
+async function fetchRationale(ticker: string, date: string): Promise<RationaleResponse | null> {
+  const res = await fetch(`/api/rationale?ticker=${ticker}&date=${date}&model=ensemble`, {
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+function routeNote(data: RationaleResponse | null | undefined): string | null {
+  const route = data?.ensemble_route;
+  if (route === "has_news") return "Headlines present — news-tuned combiner used.";
+  if (route === "no_news") return "No headlines — price-only combiner used.";
+  return null;
+}
 
 export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Props) {
   const { data: trace = [], isLoading } = useQuery({
@@ -46,6 +58,19 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
     queryFn: () => fetchAccuracyTrace(ticker, 30),
     staleTime: 300_000,
   });
+
+  const { data: rationale } = useQuery({
+    queryKey: ["rationale-advanced", ticker, date],
+    queryFn: () => fetchRationale(ticker, date),
+    staleTime: 300_000,
+    enabled: model === "ensemble",
+  });
+
+  const explanation =
+    rationale?.explanation ??
+    (rationale ? buildClientExplanation(rationale) : null);
+  const drivers = explanation?.drivers ?? [];
+  const newsNote = explanation?.news_weight_note ?? null;
 
   const chartData = trace.filter((p) => p.accuracy !== null).slice(-60);
 
@@ -72,7 +97,9 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
                     key === model && "bg-muted/30"
                   )}
                 >
-                  <td className="px-3 py-2 font-medium">{MODEL_NAMES[key] ?? key}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {MODEL_DISPLAY_LABELS[key as keyof typeof MODEL_DISPLAY_LABELS] ?? key}
+                  </td>
                   <td className="px-3 py-2 tabular-nums">{(entry.proba * 100).toFixed(1)}%</td>
                   <td className={cn(
                     "px-3 py-2 font-medium",
@@ -89,6 +116,29 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
           </table>
         </div>
       </div>
+
+      {model === "ensemble" && (
+        <>
+          <div>
+            <p className="text-sm font-medium mb-2">Ensemble inputs (all 13 features)</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              What the combiner actually sees — model scores, headline flags, SPY regime, and interaction terms.
+            </p>
+            <EnsembleInputsTable features={rationale?.meta_features ?? []} />
+          </div>
+
+          <LstmContextTable context={rationale?.lstm_context ?? null} />
+
+          <div>
+            <p className="text-sm font-medium mb-3">What moved the score</p>
+            <ExplanationDrivers
+              drivers={drivers}
+              newsNote={newsNote}
+              routeNote={routeNote(rationale)}
+            />
+          </div>
+        </>
+      )}
 
       <div>
         <p className="text-sm font-medium mb-1">Rolling accuracy (30-day window)</p>
@@ -138,7 +188,7 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
       </div>
 
       <div className="rounded-lg border px-4 py-3 text-sm space-y-2">
-        <p className="font-medium">Raw call metadata</p>
+        <p className="font-medium">Call metadata</p>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <div>
             <dt className="text-muted-foreground">Ensemble P(UP)</dt>
@@ -161,8 +211,8 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
             </div>
           )}
           <div>
-            <dt className="text-muted-foreground">Active model view</dt>
-            <dd>{MODEL_NAMES[model] ?? model}</dd>
+            <dt className="text-muted-foreground">View</dt>
+            <dd>{MODEL_DISPLAY_LABELS[model] ?? model}</dd>
           </div>
         </dl>
       </div>

@@ -1,14 +1,8 @@
 "use client";
 import { ALLOWED_MODELS, type ModelId } from "@/lib/tickers";
+import { MODEL_DISPLAY_LABELS } from "@/lib/models";
 import type { PerModelEntry } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-const MODEL_LABELS: Record<ModelId, string> = {
-  ensemble: "Ensemble",
-  lstm: "LSTM",
-  tfidf: "TF-IDF",
-  embeddings: "Embeddings",
-};
 
 interface Props {
   selected: ModelId;
@@ -33,7 +27,7 @@ export function ModelPicker({ selected, onChange, perModel }: Props) {
                 : "bg-card border-border hover:bg-accent text-foreground"
             )}
           >
-            {MODEL_LABELS[model]}
+            {MODEL_DISPLAY_LABELS[model]}
             {entry && (
               <span className={cn(
                 "text-xs font-medium",

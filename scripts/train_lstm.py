@@ -52,7 +52,12 @@ from src.features.sequence_generator import (  # noqa: E402
     FEATURE_COLUMNS,
     LEVEL_IDX,
 )
-from src.models.lstm_model import StockLSTM, LSTMTrainer  # noqa: E402
+from src.models.lstm_model import (  # noqa: E402
+    StockLSTM,
+    LSTMTrainer,
+    CAL_ISOTONIC_MIN_ROWS,
+    _SigmoidCalibrator,
+)
 
 MODEL_NAME = "lstm_price"
 MODEL_VERSION = datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -179,21 +184,76 @@ def apply_level_scaler(X: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.n
 
 
 class SeedEnsemble:
-    """Wraps N trained LSTMTrainers and averages their calibrated probabilities."""
+    """Wraps N trained LSTMTrainers — averages raw logits/probs, calibrates once."""
 
     def __init__(self, trainers: list[LSTMTrainer]):
         if not trainers:
             raise ValueError("SeedEnsemble requires at least one trainer")
         self.trainers = trainers
+        self.calibrator = None
+        self.calibration_method: str | None = None
+        self.decision_threshold: float = 0.5
+        self.ticker_to_idx = trainers[0].ticker_to_idx
+        self.scaler_state = trainers[0].scaler_state
+
+    def predict_proba_raw(self, X: np.ndarray,
+                          ticker_idx: np.ndarray | None = None) -> np.ndarray:
+        parts = [
+            t.predict_proba(X, ticker_idx, apply_calibration=False)
+            for t in self.trainers
+        ]
+        return np.mean(np.stack(parts, axis=0), axis=0)
 
     def predict_proba(self, X: np.ndarray,
                       ticker_idx: np.ndarray | None = None) -> np.ndarray:
-        parts = [t.predict_proba(X, ticker_idx) for t in self.trainers]
-        return np.mean(np.stack(parts, axis=0), axis=0)
+        raw = self.predict_proba_raw(X, ticker_idx)
+        if self.calibrator is not None:
+            raw = np.clip(self.calibrator.predict(raw), 1e-4, 1 - 1e-4)
+        return raw
 
     def predict(self, X: np.ndarray,
                 ticker_idx: np.ndarray | None = None) -> np.ndarray:
-        return (self.predict_proba(X, ticker_idx) >= 0.5).astype(np.int32)
+        return (self.predict_proba(X, ticker_idx) >= self.decision_threshold).astype(np.int32)
+
+
+def fit_predictor_calibration(
+    predictor,
+    X_val: np.ndarray,
+    y_val: np.ndarray,
+    tidx_val: np.ndarray | None = None,
+) -> tuple[float, str | None]:
+    """Fit one calibrator + decision threshold on validation (after seed averaging)."""
+    y_val = np.asarray(y_val).astype(int)
+    if len(X_val) == 0 or len(np.unique(y_val)) < 2:
+        return 0.5, None
+
+    if isinstance(predictor, SeedEnsemble):
+        raw = predictor.predict_proba_raw(X_val, tidx_val)
+        target = predictor
+    else:
+        raw = predictor.predict_proba(X_val, tidx_val, apply_calibration=False)
+        target = predictor
+
+    raw_std = float(np.std(raw))
+    if raw_std < 0.005:
+        target.calibrator = None
+        target.calibration_method = "none_degenerate"
+        target.decision_threshold = LSTMTrainer.tune_decision_threshold(y_val, raw)
+        return target.decision_threshold, target.calibration_method
+
+    if len(raw) >= CAL_ISOTONIC_MIN_ROWS:
+        from sklearn.isotonic import IsotonicRegression
+        cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        cal.fit(raw, y_val.astype(float))
+        target.calibrator = cal
+        target.calibration_method = "isotonic"
+    else:
+        target.calibrator = _SigmoidCalibrator().fit(raw, y_val)
+        target.calibration_method = "sigmoid"
+
+    calibrated = np.clip(target.calibrator.predict(raw), 1e-4, 1 - 1e-4)
+    target.decision_threshold = LSTMTrainer.tune_decision_threshold(y_val, calibrated)
+    return target.decision_threshold, target.calibration_method
 
 
 def _prob_predict(predictor, X, tidx) -> np.ndarray:
@@ -212,7 +272,8 @@ def build_prediction_export(
     if len(X_split) == 0:
         return pd.DataFrame()
     proba = _prob_predict(predictor, X_split, tidx_split)
-    binary = (proba >= 0.5).astype(int)
+    threshold = float(getattr(predictor, "decision_threshold", 0.5))
+    binary = (proba >= threshold).astype(int)
     confidence = np.abs(proba - 0.5) * 2
 
     return pd.DataFrame({
@@ -409,9 +470,12 @@ def main() -> None:
     n_neg = int((y_train == 0).sum())
     if n_pos == 0 or n_neg == 0:
         pos_weight = 1.0
+    elif config.get("use_focal_loss", True):
+        pos_weight = None  # focal loss handles class imbalance
+        print(f"\n  Class balance train: pos={n_pos} neg={n_neg}  (focal loss, no pos_weight)")
     else:
         pos_weight = n_neg / n_pos
-    print(f"\n  Class balance train: pos={n_pos} neg={n_neg}  pos_weight={pos_weight:.3f}")
+        print(f"\n  Class balance train: pos={n_pos} neg={n_neg}  pos_weight={pos_weight:.3f}")
 
     seeds = args.seeds or config.get("seeds") or [args.seed]
     seeds = list(dict.fromkeys(int(s) for s in seeds))
@@ -443,31 +507,59 @@ def main() -> None:
             tidx_val=splits["val"]["tidx"],
             patience=patience,
         )
-        trainer_i.fit_calibration(
-            splits["val"]["X"], splits["val"]["y"].astype(int),
-            tidx_val=splits["val"]["tidx"],
-        )
         trainers.append(trainer_i)
 
     predictor = SeedEnsemble(trainers) if len(trainers) > 1 else trainers[0]
 
-    print("\n--- Evaluation (seed-ensemble + isotonic) ---")
+    print("\n--- Ensemble calibration + threshold (validation) ---")
+    cal_threshold, cal_method = fit_predictor_calibration(
+        predictor,
+        splits["val"]["X"],
+        splits["val"]["y"].astype(int),
+        tidx_val=splits["val"]["tidx"],
+    )
+    print(f"  Calibration      : {cal_method or 'none'}")
+    print(f"  Decision threshold: {cal_threshold:.3f}  (default 0.5)")
+
+    # Persist calibrator/threshold on primary checkpoint for live export
+    primary = trainers[0]
+    if isinstance(predictor, SeedEnsemble):
+        primary.calibrator = predictor.calibrator
+        primary.calibration_method = predictor.calibration_method
+        primary.decision_threshold = predictor.decision_threshold
+    else:
+        primary.decision_threshold = predictor.decision_threshold
+
+    print("\n--- Evaluation (seed-ensemble + calibration) ---")
     test_proba = _prob_predict(predictor, splits["test"]["X"], splits["test"]["tidx"])
-    test_pred = (test_proba >= 0.5).astype(int)
+    test_pred = (test_proba >= getattr(predictor, "decision_threshold", 0.5)).astype(int)
     y_test = splits["test"]["y"].astype(int)
     test_acc = float((test_pred == y_test).mean()) if len(y_test) else 0.0
     up_total = int((y_test == 1).sum())
     up_correct = int(((test_pred == 1) & (y_test == 1)).sum())
     down_total = int((y_test == 0).sum())
     down_correct = int(((test_pred == 0) & (y_test == 0)).sum())
+    bal_acc = ((up_correct / max(up_total, 1)) + (down_correct / max(down_total, 1))) / 2
     print(f"  Test accuracy  : {test_acc:.4f}  ({int((test_pred == y_test).sum())}/{len(y_test)})")
+    print(f"  Balanced acc   : {bal_acc:.4f}")
     print(f"  Up   recall    : {up_correct}/{up_total}  "
           f"({up_correct / max(up_total, 1):.2%})")
     print(f"  Down recall    : {down_correct}/{down_total}  "
           f"({down_correct / max(down_total, 1):.2%})")
 
+    print("\n--- LSTM Probability Diagnostics (test set) ---")
+    print(f"  proba min={test_proba.min():.4f}  max={test_proba.max():.4f}  "
+          f"mean={test_proba.mean():.4f}  std={test_proba.std():.4f}")
+    if test_proba.std() < 0.01:
+        print("  *** WARNING: std < 0.01 — model is collapsed (near-constant output) ***")
+    if (test_pred == 1).all():
+        print("  *** WARNING: 100% UP predictions — balanced accuracy == 50% ***")
+    cal_methods = [cal_method or "—"]
+    print(f"  Calibration methods: {cal_methods}")
+    print(f"  Decision threshold : {getattr(predictor, 'decision_threshold', 0.5):.3f}")
+
     # Save primary model (seed 0) as lstm_model.pt; additional seeds next to it.
-    trainers[0].save(model_path)
+    primary.save(model_path)
     print(f"\n  Primary model saved: {model_path}")
     for i, t in enumerate(trainers[1:], start=2):
         p = model_path.with_name(f"lstm_model_seed{i}.pt")
@@ -494,7 +586,8 @@ def main() -> None:
     print("SUMMARY")
     print("=" * 70)
     print(f"  Seeds            : {seeds}")
-    print(f"  Pos weight       : {pos_weight:.3f}")
+    pw_str = "focal loss (n/a)" if pos_weight is None else f"{pos_weight:.3f}"
+    print(f"  Pos weight       : {pw_str}")
     print(f"  Horizon          : {args.horizon}")
     print(f"  Test accuracy    : {test_acc:.4f}")
     print(f"  Random baseline  : 0.5000")

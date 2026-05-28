@@ -15,6 +15,11 @@ export const TICKERS: readonly string[] = [
   "META",
   "ORCL",
   "PLTR",
+  "GOOGL",
+  "MSFT",
+  "MU",
+  "AMD",
+  "AMZN",
 ] as const;
 
 export const TICKER_TO_COMPANY: Record<string, string> = {
@@ -33,6 +38,11 @@ export const TICKER_TO_COMPANY: Record<string, string> = {
   META: "Meta",
   ORCL: "Oracle",
   PLTR: "Palantir",
+  GOOGL: "Alphabet",
+  MSFT: "Microsoft",
+  MU: "Micron Technology",
+  AMD: "Advanced Micro Devices",
+  AMZN: "Amazon",
 };
 
 export const ALLOWED_MODELS = [

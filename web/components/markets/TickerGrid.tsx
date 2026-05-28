@@ -6,6 +6,7 @@ import type { TickerApiResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
 import { MarketsOverview } from "@/components/markets/MarketsOverview";
+import { DayAccuracyBanner } from "@/components/markets/DayAccuracyBanner";
 import { OutcomeDot, OutcomeLegend } from "@/components/markets/OutcomeDot";
 
 async function fetchTicker(symbol: string, date: string | null): Promise<TickerApiResponse> {
@@ -62,6 +63,7 @@ export function TickerGrid() {
 
   return (
     <div className="space-y-8">
+      <DayAccuracyBanner date={selectedDate} />
       <div className="space-y-3">
         <OutcomeLegend />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">

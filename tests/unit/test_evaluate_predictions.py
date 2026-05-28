@@ -103,5 +103,10 @@ class TestEvaluate:
         overall, _, _ = ev.evaluate_all(preds_path, labels_path, split="test")
         df = pd.read_csv(preds_path)
         expected_n = (df["split"] == "test").sum()
-        for _, r in overall.iterrows():
+        # Subset evaluation adds multiple rows per model; check the "all" slice only.
+        if "subset" in overall.columns:
+            all_rows = overall[overall["subset"] == "all"]
+        else:
+            all_rows = overall
+        for _, r in all_rows.iterrows():
             assert r["n"] == expected_n
