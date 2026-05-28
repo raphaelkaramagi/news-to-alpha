@@ -1,15 +1,17 @@
-# Stock Price and Sentiment Predictor — Web UI
+# Web UI
 
-Next.js 16 App Router frontend. Proxies read-only API calls to Flask via `API_BASE_URL`.
+Next.js 16 App Router frontend. Server routes under `app/api/*` proxy read-only requests to the Flask API via `API_BASE_URL`.
+
+---
 
 ## Local development
 
 ```bash
-# Terminal 1 — from repo root
+# Terminal 1 — from repository root
 source .venv/bin/activate
 python app/server.py --port 8000
 
-# Terminal 2 — must be in web/
+# Terminal 2 — from web/
 cd web
 cp .env.example .env.local   # API_BASE_URL=http://127.0.0.1:8000
 npm install
@@ -18,44 +20,50 @@ npm run dev
 
 Open http://localhost:3000
 
-## Pages
+---
+
+## Routes
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets — 20-ticker grid, outcome dots, overview chart |
-| `/t/[symbol]` | Ticker detail — call, headlines, Why tab, charts |
-| `/status` | Data freshness |
+| `/` | Markets — ticker grid, outcome dots, overview chart |
+| `/t/[symbol]` | Ticker detail — call, headlines, Why / Advanced, charts |
+| `/status` | Data freshness and evaluation summary |
 
-## Icons & branding
+Global date picker syncs across pages.
 
-Next.js App Router picks these up automatically (no manual `<link>` tags):
-
-| File | Purpose |
-|------|---------|
-| `app/icon.png` | Favicon / tab icon (512×512) |
-| `app/apple-icon.png` | Apple touch icon (180×180) |
-| `app/favicon.ico` | Legacy browsers |
-| `public/icon-192.png`, `icon-512.png` | PWA manifest (`app/manifest.ts`) |
-
-Tab title: **Stock Price and Sentiment Predictor** — set in `app/layout.tsx`.
-
-Replace `app/icon.png`, `app/apple-icon.png`, and `app/favicon.ico` directly to update branding.
+---
 
 ## API proxies
 
-Server routes under `app/api/*` forward to Flask. Most Flask routes live under `/api/*`; **`/healthz`** is at the root (see `app/api/healthz/route.ts`).
+Handlers in `app/api/*/route.ts` forward to Flask. Most upstream routes live under `/api/*`; health checks use `/healthz` at the Flask root.
 
 Mutation routes (`/api/run`, `/api/train`) are not exposed — training is CLI-only.
 
+Key client modules: `lib/backend.ts`, `lib/types.ts`, `lib/models.ts`.
+
+---
+
+## Branding
+
+| File | Purpose |
+|------|---------|
+| `app/icon.png` | Favicon (512×512) |
+| `app/apple-icon.png` | Apple touch icon |
+| `app/favicon.ico` | Legacy browsers |
+| `app/layout.tsx` | Page title and metadata |
+
+---
+
 ## Deploy (Vercel)
 
-1. Root directory: **`web`**
-2. Env: `API_BASE_URL=https://your-railway-api.up.railway.app` (no trailing slash)
-3. Custom domain optional (e.g. `stock.yourdomain.com`)
-
-## Build
+1. **Root Directory:** `web`
+2. **Environment:** `API_BASE_URL=https://<railway-api-domain>` (no trailing slash)
+3. Custom domain optional
 
 ```bash
 npm run build
 npm run lint
 ```
+
+Deployment details: [docs/DEPLOY.md](../docs/DEPLOY.md) (operator doc).

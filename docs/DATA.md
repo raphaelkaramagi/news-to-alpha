@@ -1,17 +1,17 @@
 # Data & predictions
 
-How data flows through the Stock Price and Sentiment Predictor pipeline, what each artifact does, and how to keep predictions current.
+How data flows through the pipeline, what each artifact stores, and how to keep predictions current.
 
-## Architecture (local train → lean serve)
+## Architecture
 
 | Layer | Location | Purpose |
 |-------|----------|---------|
-| **Collect + train** | Your Mac | Full pipeline, heavy PyTorch training |
-| **Daily refresh** | Your Mac (cron) | Collect prices/news, score live dates, publish bundle |
-| **API** | Railway (`Dockerfile.inference`) | Read CSVs + SQLite, optional infer fallback |
-| **UI** | Vercel (`web/`) | Next.js read-only dashboard |
+| **Collect + train** | Operator host (local) | Full pipeline, PyTorch training |
+| **Daily refresh** | Operator host (cron optional) | Collect prices/news, score live dates, publish bundle |
+| **API** | Railway (`Dockerfile.inference`) | Read CSVs + SQLite from `/data` volume |
+| **UI** | Vercel (`web/`) | Read-only dashboard |
 
-Training data and raw downloads stay on your machine. Only inference artifacts go to Railway.
+Raw downloads and training stay on the operator machine. Only inference artifacts are uploaded to the API host.
 
 ---
 
@@ -23,105 +23,97 @@ Training data and raw downloads stay on your machine. Only inference artifacts g
 |-------|----------|
 | `prices` | Daily OHLCV per ticker |
 | `news` | Headlines, source, URL, published_at |
-| `labels` | Up/down labels + `%` return (needs next trading close) |
-
-Used by: collection scripts, headlines API, chart price line, resolved-call badges.
+| `labels` | Up/down labels + `%` return (requires next session close) |
+| `predictions` | Optional mirror of model CSV rows |
+| `run_log` | Script execution audit trail |
 
 ### `data/processed/` (CSVs)
 
 | File | Purpose |
 |------|---------|
 | `price_predictions.csv` | LSTM per (ticker, date) |
-| `news_tfidf_predictions.csv` | TF-IDF news model scores |
-| `news_embeddings_predictions.csv` | Embedding news scores |
-| `eval_dataset.csv` | Joined per-model CSVs |
-| **`final_ensemble_predictions.csv`** | **What the UI reads** — ensemble + all model columns |
-| `evaluation_*.csv` | Accuracy metrics (`all`, `has_news`, `high_conf` subsets) |
+| `news_tfidf_predictions.csv` | TF-IDF news scores |
+| `news_embeddings_predictions.csv` | FinBERT embedding scores |
+| `eval_dataset.csv` | Joined per-model CSVs for ensemble training |
+| **`final_ensemble_predictions.csv`** | **Primary UI input** — ensemble + all model columns |
+| `evaluation_*.csv` | Metrics (`all`, `has_news`, `high_conf` subsets) |
 | `pipeline_config.json` | Last train config (horizon, seeds, tickers) |
-| `last_published.json` | Timestamp written by publish script |
+| `last_published.json` | Publish timestamp |
 
 ### `data/models/`
 
 | File | Purpose |
 |------|---------|
 | `lstm_model.pt` | LSTM weights + scaler (+ optional seed models) |
-| `nlp_baseline.joblib` | TF-IDF + logistic |
-| `news_embeddings.joblib` | FinBERT (max_v2) or MiniLM + classifier |
+| `nlp_baseline.joblib` / `news_tfidf.joblib` | TF-IDF + logistic pipeline |
+| `news_embeddings.joblib` | FinBERT + classifier |
 | `ensemble_meta.joblib` | Meta-model(s) + feature importances (Why tab) |
 
+See [RESULTS.md](RESULTS.md) for evaluation metrics produced from these artifacts.
+
 ---
 
-## Why predictions lag prices
+## Prediction timeline
 
-Labels need the **next trading day's close**. After Memorial Day 2025-style gaps, the last *labeled* date can be earlier than the last *price* date.
+### Labels lag prices by one session
 
-**Live inference** scores dates after the last label using saved model weights:
+A label for date **T** compares close(T) to close(T+1). The last *labeled* date is therefore one trading session behind the last *price* date until the next close is collected.
 
-| Module | What it does |
-|--------|----------------|
+### Live inference
+
+Dates after the last label are scored with saved model weights:
+
+| Module | Role |
+|--------|------|
 | `src/ml/lstm_live_export.py` | LSTM rows for unlabeled price dates |
 | `src/ml/news_live_export.py` | TF-IDF + FinBERT for live dates with headlines |
-| `score_models.py` → `backfill_outcomes()` | Fills `actual_binary` on live rows once labels exist |
+| `score_models.py` → `backfill_outcomes()` | Fills `actual_binary` once labels exist |
 
-After each close, the pipeline also emits a **forward session** forecast (e.g. on May 28 morning you see a May 28 forecast using data through May 27 close).
+The pipeline also emits a **forward session** forecast after the latest price bar (next NYSE session using data through the prior close).
 
-### When outcomes resolve (important)
+### Outcome resolution
 
-A forecast for **date T** predicts the move from **close(T) → close(T+1)**.
+Forecast for date **T** = move from close(T) → close(T+1).
 
-| You are viewing | Needs in DB | UI shows |
-|-----------------|-------------|----------|
-| May 26 | May 27 close | ✓ / ✗ once labels + backfill run |
-| May 27 | May 28 close | Pending until May 28 close + `daily_update` |
-| May 28 (today) | May 28 close not yet | Forward forecast; pending until May 29 close |
+| Viewing date T | Requires | UI state |
+|----------------|----------|----------|
+| T (resolved) | Close T+1 in DB + backfill | ✓ / ✗ outcome dot |
+| T (latest price day) | Close T+1 not yet available | Pending ring dot |
+| T (forward session) | Close T not yet available | Forecast only, pending |
 
-`has_news` is derived from **cutoff-aligned headline count** in SQLite (`n_headlines > 0`), not from whether a news-model CSV row existed at train time.
+`has_news` is derived from cutoff-aligned headline count in SQLite (`n_headlines > 0`).
 
-### Why dates skip (e.g. 5/22 → 5/26)
+### Non-trading days
 
-The date scrubber only lists **NYSE trading sessions** that have a prediction row — not every calendar day.
-
-Example around Memorial Day 2026:
-
-| Calendar date | Session? | In scrubber? |
-|---------------|----------|--------------|
-| Fri 5/22 | Yes | Yes |
-| Sat 5/23 | Weekend | No |
-| Sun 5/24 | Weekend | No |
-| Mon 5/25 | Memorial Day (closed) | No |
-| Tue 5/26 | Yes | Yes |
-
-So jumping from 5/22 to 5/26 is expected — there were no trading sessions in between.
+The date scrubber lists **NYSE sessions with prediction rows** only. Weekends and exchange holidays are omitted (e.g. Fri 5/22 → Tue 5/26 across Memorial Day).
 
 ---
 
-## Updating data locally
+## Pipeline operations
 
-### First-time or full retrain (production)
+### Full retrain
 
-Use the **`max`** preset before your first deploy — all 20 tickers, 3 years of prices, next-day horizon (matches the UI), FinBERT embeddings, 3-seed LSTM with 120 epochs:
+Recommended preset for current accuracy work:
 
 ```bash
 source .venv/bin/activate
-cp .env.example .env   # NEWS_API_KEY=...
+cp .env.example .env   # NEWS_API_KEY
 
 python scripts/setup_database.py
-python scripts/run_pipeline.py --preset max
+python scripts/run_pipeline.py --preset max_v2
 ```
-
-Retrain **replaces** prediction CSVs (no duplicate rows). The pipeline also prunes stale `predictions` DB rows and removes old `lstm_model_seed*.pt` files so seed ensembles stay in sync.
-
-Other presets:
 
 | Preset | Use case |
 |--------|----------|
-| `quick` | 2 tickers, smoke test (~minutes) |
-| `balanced` | 5 tickers, 3-day horizon, faster iteration |
+| `quick` | 2 tickers, smoke test |
+| `balanced` | 5 tickers, 3-day horizon |
 | `advanced` | All tickers, 3-day horizon, FinBERT |
-| **`max`** | **All tickers, next-day — current production deploy preset** |
-| **`max_v2`** | **Accuracy experiment: FinBERT, conditional ensemble, 0.3% min-move filter, VIX features, 150 LSTM epochs** |
+| `max` | All tickers, next-day (legacy production parity) |
+| **`max_v2`** | **Recommended** — FinBERT, conditional ensemble, VIX features |
 
-`max_v2` LSTM changes (May 2026): weighted BCE (not focal loss), val **AUC** early-stop, sigmoid calibration when raw proba variance is low. Retrain LSTM only:
+Retrain **replaces** prediction CSVs. The pipeline prunes stale DB rows and old seed checkpoints.
+
+Partial LSTM retrain only:
 
 ```bash
 python scripts/run_pipeline.py --preset max_v2 \
@@ -131,84 +123,62 @@ python scripts/build_ensemble.py --conditional
 python scripts/evaluate_predictions.py --horizon 1
 ```
 
-```bash
-# Full retrain with all accuracy improvements (skips price re-download if already current)
-python scripts/run_pipeline.py --preset max_v2 --skip-collect --skip-news
-
-# Backfill historical news (Finnhub free tier ~1 year; always chunk + fill gaps):
-python scripts/collect_news.py --days 365 --backfill --fill-gaps --chunk-days 7
-
-# Repair a sparse month (Finnhub caps ~240 articles per call without chunking):
-python scripts/collect_news.py --start-date 2026-05-01 --end-date 2026-05-27 --fill-gaps
-```
-
-This runs: collect → labels → split → train all models → ensemble → evaluate, and appends **live** LSTM rows automatically at the end of `train_lstm.py`.
-
 ### Daily refresh (no retrain)
 
 ```bash
 python scripts/daily_update.py
 ```
 
-Steps: collect prices/news → labels → `score_models.py` (live LSTM + live news + outcome backfill) → rebuild ensemble → evaluate.
-
-Dry-run first:
+Steps: collect prices/news → labels → `score_models.py` (live scoring + backfill) → rebuild ensemble → evaluate.
 
 ```bash
 python scripts/daily_update.py --dry-run
+python scripts/daily_update.py --lookback-days 90   # after long downtime
 ```
 
-### Scheduled updates (Mac launchd)
+### Scheduled updates (launchd)
 
-`scripts/local_cron.sh` runs `daily_update.py` then `publish_deploy_bundle.py --target railway`. Default schedule: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT). See `docs/local_cron.plist.example`.
+`scripts/local_cron.sh` runs `daily_update.py` then publishes to Railway. Template: `docs/local_cron.plist.example`. Default: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT).
 
-**One-time setup (macOS Ventura+):**
+Setup (macOS Ventura+):
 
 ```bash
 cp docs/local_cron.plist.example ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
-# Edit WorkingDirectory + script path if needed
+# Edit WorkingDirectory and script paths
 plutil -lint ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
 launchctl bootout gui/$(id -u)/com.news-to-alpha.daily 2>/dev/null || true
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
 launchctl enable gui/$(id -u)/com.news-to-alpha.daily
-launchctl print gui/$(id -u)/com.news-to-alpha.daily
 ```
 
-Logs: `tail -f ~/Library/Logs/news-to-alpha/daily_update.log`
+Logs: `~/Library/Logs/news-to-alpha/daily_update.log`
 
-Dry-run: `bash scripts/local_cron.sh --dry-run`
+#### Host asleep at scheduled time
 
-#### Mac closed or asleep — what happens?
-
-| Question | Answer |
-|----------|--------|
-| Mac lid closed at 22:00 UTC? | **Job is skipped.** launchd does not queue missed runs. |
-| Opens Mac later — auto-run? | **No.** Nothing runs until the next scheduled weekday or you run manually. |
-| Missed several days — one manual run enough? | **Yes.** One `daily_update.py` (or `local_cron.sh`) catches up **all** missed trading days in a single pass. |
-| Why one run is enough | Default `--lookback-days 60` re-pulls prices/news; `generate_labels` fills every gap; `score_models` + `backfill_outcomes` resolve all pending rows once T+1 closes exist. |
-| Away >60 calendar days | Use `python scripts/daily_update.py --lookback-days 90` before publish. |
-
-**Manual catch-up** (same as cron, anytime):
+| Scenario | Behavior |
+|----------|----------|
+| Host asleep at cron fire time | **Job skipped** — launchd does not queue missed runs |
+| Host wakes later | **No automatic catch-up** until next schedule or manual run |
+| Manual catch-up after missed days | **One run suffices** — default 60-day lookback + label backfill covers all gaps |
+| Downtime > 60 calendar days | Increase `--lookback-days` before publish |
 
 ```bash
 bash scripts/local_cron.sh
-# or without Railway publish:
+# or:
 python scripts/daily_update.py && python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
-**Requirements:** `.venv`, `.env` with `NEWS_API_KEY`, `railway` CLI logged in for publish. Mac must be **awake and logged in** at the scheduled time — sleep/lid-closed = skip.
+Alternative for hosts that are frequently offline: optional cloud cron (see [DEPLOY.md](DEPLOY.md)).
 
-**Alternative if Mac is often off:** Railway cron + `ENABLE_CLOUD_INFER=true` (see [DEPLOY.md](DEPLOY.md) § Optional cloud infer).
+### Manual catch-up (step-by-step)
 
-### Quick catch-up (collect + live score only)
-
-If you already have trained models and only need to advance dates:
+When models exist and only dates need advancing:
 
 ```bash
 python scripts/collect_prices.py --days 14
 python scripts/collect_news.py --days 14 --fill-gaps
 python scripts/generate_labels.py
-python scripts/score_models.py          # live LSTM + live news + backfill outcomes
+python scripts/score_models.py
 python scripts/build_eval_dataset.py
 python scripts/build_ensemble.py --conditional
 python scripts/evaluate_predictions.py --horizon 1
@@ -218,26 +188,23 @@ Verify:
 
 ```bash
 python scripts/audit_data_coverage.py
-python -c "import pandas as pd; df=pd.read_csv('data/processed/final_ensemble_predictions.csv'); print('max', df['prediction_date'].max()); print('has_news mismatches', ((df['has_news']==0)&(df['n_headlines']>0)).sum())"
 curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool
 ```
 
-Expected: `latest_prediction_date` ≥ latest price date; forward session (e.g. today) may appear before today's close. `latest_resolved_prediction_date` lags by one session until T+1 price exists.
-
 ### Publish to Railway
 
-Volume on the **web** service must be mounted at **`/data`**. Then:
+API service volume must mount at **`/data`**:
 
 ```bash
 python scripts/publish_deploy_bundle.py --dry-run
 python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
-Requires `railway login`, `railway link` (service: **web**), registered SSH key (`railway ssh keys add`), and the service **Online**. Upload uses `railway ssh` (not `railway run` — run is local-only and has no volume). If `Host key verification failed`, run `ssh-keyscan ssh.railway.com >> ~/.ssh/known_hosts`. If writes fail, add Railway variable `RAILWAY_RUN_UID=0`.
+Requires `railway login`, `railway link`, SSH key registration (`railway ssh keys add`). Upload uses **`railway ssh`** — not `railway run` (local-only, no volume access).
 
 ---
 
-## Running locally for development
+## Local development
 
 **Terminal 1 — API**
 
@@ -254,94 +221,66 @@ cp .env.example .env.local   # API_BASE_URL=http://127.0.0.1:8000
 npm install && npm run dev
 ```
 
-Open http://localhost:3000 — Markets, `/t/AAPL`, `/status`.
+Open http://localhost:3000
 
 ---
 
-## Freshness fields (`/api/data-status`)
+## API freshness fields (`/api/data-status`)
 
 | Field | Meaning |
 |-------|---------|
-| `latest_prediction_date` | Newest row in ensemble CSV (includes forward session) |
-| `latest_resolved_prediction_date` | Newest date where most tickers have `actual_binary` filled |
+| `latest_prediction_date` | Newest ensemble row (includes forward session) |
+| `latest_resolved_prediction_date` | Newest date with `actual_binary` filled |
 | `latest_price_date` | Newest price in SQLite |
-| `expected_latest_prediction_date` | Same as latest price — where preds should reach |
-| `trading_sessions_behind` | Sessions between pred max and price max |
-| `is_current` | `true` when predictions cover through latest price |
+| `is_current` | Predictions cover through latest price |
 | `market_status` | `open` / `closed` / `pre_market` (4 PM ET cutoff) |
 | `pending_reason` | `awaiting_next_close` / `awaiting_data_refresh` / `resolved` |
-
-UI: Markets banner uses `pending_reason` per selected date. Freshness badge shows forecasts vs resolved-through dates.
 
 ---
 
 ## News collection (Finnhub)
 
-Finnhub returns **at most ~240 articles per API call**. A single wide date range keeps only the newest articles — older days in the month are dropped silently.
+Finnhub returns **at most ~240 articles per API call**. Wide date ranges silently drop older articles.
 
 | Mode | Command |
 |------|---------|
-| Daily / pipeline | `collect_news.py --days N --fill-gaps` (7-day chunks + per-day gap fill) |
+| Daily / pipeline | `collect_news.py --days N --fill-gaps` |
 | Backfill history | `--days 365 --backfill --fill-gaps --chunk-days 7` |
-| Repair one month | `--start-date YYYY-MM-01 --end-date YYYY-MM-DD --fill-gaps` |
+| Repair date range | `--start-date YYYY-MM-01 --end-date YYYY-MM-DD --fill-gaps` |
 
-Always use `--fill-gaps` for production collection. Without it, you can get clusters on recent days (e.g. 36 headlines on May 26, zero on May 4–20) even when Finnhub has data for those days.
+Always use `--fill-gaps` in production collection.
 
 ---
+
+## Script reference
 
 | Script | When to use |
 |--------|-------------|
-| `run_pipeline.py` | Full retrain (`--preset max` or `max_v2`) |
+| `run_pipeline.py` | Full retrain (`--preset max_v2`) |
 | `daily_update.py` | Weekday refresh without retrain |
-| `score_models.py` | Live LSTM + news scoring + outcome backfill |
-| `audit_data_coverage.py` | Price/news/label/live-row consistency report |
-| `publish_deploy_bundle.py` | Trim + upload to Railway |
-| `collect_prices.py` / `collect_news.py` | Manual data pull |
-| `generate_labels.py` | Rebuild labels after new prices |
-
-See also: [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) (architecture deep dive).
+| `score_models.py` | Live scoring + outcome backfill |
+| `audit_data_coverage.py` | Coverage and consistency report |
+| `publish_deploy_bundle.py` | Trim + SSH upload to Railway |
+| `evaluate_predictions.py` | Regenerate [RESULTS.md](RESULTS.md) metrics |
 
 ---
 
-## “Why this call” & confidence
-
-### Confidence score
-
-Every model uses the same formula:
+## Confidence & explanations
 
 ```text
 confidence = |probability − 0.5| × 2    # range 0–1
 ```
 
-- **0%** = exactly 50/50 (coin flip)
-- **100%** = 0% or 100% UP (extreme lean)
+Measures **lean strength**, not P(correct). UI labels: Low (&lt;25%), Moderate (25–45%), Strong (≥45%).
 
-This measures **how strong the lean is**, not the chance the call is correct. A **DOWN** call at 27% UP can still show **~46% confidence** because 27% is far from 50%.
+**Why this call:** counterfactual explanation via `src/ml/ensemble_explain.py`. With conditional ensemble, headline days use a separate meta-model route.
 
-Labels in the UI: **Low** (&lt;25%), **Moderate** (25–45%), **Strong** (≥45%).
+Evaluation subsets: `all`, `has_news`, `high_conf` — see [RESULTS.md](RESULTS.md).
 
-### Why this call tab
+---
 
-**Layperson view (`Why this call`):** direction, confidence, combiner route (news-tuned vs price-only), plain summary, and three input pills. On days without headlines, Keywords and FinBERT show “No headlines” instead of a fake 50% score.
+## Further reading
 
-**Advanced tab:** per-model probabilities, all 13 ensemble inputs, LSTM context snapshot, counterfactual driver bars, rolling accuracy.
-
-The ensemble uses counterfactual explanation (`src/ml/ensemble_explain.py`). With `--conditional`, rows with headlines use a separate meta-model; the Advanced tab notes which route applied.
-
-Restart Flask after retraining so driver bars load (client fallback shows votes only):
-
-```bash
-python app/server.py --port 8000
-```
-
-### Evaluation subsets
-
-`evaluate_predictions.py` reports three test slices:
-
-| Subset | Meaning |
-|--------|---------|
-| `all` | Every test row |
-| `has_news` | Days with at least one headline |
-| `high_conf` | Ensemble confidence ≥ 0.25 |
-
-Check `/status` in the UI or `data/processed/evaluation_summary.txt`.
+- [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) — architecture and design decisions  
+- [RESULTS.md](RESULTS.md) — model accuracy and findings  
+- [DEPLOY.md](DEPLOY.md) — production deployment (operator doc)

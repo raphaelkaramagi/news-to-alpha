@@ -1,184 +1,212 @@
-# Project Overview
+# Project overview
 
-## What It Does
-
-Predicts whether a stock goes **up or down** the next trading day by combining three independent models into a learned ensemble:
-
-1. **LSTM (price)** — 60 days of price history + ~20 technical indicators (RSI, MACD, Bollinger, ATR, ROC, OBV, realized vol, SPY market-return). Includes a ticker embedding so the model knows which company it's looking at.
-2. **TF-IDF NLP** — bigram TF-IDF over cutoff-aligned news headlines into a Platt-calibrated logistic regression.
-3. **News embeddings** — FinBERT (`ProsusAI/finbert`) in max_v2, or MiniLM in older presets; mean-pooled per ticker-day.
-4. **Ensemble** — HistGradientBoosting meta-model on val split. Optional **conditional** mode (`--conditional`): separate combiners for days with vs without headlines.
-
-End goal (shipped): a **Next.js UI** (`web/`) on Vercel plus a **Flask JSON API** (`app/server.py`) on Railway. Browse 20 tickers, switch Ensemble / LSTM / TF-IDF / Embeddings, see price + P(UP) charts, headlines (top 3 + expand), **Why this call** (counterfactual explanation), outcome dots on Markets, and accuracy. Training runs locally via CLI — not from the web UI.
-
-**Docs:** [README.md](README.md) (index), [DATA.md](DATA.md) (pipeline + daily ops), [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) (this file).
+Architecture reference for contributors. Operational commands live in [DATA.md](DATA.md). Evaluation metrics in [RESULTS.md](RESULTS.md).
 
 ---
 
-## How to run
+## System summary
 
-All commands, presets, daily refresh, cron, and publish steps are in **[DATA.md](DATA.md)** — not duplicated here.
+Predicts **next NYSE session direction** (UP/DOWN) for 20 US tickers by combining:
 
-Quick entry points:
+| Model | Input | Output |
+|-------|--------|--------|
+| **LSTM** | 60-day price window + ~20 technicals + ticker embedding + SPY/VIX regime | P(UP) |
+| **TF-IDF** | Cutoff-aligned headline bigrams (4 PM ET rule) | P(UP) |
+| **FinBERT embeddings** | Mean-pooled `ProsusAI/finbert` headline vectors | P(UP) |
+| **Ensemble** | HistGradientBoosting on base-model outputs + context features | Final P(UP) |
 
-```bash
-python scripts/run_pipeline.py --preset max      # full retrain
-python scripts/daily_update.py                   # weekday refresh (no retrain)
-python scripts/audit_data_coverage.py            # sanity check
+Optional **conditional ensemble** (`build_ensemble.py --conditional`): separate meta-models for days with vs without headlines.
+
+**Shipped stack:** Next.js UI (`web/`) + Flask JSON API (`app/server.py`). Training is CLI-only — no web-triggered retrain in production (`INFERENCE_ONLY=true`).
+
+---
+
+## Repository layout
+
+```
+app/                 Flask API + optional job queue
+scripts/             CLI pipeline entry points
+src/                 ML library (collection → features → models)
+web/                 Next.js dashboard
+tests/unit/          pytest suite
+docs/                Documentation
+data/                Artifacts (gitignored)
 ```
 
-For step-by-step manual control (collect → train → evaluate), see DATA.md or run any script with `--help`.
+Complete file-by-file inventory: [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) (operator doc).
 
 ---
 
-## What Each File Does
+## Data flow
 
-### `src/config.py`
-The single source of truth for the whole project. Defines file paths, the 20 tickers, the Finnhub API key (read from `.env`), the 4PM ET prediction cutoff, and LSTM/NLP hyperparameters. Also auto-creates `data/` subdirectories on import so nothing else has to.
+```
+yfinance / Finnhub
+       ↓
+  SQLite (prices, news, labels)
+       ↓
+  Feature engineering (technicals, TF-IDF, FinBERT)
+       ↓
+  Base models (LSTM, TF-IDF LR, embedding classifier)
+       ↓
+  Ensemble meta-model → final_ensemble_predictions.csv
+       ↓
+  Flask API reads CSVs + DB → Vercel UI
+```
 
-### `src/database/schema.py`
-Creates and manages 5 SQLite tables:
-- `prices` — daily OHLCV data per ticker
-- `news` — headline + summary + URL per article (deduplicated by URL)
-- `labels` — binary up/down label and percentage return per (ticker, date)
-- `predictions` — model output scores stored for comparison and backtesting
-- `run_log` — records every script execution for debugging data issues
+Daily refresh (`daily_update.py`) runs inference-only steps without retraining. See [DATA.md](DATA.md).
 
-### `src/data_collection/price_collector.py`
-Downloads historical OHLCV data from Yahoo Finance. Handles retries with exponential backoff (APIs are flaky), deduplicates on insert, and logs each collection run.
+---
 
-### `src/data_collection/news_collector.py`
-Fetches company news from Finnhub. Rate-limits to 60 calls/minute (free tier limit), applies a relevance filter using word-boundary regex (avoids false matches like "GS" in "things"), and converts timestamps to Eastern Time. Free tier returns roughly the last 21 days of articles — run this weekly to build up training data over time.
+## Core modules (`src/`)
 
-### `src/utils/api_clients.py`
-Thin wrapper around the Finnhub REST API. Handles HTTP calls and exposes `get_company_news(ticker, from_date, to_date)`.
+### Configuration & utilities
 
-### `src/data_processing/label_generator.py`
-For each (ticker, date) pair, compares today's closing price to the next trading day's closing price. If the next day is higher → label = 1 (up), otherwise → label = 0 (down). Stores the label and percentage return. Safe to re-run — skips already-labeled dates.
-
-### `src/data_processing/dataset_split.py`
-Splits all dates chronologically into train (70%) / val (15%) / test (15%). Saves the date lists to `data/processed/split_info.json` so every training script uses the same split. Never shuffles — time series data must always be split in order to avoid data leakage.
-
-### `src/data_processing/standardization.py`
-Handles date and timestamp normalization. Implements the 4PM ET cutoff rule: news published before 4PM is assigned to that trading day's prediction; news published after 4PM or on a weekend/holiday is assigned to the next valid trading day.
-
-### `src/data_processing/price_validation.py`
-Scans the price table for data quality issues: missing days, suspicious single-day moves (>20%), zero volume, and coverage gaps.
-
-### `src/data_processing/news_validation.py`
-Checks the news table for missing fields, future-dated timestamps, duplicate URLs, and coverage per ticker.
-
-### `src/features/technical_indicators.py`
-Computes 17 features from raw OHLCV data:
-- **RSI** — is the stock overbought (>70) or oversold (<30)?
-- **MACD** (line, signal, histogram) — is momentum building or fading?
-- **Bollinger Bands** (upper, lower, middle, width, position) — is price near the top or bottom of recent range?
-- **Volume MA + ratio** — is trading volume unusually high or low?
-- **Daily return** — percentage price change day-over-day (direct directional signal)
-
-### `src/features/sequence_generator.py`
-Slides a 60-day window across each ticker's indicator data. Each window becomes one LSTM training sample. Features are min-max normalized per window so stocks with very different price levels (e.g. $3 PLTR vs $250 AAPL) are comparable. Requires at least 60 valid rows after indicator warmup (~34 days for MACD), so you need roughly 250+ calendar days of price data. `generate_live()` also emits a **forward session** forecast after the last price bar.
-
-### `src/features/text_features.py`
-Converts news headlines into numerical features using TF-IDF. For each labeled (ticker, date), gathers all headlines from the previous 3 days and joins them into a text document. Uses bigrams, removes English stop words, and caps vocabulary at a configurable size (default 5000). Supports separate `fit` (on training data only) and `transform` (on val/test) to prevent data leakage.
-
-### `src/models/lstm_model.py`
-Two-layer stacked LSTM for binary price direction prediction.
-- `StockLSTM` (PyTorch): input (batch, 60, 17) → LSTM-1 (64 units) → dropout → LSTM-2 (64 units) → dropout → linear → sigmoid → P(up)
-- `LSTMTrainer`: training loop with early stopping on **val AUC** (configurable), LR scheduler, gradient clipping, and per-class recall reporting. Uses weighted BCE by default; sigmoid-only calibration when raw proba variance is low. Saves/loads full checkpoints including config and training history.
-
-### `src/models/nlp_baseline.py`
-Logistic regression on TF-IDF headline features. Intentionally simple — it's a baseline to establish whether news carries any predictive signal before investing in heavier models (FinBERT, embeddings). Uses balanced class weights to handle class imbalance. Saves the vectorizer and classifier together so they can be loaded as a unit for inference.
-
-### `src/evaluation/`
-Evaluation metrics, conviction buckets, and prediction CSV analysis used by `scripts/evaluate_predictions.py` and the `/api/metrics` endpoints.
-
-### `src/ml/`
 | Module | Role |
 |--------|------|
-| `lstm_live_export.py` | Score dates after last label through latest price |
-| `news_live_export.py` | TF-IDF + FinBERT on live dates with headlines (no label yet) |
-| `ensemble_explain.py` | Counterfactual “Why this call” explanations for the UI |
+| `config.py` | Paths, tickers, hyperparameters, 4 PM ET cutoff |
+| `utils/trading_calendar.py` | NYSE sessions, market open/close, forward session |
+| `utils/pipeline_config.py` | Persist last train config to JSON |
+| `utils/pipeline_cleanup.py` | Prune stale artifacts after retrain |
+| `utils/api_clients.py` | Finnhub REST wrapper |
 
-### `scripts/`
+### Database & collection
 
-All scripts accept `--help`.
+| Module | Role |
+|--------|------|
+| `database/schema.py` | SQLite table definitions |
+| `data_collection/price_collector.py` | yfinance OHLCV with retry/backoff |
+| `data_collection/news_collector.py` | Finnhub headlines, relevance filter, rate limit |
+| `data_collection/base_collector.py` | Shared collector base class |
 
-| Script | What it does |
-|--------|-------------|
-| `run_pipeline.py` | Full train orchestrator (`--preset quick\|balanced\|advanced\|max`) |
-| `daily_update.py` | Collect + score + ensemble without retrain |
-| `score_models.py` | Live LSTM + news scoring; backfills `actual_binary` on live rows |
-| `audit_data_coverage.py` | Report price/news/label coverage and live-row consistency |
-| `publish_deploy_bundle.py` | Trim + upload artifacts to Railway `/data` via SSH |
-| `build_ensemble.py` | Meta-model + `final_ensemble_predictions.csv` |
-| `build_eval_dataset.py` | Join per-model prediction CSVs for ensemble training |
-| `evaluate_predictions.py` | Accuracy / conviction metrics CSVs |
-| `reset_data.py` | Clear processed features and trained models. Database kept by default. |
-| `setup_database.py` | Create the SQLite database and all tables. Run once. |
-| `collect_prices.py` | Download OHLCV data from Yahoo Finance. `--tickers`, `--days`. |
-| `collect_news.py` | Fetch headlines from Finnhub. `--tickers`, `--days`. |
-| `generate_labels.py` | Compute up/down labels from price data. Safe to re-run. |
-| `split_dataset.py` | Chronological 70/15/15 split → `split_info.json`. |
-| `validate_data.py` | Run price and news data quality checks. |
-| `train_lstm.py` | Train LSTM, evaluate, export `price_predictions.csv`. |
-| `train_nlp.py` | TF-IDF baseline → `news_tfidf_predictions.csv`. |
-| `train_news_embeddings.py` | MiniLM embeddings → `news_embeddings_predictions.csv`. |
+### Processing
 
-### `tests/unit/`
-134+ automated tests. Run with `pytest tests/unit -q`.
+| Module | Role |
+|--------|------|
+| `data_processing/label_generator.py` | Binary labels from next-session close |
+| `data_processing/dataset_split.py` | Chronological 70/15/15 split |
+| `data_processing/standardization.py` | Date parsing, 4 PM cutoff assignment |
+| `data_processing/price_validation.py` | Price data quality checks |
+| `data_processing/news_validation.py` | News data quality checks |
 
-| Test file | What it covers |
-|-----------|---------------|
-| `test_schema.py` | Table creation, idempotency, unique constraints |
-| `test_price_collector.py` | Live price collection, duplicate handling, run logging |
-| `test_standardization.py` | Date parsing, timestamp conversion, 4PM cutoff rule |
-| `test_label_generator.py` | Label counts, up/down values, percentage returns, deduplication |
-| `test_dataset_split.py` | 70/15/15 ratios, no date overlap, chronological ordering, JSON output |
-| `test_features.py` | Technical indicators (17 columns), RSI range, sequence shape/normalization, constant-column handling, TF-IDF extraction (prepare, fit/transform, error states, empty data) |
-| `test_lstm_model.py` | LSTM output shape/range, weight init, variable input sizes, eval determinism, training loop, early stopping, predict/predict_proba, save/load roundtrip |
-| `test_nlp_baseline.py` | Full NLP pipeline (prepare + fit + train), probability range, balanced class weights, save/load roundtrip, empty data |
-| `test_news_collector.py` | Relevance filter (ticker, company name, word-boundary, summary field, fallback), article insertion (valid, missing fields, duplicates), full collect with mocked API |
-| `test_validation.py` | Price validation (missing values, zero volume, >20% jumps, coverage), news validation (missing fields, future timestamps, duplicates, distribution, empty DB) |
+### Features
 
----
+| Module | Role |
+|--------|------|
+| `features/technical_indicators.py` | RSI, MACD, Bollinger, volume, returns, etc. |
+| `features/sequence_generator.py` | 60-day LSTM windows; `generate_live()` for inference |
+| `features/lstm_snapshot.py` | LSTM context features for ensemble / UI |
+| `features/news_sentiment.py` | FinBERT sentiment pipeline helpers |
+| `features/publisher_features.py` | Publisher/source derived features |
 
-## Key Design Decisions
+### Models
 
-**SQLite over PostgreSQL** — zero setup, the database is just a file in `data/`. More than adequate for our data volume, and anyone can inspect it with the SQLite Viewer extension.
+| Module | Role |
+|--------|------|
+| `models/lstm_model.py` | `StockLSTM` + `LSTMTrainer` (AUC early-stop, calibration) |
+| `models/news_pipeline.py` | Shared news dataset builder for TF-IDF and embeddings |
 
-**Binary classification (up/down)** — simpler to evaluate than predicting exact prices. A model that beats 50% is learning something real. A useful target is >55% sustained on the test set.
+### Inference & explanation
 
-**4PM ET cutoff rule** — stock markets close at 4PM Eastern. Any news published after 4PM affects the *next* trading day's price, not today's. Without this rule, the model would train on future information (data leakage), making accuracy appear artificially high and failing completely in production.
+| Module | Role |
+|--------|------|
+| `ml/lstm_live_export.py` | Append LSTM rows for unlabeled dates |
+| `ml/news_live_export.py` | Append TF-IDF + FinBERT rows for live headline days |
+| `ml/ensemble_explain.py` | Counterfactual driver bars for Why tab |
 
-**Chronological splits** — for time series, you must train on older data and test on newer data. Random shuffling would leak future data into training and give misleadingly high accuracy.
+### Evaluation
 
-**LSTM needs 250+ calendar days** — technical indicators take ~34 days to warm up (MACD uses a 26-day EMA), and the LSTM needs 60-day windows. Without enough history, no training sequences can be generated.
-
-**NLP split is independent of the LSTM split** — free-tier news APIs only return roughly the last 21 days of articles. This is far shorter than the LSTM's 250-day price window, so sharing a single date split would leave the NLP model with zero training samples. The NLP model builds its own chronological 70/15/15 split from whatever news dates are available.
-
-**Database preserved on reset** — news articles take time to accumulate (free APIs only return recent articles). Resetting features or models should not wipe collected news. `reset_data.py` preserves the database by default; use `--full` to clear everything.
-
-**Retry logic with backoff** — free APIs (Yahoo Finance, Finnhub) are unreliable. Exponential backoff prevents a single timeout from crashing a long collection run.
-
-**Run logging** — every script execution is recorded in the `run_log` table with timestamps and stats. When data looks wrong, `SELECT * FROM run_log ORDER BY started_at DESC LIMIT 20;` shows exactly what ran and when.
-
-**Gradient clipping + orthogonal init** — LSTMs are prone to exploding/vanishing gradients. Clipping gradients to norm 1.0 and initializing recurrent weights orthogonally stabilizes training and prevents the model from collapsing to "predict everything the same class."
-
-**Confidence formula** — all models use `abs(pred_proba - 0.5) * 2` (distance from 50/50, not accuracy). See [DATA.md](DATA.md).
+| Module | Role |
+|--------|------|
+| `evaluation/` | Package stub; metrics logic lives in `scripts/evaluate_predictions.py` |
 
 ---
 
-## Troubleshooting
+## CLI scripts (`scripts/`)
 
-**"No module named src"** — you're not in the project root, or the venv isn't active. Run `source .venv/bin/activate` from the `news-to-alpha/` directory.
+| Script | Role |
+|--------|------|
+| `run_pipeline.py` | Full train orchestrator (`--preset`) |
+| `daily_update.py` | Collect + infer + ensemble (no retrain) |
+| `score_models.py` | Inference-only scoring + outcome backfill |
+| `build_ensemble.py` | Train meta-model, write `final_ensemble_predictions.csv` |
+| `build_eval_dataset.py` | Join base-model CSVs |
+| `evaluate_predictions.py` | Test metrics → [RESULTS.md](RESULTS.md) |
+| `publish_deploy_bundle.py` | Trim + SSH upload to Railway `/data` |
+| `audit_data_coverage.py` | Price/news/label/live-row audit |
+| `collect_prices.py` / `collect_news.py` | Data ingestion |
+| `generate_labels.py` / `split_dataset.py` | Labels and split |
+| `train_lstm.py` / `train_nlp.py` / `train_news_embeddings.py` | Base model training |
+| `setup_database.py` / `reset_data.py` / `validate_data.py` | DB lifecycle |
 
-**"Not enough data for sequences"** — need ≥250 calendar days of price history. Run `python scripts/run_pipeline.py --preset quick` or `python scripts/collect_prices.py --days 365` then retrain LSTM.
+---
 
-**"No data from yfinance"** — Yahoo Finance returns no data for weekends/holidays. Use `--days 365` to ensure enough trading days are covered.
+## Web application (`web/`)
 
-**"Finnhub API key is empty"** — copy `.env.example` to `.env` and add your key: `NEWS_API_KEY=your_key_here`.
+Next.js App Router dashboard. Server routes under `app/api/*` proxy to Flask via `API_BASE_URL`.
 
-**NLP accuracy is low or erratic** — the NLP model trains on very few samples because free-tier news APIs only return ~21 days of articles. Run `python scripts/collect_news.py` weekly to build up more training data over time. More data = better calibration.
+| Area | Key files |
+|------|-----------|
+| Pages | `app/page.tsx`, `app/t/[symbol]/`, `app/status/` |
+| Markets UI | `components/markets/*` |
+| Ticker detail | `components/ticker/*` |
+| Charts | `components/charts/*` |
+| Shared state | `components/layout/SelectedDateProvider.tsx` |
+| API client | `lib/backend.ts`, `lib/types.ts`, `lib/models.ts` |
 
-**"Database locked"** — another process has the database open. Close any SQLite browser sessions or terminals using the database, then retry
+See [web/README.md](../web/README.md).
+
+---
+
+## API (`app/`)
+
+| File | Role |
+|------|------|
+| `server.py` | Flask routes: ticker, history, headlines, rationale, metrics, data-status |
+| `jobs.py` | Background job queue (disabled when `INFERENCE_ONLY=true`) |
+
+---
+
+## Design decisions
+
+**SQLite** — zero-config persistence; adequate volume for this project.
+
+**Binary classification** — next-session direction is easier to evaluate than point price forecasts. Beating 55% on a chronological test split indicates real signal.
+
+**4 PM ET cutoff** — news after close assigns to the next session; prevents leakage.
+
+**Chronological splits** — no random shuffle; train on past, test on future.
+
+**Conditional ensemble** — separate combiners for headline vs no-headline days improved test accuracy (see [RESULTS.md](RESULTS.md)).
+
+**Confidence formula** — `|P(UP) − 0.5| × 2` measures lean strength, not calibrated correctness.
+
+**Operator-side training** — keeps cloud costs low; API serves precomputed artifacts only.
+
+---
+
+## Known limitations
+
+| Area | Status |
+|------|--------|
+| LSTM price head | Near-random on test; collapse under investigation |
+| News history depth | Finnhub free tier limits backfill |
+| Cloud daily infer | Documented but not enabled by default |
+| Walk-forward eval | Single chronological split only |
+
+---
+
+## Testing
+
+```bash
+pytest tests/unit -q
+```
+
+134+ unit tests covering schema, collectors, features, LSTM, news pipeline, validation, ensemble, and evaluation scripts.
+
+---
+
+## Further reading
+
+- [DATA.md](DATA.md) — pipeline operations  
+- [RESULTS.md](RESULTS.md) — accuracy and findings  
+- [README.md](README.md) — quick start

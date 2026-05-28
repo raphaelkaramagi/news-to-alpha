@@ -1,24 +1,45 @@
 # Documentation
 
-| Doc | Audience | Contents |
-|-----|----------|----------|
-| [../README.md](../README.md) | Everyone | Quick start, architecture, presets |
-| [DATA.md](DATA.md) | Everyone | **Data pipeline** — artifacts, daily update, cron, publish to Railway |
-| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Contributors | Module-by-module architecture (no runbooks) |
-| [../web/README.md](../web/README.md) | Frontend | Next.js local dev + Vercel deploy |
+Reading order:
 
-**Local-only** (gitignored — machine-specific or private):
+1. **[../README.md](../README.md)** — project summary, quick start, results snapshot  
+2. **[DATA.md](DATA.md)** — data flow, training presets, daily refresh, publishing  
+3. **[RESULTS.md](RESULTS.md)** — evaluation metrics, model comparison, known limitations  
+4. **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** — architecture, modules, design decisions  
+5. **[../web/README.md](../web/README.md)** — frontend setup and Vercel deployment  
+
+---
+
+## Public docs
 
 | Doc | Contents |
 |-----|----------|
-| [DEPLOY.md](DEPLOY.md) | One-time Railway + Vercel setup (generic URLs) |
-| [DEPLOY_UI.md](DEPLOY_UI.md) | Your live URLs + smoke-test shortcuts |
-| [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) | UI quirks, experiment notes, known issues |
-| [local_cron.plist.example](local_cron.plist.example) | macOS launchd template |
+| [DATA.md](DATA.md) | Artifacts, pipeline operations, scheduled updates, Railway publish |
+| [RESULTS.md](RESULTS.md) | Test-set accuracy, AUC, subsets, key findings |
+| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | System architecture and module reference (summary level) |
 
-**Where to look:**
+---
 
-- Update predictions → [DATA.md § Daily refresh](DATA.md)
-- Mac asleep / missed cron → [DATA.md § Scheduled updates](DATA.md)
-- First deploy → [DEPLOY.md](DEPLOY.md) (local) or ask for [DEPLOY_UI.md](DEPLOY_UI.md) cheat sheet
-- How a module works → [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
+## Operator docs (gitignored)
+
+These files are excluded from the public repository (see `.gitignore`). They contain deployment URLs, host-specific paths, and a complete file-by-file codebase map.
+
+| Doc | Contents |
+|-----|----------|
+| [DEPLOY.md](DEPLOY.md) | Production deployment (Railway + Vercel), live URLs, costs |
+| [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) | Full codebase inventory, operator runbook, troubleshooting |
+| [local_cron.plist.example](local_cron.plist.example) | launchd template for scheduled daily updates |
+
+---
+
+## Common tasks
+
+| Task | Where |
+|------|-------|
+| First-time train | [DATA.md § Full retrain](DATA.md) |
+| Daily prediction refresh | [DATA.md § Daily refresh](DATA.md) |
+| Publish to production API | [DATA.md § Publish](DATA.md) |
+| Scheduled weekday updates | [DATA.md § Scheduled updates](DATA.md) |
+| Deploy UI + API | [DEPLOY.md](DEPLOY.md) (local) |
+| Understand a module | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) or [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) |
+| Interpret accuracy numbers | [RESULTS.md](RESULTS.md) |
