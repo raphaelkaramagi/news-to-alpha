@@ -14,18 +14,18 @@ export const MODEL_DESCRIPTIONS: Record<
 > = {
   ensemble: {
     title: "Ensemble",
-    body: "Blends price, keyword, and FinBERT headline signals. When headlines exist, a news-tuned combiner is used.",
+    body: "Combines three inputs: Price (LSTM), Keywords (TF-IDF), and FinBERT. With headlines, a news-tuned combiner runs; without headlines, a price-only combiner is used.",
   },
   lstm: {
     title: "Price (LSTM)",
-    body: "60 days of price action, technicals, and VIX. Ignores headlines.",
+    body: "Reads 60 days of price action, technical indicators, VIX, and SPY context. Does not use headlines.",
   },
   tfidf: {
     title: "Keywords (TF-IDF)",
-    body: "Headline word patterns — good when wording is clearly bullish or bearish.",
+    body: "Scores headline wording (bigram patterns). Only runs when at least one headline exists before 4 PM ET.",
   },
   embeddings: {
     title: "FinBERT",
-    body: "Financial headline meaning (ProsusAI/finbert), averaged per day.",
+    body: "Scores financial sentiment from headline meaning (ProsusAI/finbert). Only runs when headlines are present.",
   },
 };

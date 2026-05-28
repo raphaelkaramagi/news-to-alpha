@@ -14,6 +14,7 @@ import { MODEL_DISPLAY_LABELS } from "@/lib/models";
 import type { PerModelEntry, RationaleResponse, TickerApiResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { buildClientExplanation } from "@/lib/ensembleExplainClient";
+import { routeNote } from "@/lib/ensembleSummary";
 import { ExplanationDrivers } from "@/components/ticker/ExplanationDrivers";
 import { EnsembleInputsTable, LstmContextTable } from "@/components/ticker/EnsembleInputsTable";
 
@@ -45,11 +46,8 @@ async function fetchRationale(ticker: string, date: string): Promise<RationaleRe
   return res.json();
 }
 
-function routeNote(data: RationaleResponse | null | undefined): string | null {
-  const route = data?.ensemble_route;
-  if (route === "has_news") return "Headlines present — news-tuned combiner used.";
-  if (route === "no_news") return "No headlines — price-only combiner used.";
-  return null;
+function routeNoteFromData(data: RationaleResponse | null | undefined): string | null {
+  return routeNote(data?.ensemble_route ?? data?.explanation?.ensemble_route);
 }
 
 export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Props) {
@@ -134,7 +132,7 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
             <ExplanationDrivers
               drivers={drivers}
               newsNote={newsNote}
-              routeNote={routeNote(rationale)}
+              routeNote={routeNoteFromData(rationale)}
             />
           </div>
         </>

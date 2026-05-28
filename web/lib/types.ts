@@ -106,7 +106,8 @@ export type EnsembleExplanation = {
     label: string;
     proba: number;
     display: string;
-    direction: "UP" | "DOWN";
+    direction: "UP" | "DOWN" | "N/A";
+    active?: boolean;
   }>;
   drivers: Array<{
     feature: string;
@@ -117,6 +118,8 @@ export type EnsembleExplanation = {
   }>;
   news_weight_note?: string | null;
   models_disagree?: boolean;
+  ensemble_route?: "has_news" | "no_news" | "unified" | null;
+  has_news?: boolean;
 };
 
 export type RationaleResponse = {

@@ -11,9 +11,14 @@ Usage:
 Backfill mode (accumulate historical news):
     python scripts/collect_news.py --days 365 --backfill
 
+Repair sparse months (Finnhub drops mid-range days unless chunked):
+    python scripts/collect_news.py --start-date 2026-05-01 --end-date 2026-05-27 --fill-gaps
+    python scripts/collect_news.py --days 60 --fill-gaps --tickers AAPL NVDA
+
 Note: may take several minutes due to API rate limits (60 calls / min).
-Finnhub free tier provides up to 1 year of company news history. For deeper
-history (up to 20+ years), a paid Finnhub plan is required.
+Finnhub returns at most ~240 articles per API call; wide date ranges keep only
+the newest articles. Always use 7-day chunks (default) or --fill-gaps for even
+daily coverage.
 """
 
 import sys
@@ -82,6 +87,66 @@ def _collect_range(
     return merged
 
 
+def _missing_news_days(db_path: Path, ticker: str, start_date: str, end_date: str) -> list[str]:
+    """Trading days in [start, end] with zero articles stored for this ticker."""
+    import sqlite3
+
+    if not db_path.exists():
+        return []
+    conn = sqlite3.connect(str(db_path))
+    try:
+        trading = [
+            r[0]
+            for r in conn.execute(
+                """
+                SELECT date FROM prices
+                WHERE ticker = ? AND date BETWEEN ? AND ?
+                ORDER BY date
+                """,
+                (ticker, start_date, end_date),
+            )
+        ]
+        have = {
+            r[0]
+            for r in conn.execute(
+                """
+                SELECT DISTINCT substr(published_at, 1, 10)
+                FROM news
+                WHERE ticker = ?
+                  AND substr(published_at, 1, 10) BETWEEN ? AND ?
+                """,
+                (ticker, start_date, end_date),
+            )
+        }
+    finally:
+        conn.close()
+    return [d for d in trading if d not in have]
+
+
+def _collect_gap_days(
+    collector: NewsCollector,
+    ticker: str,
+    days: list[str],
+) -> dict:
+    """Fetch one Finnhub call per missing trading day (best daily coverage)."""
+    merged: dict = {
+        "tickers_succeeded": [],
+        "tickers_failed": [],
+        "rows_added": 0,
+        "duplicates_skipped": 0,
+        "skipped_missing_fields": 0,
+        "errors": {},
+    }
+    for day in days:
+        s = collector.collect([ticker], day, day)
+        for k in ("rows_added", "duplicates_skipped", "skipped_missing_fields"):
+            merged[k] += s.get(k, 0)
+        merged["tickers_succeeded"].extend(s.get("tickers_succeeded", []))
+        merged["tickers_failed"].extend(s.get("tickers_failed", []))
+        merged["errors"].update(s.get("errors", {}))
+    return merged
+
+
 def _earliest_news_date(db_path: Path, ticker: str) -> str | None:
     """Return the earliest news date in the DB for a ticker, or None if absent."""
     import sqlite3
@@ -127,11 +192,19 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--chunk-days", type=int, default=30,
+        "--chunk-days", type=int, default=7,
         help=(
-            "Split each ticker request into windows of this many days (default: 30). "
-            "Required for backfill: Finnhub returns ~238 articles per call and "
-            "drops older rows when the range is too wide."
+            "Split each ticker request into windows of this many days (default: 7). "
+            "Finnhub returns at most ~240 articles per call and drops older rows "
+            "when the range is too wide — never use a single call for multi-week ranges."
+        ),
+    )
+    parser.add_argument(
+        "--fill-gaps", action="store_true",
+        help=(
+            "After chunked collection, fetch any trading days in the range that still "
+            "have zero stored articles (one API call per missing day). Use this to "
+            "repair months where only the most recent days were saved."
         ),
     )
     args = parser.parse_args()
@@ -161,7 +234,9 @@ def main() -> None:
     print(f"Tickers : {', '.join(tickers)}  ({len(tickers)} total)")
     if args.backfill:
         print("Mode    : BACKFILL (per-ticker end adjusted to earliest existing date)")
-        print(f"Chunks  : {args.chunk_days}-day windows (Finnhub caps ~238 articles/call)")
+    print(f"Chunks  : {args.chunk_days}-day windows (Finnhub caps ~240 articles/call)")
+    if args.fill_gaps:
+        print("Gaps    : per-day fetch for trading days still missing after chunks")
     print("Note: may take several minutes due to API rate limits\n")
 
     collector = NewsCollector(api_key=FINNHUB_API_KEY)
@@ -190,13 +265,23 @@ def main() -> None:
                 t_end = backfill_end
                 print(f"  {ticker}: backfilling {t_start} → {t_end} (earliest in DB: {earliest})")
 
-        chunk_days = args.chunk_days if args.backfill else max(args.chunk_days, (end_dt - start_dt).days + 1)
-        s = _collect_range(collector, ticker, t_start, t_end, chunk_days=chunk_days)
+        s = _collect_range(collector, ticker, t_start, t_end, chunk_days=args.chunk_days)
         for k in ("rows_added", "duplicates_skipped", "skipped_missing_fields"):
             total_stats[k] += s.get(k, 0)
         total_stats["tickers_succeeded"].extend(s.get("tickers_succeeded", []))
         total_stats["tickers_failed"].extend(s.get("tickers_failed", []))
         total_stats["errors"].update(s.get("errors", {}))
+
+        if args.fill_gaps:
+            missing = _missing_news_days(DATABASE_PATH, ticker, t_start, t_end)
+            if missing:
+                print(f"  {ticker}: filling {len(missing)} gap day(s): {missing[0]} .. {missing[-1]}")
+                g = _collect_gap_days(collector, ticker, missing)
+                for k in ("rows_added", "duplicates_skipped", "skipped_missing_fields"):
+                    total_stats[k] += g.get(k, 0)
+                total_stats["tickers_succeeded"].extend(g.get("tickers_succeeded", []))
+                total_stats["tickers_failed"].extend(g.get("tickers_failed", []))
+                total_stats["errors"].update(g.get("errors", {}))
 
     stats = total_stats
 

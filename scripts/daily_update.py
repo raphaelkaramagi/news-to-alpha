@@ -84,7 +84,8 @@ def run(
 
     if include_news:
         _run(
-            [_py(), "scripts/collect_news.py", "--days", str(lookback_days), *ticker_args],
+            [_py(), "scripts/collect_news.py",
+             "--days", str(lookback_days), "--fill-gaps", *ticker_args],
             "collect_news",
         )
 

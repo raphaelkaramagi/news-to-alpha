@@ -107,8 +107,11 @@ Other presets:
 # Full retrain with all accuracy improvements (skips price re-download if already current)
 python scripts/run_pipeline.py --preset max_v2 --skip-collect --skip-news
 
-# Backfill historical news (Finnhub free tier ~1 year; uses 30-day chunks)
-python scripts/collect_news.py --backfill --start-date 2025-06-01 --chunk-days 30
+# Backfill historical news (Finnhub free tier ~1 year; always chunk + fill gaps):
+python scripts/collect_news.py --days 365 --backfill --fill-gaps --chunk-days 7
+
+# Repair a sparse month (Finnhub caps ~240 articles per call without chunking):
+python scripts/collect_news.py --start-date 2026-05-01 --end-date 2026-05-27 --fill-gaps
 ```
 
 This runs: collect → labels → split → train all models → ensemble → evaluate, and appends **live** LSTM rows automatically at the end of `train_lstm.py`.
@@ -133,7 +136,7 @@ If you already have trained models and only need to advance dates:
 
 ```bash
 python scripts/collect_prices.py --days 14
-python scripts/collect_news.py --days 14
+python scripts/collect_news.py --days 14 --fill-gaps
 python scripts/generate_labels.py
 python scripts/score_models.py          # appends live LSTM rows
 python scripts/build_eval_dataset.py
@@ -196,7 +199,19 @@ Open http://localhost:3000 — Markets, `/t/AAPL`, `/status`.
 
 ---
 
-## Scripts reference
+## News collection (Finnhub)
+
+Finnhub returns **at most ~240 articles per API call**. A single wide date range keeps only the newest articles — older days in the month are dropped silently.
+
+| Mode | Command |
+|------|---------|
+| Daily / pipeline | `collect_news.py --days N --fill-gaps` (7-day chunks + per-day gap fill) |
+| Backfill history | `--days 365 --backfill --fill-gaps --chunk-days 7` |
+| Repair one month | `--start-date YYYY-MM-01 --end-date YYYY-MM-DD --fill-gaps` |
+
+Always use `--fill-gaps` for production collection. Without it, you can get clusters on recent days (e.g. 36 headlines on May 26, zero on May 4–20) even when Finnhub has data for those days.
+
+---
 
 | Script | When to use |
 |--------|-------------|
@@ -230,9 +245,9 @@ Labels in the UI: **Low** (&lt;25%), **Moderate** (25–45%), **Strong** (≥45%
 
 ### Why this call tab
 
-**Layperson view (`Why this call`):** direction, confidence, short summary, three vote pills (Price / Keywords / Meaning).
+**Layperson view (`Why this call`):** direction, confidence, combiner route (news-tuned vs price-only), plain summary, and three input pills. On days without headlines, Keywords and FinBERT show “No headlines” instead of a fake 50% score.
 
-**Advanced tab:** per-model probabilities, counterfactual driver bars, rolling accuracy, raw metadata.
+**Advanced tab:** per-model probabilities, all 13 ensemble inputs, LSTM context snapshot, counterfactual driver bars, rolling accuracy.
 
 The ensemble uses counterfactual explanation (`src/ml/ensemble_explain.py`). With `--conditional`, rows with headlines use a separate meta-model; the Advanced tab notes which route applied.
 

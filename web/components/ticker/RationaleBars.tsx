@@ -6,6 +6,7 @@ import type { ModelId } from "@/lib/tickers";
 import { MODEL_DISPLAY_LABELS } from "@/lib/models";
 import { buildClientExplanation } from "@/lib/ensembleExplainClient";
 import { confidenceLabel } from "@/lib/confidence";
+import { humanEnsembleSummary, routeNote } from "@/lib/ensembleSummary";
 
 interface Props {
   ticker: string;
@@ -13,8 +14,13 @@ interface Props {
   model: ModelId;
 }
 
-type Explanation = NonNullable<RationaleResponse["explanation"]>;
-type Vote = Explanation["base_votes"][number];
+type Vote = RationaleResponse["explanation"] extends infer E
+  ? E extends { base_votes: infer V }
+    ? V extends Array<infer U>
+      ? U
+      : never
+    : never
+  : never;
 
 async function fetchRationale(
   ticker: string,
@@ -37,38 +43,24 @@ function voteLabel(vote: Vote): string {
   return map[vote.model] ?? vote.label;
 }
 
-function humanSummary(exp: Explanation): string {
-  const votes = exp.base_votes;
-  const up = votes.filter((v) => v.direction === "UP").length;
-  const ens = exp.ensemble_direction;
-  const pct = (exp.ensemble_proba * 100).toFixed(0);
-
-  if (up === 3) {
-    return `Price, keywords, and FinBERT all lean up — combined into a ${ens} call (${pct}% chance of rising).`;
-  }
-  if (up === 0) {
-    return `All three inputs lean down — combined into a ${ens} call (${pct}% up).`;
-  }
-
-  const parts = votes.map((v) => {
-    const lean = v.direction === "UP" ? "up" : "down";
-    return `${voteLabel(v)} ${lean} (${(v.proba * 100).toFixed(0)}%)`;
-  });
-
-  const disagree = exp.models_disagree;
-  if (disagree) {
-    return `Mixed signals: ${parts.join(", ")}. The combiner weighs these and lands on ${ens} (${pct}% up).`;
-  }
-  return `${parts.join(" · ")} → ${ens} (${pct}% up).`;
-}
-
 function VotePill({ vote }: { vote: Vote }) {
-  const isUp = vote.direction === "UP";
+  const inactive = vote.active === false || vote.direction === "N/A";
+  const isUp = !inactive && vote.direction === "UP";
   return (
-    <div className="rounded-md border px-3 py-2 text-center min-w-0 flex-1">
+    <div
+      className={cn(
+        "rounded-md border px-3 py-2 text-center min-w-0 flex-1",
+        inactive && "opacity-60"
+      )}
+    >
       <p className="text-[11px] text-muted-foreground">{voteLabel(vote)}</p>
-      <p className={cn("text-sm font-semibold tabular-nums mt-0.5", isUp ? "text-up" : "text-down")}>
-        {(vote.proba * 100).toFixed(0)}% up
+      <p
+        className={cn(
+          "text-sm font-semibold tabular-nums mt-0.5",
+          inactive ? "text-muted-foreground" : isUp ? "text-up" : "text-down"
+        )}
+      >
+        {inactive ? "No headlines" : `${(vote.proba * 100).toFixed(0)}% up`}
       </p>
     </div>
   );
@@ -85,7 +77,7 @@ export function RationaleBars({ ticker, date, model }: Props) {
   if (model !== "ensemble") {
     return (
       <p className="text-sm text-muted-foreground py-4">
-        Switch to <span className="font-medium text-foreground">Ensemble</span> to see how the final call was built.
+        Switch to <span className="font-medium text-foreground">Ensemble</span> to see how the final call was built from three inputs: price, keywords, and FinBERT.
       </p>
     );
   }
@@ -114,7 +106,9 @@ export function RationaleBars({ ticker, date, model }: Props) {
   const isUp = exp.ensemble_direction === "UP";
   const confPct = (exp.ensemble_confidence * 100).toFixed(0);
   const label = exp.confidence_label ?? confidenceLabel(exp.ensemble_confidence);
-  const hasNews = data.has_news;
+  const hasNews = data.has_news ?? exp.has_news;
+  const route = data.ensemble_route ?? exp.ensemble_route;
+  const routeText = routeNote(route);
 
   return (
     <div className="space-y-5">
@@ -137,16 +131,21 @@ export function RationaleBars({ ticker, date, model }: Props) {
         </p>
       </div>
 
-      <p className="text-sm leading-relaxed">{humanSummary(exp)}</p>
-
-      {hasNews === false && (
-        <p className="text-xs text-muted-foreground">
-          No headlines this session — the price-only combiner was used.
-        </p>
+      {routeText && (
+        <p className="text-xs text-muted-foreground border-l-2 border-muted pl-3">{routeText}</p>
       )}
 
+      <p className="text-sm leading-relaxed">
+        {humanEnsembleSummary(exp, hasNews, route)}
+      </p>
+
       <div>
-        <p className="text-xs text-muted-foreground mb-2">Input breakdown</p>
+        <p className="text-xs text-muted-foreground mb-1">The three inputs</p>
+        <p className="text-[11px] text-muted-foreground mb-2">
+          <span className="font-medium text-foreground">Price</span> — 60 days of charts &amp; indicators.
+          {" "}<span className="font-medium text-foreground">Keywords</span> — headline word patterns.
+          {" "}<span className="font-medium text-foreground">FinBERT</span> — financial meaning of headlines.
+        </p>
         <div className="flex gap-2">
           {exp.base_votes.map((v) => (
             <VotePill key={v.model} vote={v} />

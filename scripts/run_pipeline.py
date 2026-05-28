@@ -153,10 +153,9 @@ def run(cfg: PipelineConfig) -> None:
             "collect_prices",
         )
     if not cfg.skip_news:
-        # Use full lookback; Finnhub free tier rate-limits per minute, not per day count.
         _run(
             [_py(), "scripts/collect_news.py",
-             "--days", str(cfg.lookback_days), *ticker_args],
+             "--days", str(cfg.lookback_days), "--fill-gaps", *ticker_args],
             "collect_news",
         )
     if not cfg.skip_labels:

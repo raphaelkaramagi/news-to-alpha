@@ -98,13 +98,27 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
 
     simple_avg = (lstm_p + tfidf_p + emb_p) / 3.0
 
+    route = meta_payload.get("route")
+    has_news = float(row.get("has_news", 0)) >= 0.5
+
     base_votes = [
-        {"model": "lstm", "label": "Price", "proba": lstm_p, **_vote_fields(lstm_p)},
-        {"model": "tfidf", "label": "Keywords", "proba": tfidf_p, **_vote_fields(tfidf_p)},
-        {"model": "embeddings", "label": "FinBERT", "proba": emb_p, **_vote_fields(emb_p)},
+        {"model": "lstm", "label": "Price", "proba": lstm_p, "active": True, **_vote_fields(lstm_p)},
     ]
-    up_votes = sum(1 for v in base_votes if v["direction"] == "UP")
-    down_votes = 3 - up_votes
+    if has_news:
+        base_votes.extend([
+            {"model": "tfidf", "label": "Keywords", "proba": tfidf_p, "active": True, **_vote_fields(tfidf_p)},
+            {"model": "embeddings", "label": "FinBERT", "proba": emb_p, "active": True, **_vote_fields(emb_p)},
+        ])
+    else:
+        base_votes.extend([
+            {"model": "tfidf", "label": "Keywords", "proba": tfidf_p, "active": False,
+             "display": "No headlines", "direction": "N/A"},
+            {"model": "embeddings", "label": "FinBERT", "proba": emb_p, "active": False,
+             "display": "No headlines", "direction": "N/A"},
+        ])
+    active_votes = [v for v in base_votes if v.get("active", True)]
+    up_votes = sum(1 for v in active_votes if v.get("direction") == "UP")
+    down_votes = sum(1 for v in active_votes if v.get("direction") == "DOWN")
 
     # Counterfactual drivers (interpretable subset)
     driver_specs = [
@@ -144,12 +158,20 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
         headline = f"Final call is **UP** ({base_p*100:.0f}% UP) — above the 50% threshold."
 
     bullets: list[str] = [headline]
-    if up_votes and down_votes:
+    if route == "no_news":
         bullets.append(
-            f"Models split **{up_votes} up / {down_votes} down**; simple avg **{simple_avg*100:.0f}% UP** "
+            "No headlines before 4 PM ET — the **price-only combiner** used the LSTM score and market context."
+        )
+    elif route == "has_news":
+        bullets.append(
+            "Headlines present — the **news-tuned combiner** weighted price, keywords, and FinBERT."
+        )
+    if has_news and up_votes and down_votes:
+        bullets.append(
+            f"Active models split **{up_votes} up / {down_votes} down**; simple avg **{simple_avg*100:.0f}% UP** "
             f"→ ensemble **{base_p*100:.0f}% UP**."
         )
-    elif abs(simple_avg - base_p) > 0.03:
+    elif has_news and abs(simple_avg - base_p) > 0.03:
         bullets.append(
             f"Simple avg **{simple_avg*100:.0f}% UP** → ensemble adjusted to **{base_p*100:.0f}% UP**."
         )
@@ -182,7 +204,9 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
         "base_votes": base_votes,
         "drivers": drivers,
         "news_weight_note": news_note,
-        "models_disagree": not agree,
+        "models_disagree": has_news and not agree,
+        "ensemble_route": route,
+        "has_news": has_news,
     }
 
 
