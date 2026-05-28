@@ -117,7 +117,7 @@ Computes 17 features from raw OHLCV data:
 - **Daily return** — percentage price change day-over-day (direct directional signal)
 
 ### `src/features/sequence_generator.py`
-Slides a 60-day window across each ticker's indicator data. Each window becomes one LSTM training sample. Features are min-max normalized per window so stocks with very different price levels (e.g. $3 PLTR vs $250 AAPL) are comparable. Requires at least 60 valid rows after indicator warmup (~34 days for MACD), so you need roughly 250+ calendar days of price data.
+Slides a 60-day window across each ticker's indicator data. Each window becomes one LSTM training sample. Features are min-max normalized per window so stocks with very different price levels (e.g. $3 PLTR vs $250 AAPL) are comparable. Requires at least 60 valid rows after indicator warmup (~34 days for MACD), so you need roughly 250+ calendar days of price data. `generate_live()` also emits a **forward session** forecast after the last price bar.
 
 ### `src/features/text_features.py`
 Converts news headlines into numerical features using TF-IDF. For each labeled (ticker, date), gathers all headlines from the previous 3 days and joins them into a text document. Uses bigrams, removes English stop words, and caps vocabulary at a configurable size (default 5000). Supports separate `fit` (on training data only) and `transform` (on val/test) to prevent data leakage.
@@ -125,7 +125,7 @@ Converts news headlines into numerical features using TF-IDF. For each labeled (
 ### `src/models/lstm_model.py`
 Two-layer stacked LSTM for binary price direction prediction.
 - `StockLSTM` (PyTorch): input (batch, 60, 17) → LSTM-1 (64 units) → dropout → LSTM-2 (64 units) → dropout → linear → sigmoid → P(up)
-- `LSTMTrainer`: training loop with early stopping, LR scheduler (halves LR when val accuracy plateaus), gradient clipping, and per-class recall reporting. Saves/loads full checkpoints including config and training history.
+- `LSTMTrainer`: training loop with early stopping on **val AUC** (configurable), LR scheduler, gradient clipping, and per-class recall reporting. Uses weighted BCE by default; sigmoid-only calibration when raw proba variance is low. Saves/loads full checkpoints including config and training history.
 
 ### `src/models/nlp_baseline.py`
 Logistic regression on TF-IDF headline features. Intentionally simple — it's a baseline to establish whether news carries any predictive signal before investing in heavier models (FinBERT, embeddings). Uses balanced class weights to handle class imbalance. Saves the vectorizer and classifier together so they can be loaded as a unit for inference.
@@ -137,6 +137,7 @@ Evaluation metrics, conviction buckets, and prediction CSV analysis used by `scr
 | Module | Role |
 |--------|------|
 | `lstm_live_export.py` | Score dates after last label through latest price |
+| `news_live_export.py` | TF-IDF + FinBERT on live dates with headlines (no label yet) |
 | `ensemble_explain.py` | Counterfactual “Why this call” explanations for the UI |
 
 ### `scripts/`
@@ -147,7 +148,8 @@ All scripts accept `--help`.
 |--------|-------------|
 | `run_pipeline.py` | Full train orchestrator (`--preset quick\|balanced\|advanced\|max`) |
 | `daily_update.py` | Collect + score + ensemble without retrain |
-| `score_models.py` | Live LSTM append for dates after last label |
+| `score_models.py` | Live LSTM + news scoring; backfills `actual_binary` on live rows |
+| `audit_data_coverage.py` | Report price/news/label coverage and live-row consistency |
 | `publish_deploy_bundle.py` | Trim + upload artifacts to Railway `/data` via SSH |
 | `build_ensemble.py` | Meta-model + `final_ensemble_predictions.csv` |
 | `build_eval_dataset.py` | Join per-model prediction CSVs for ensemble training |

@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { TICKERS } from "@/lib/tickers";
-import type { TickerApiResponse } from "@/lib/types";
+import type { DataStatus, TickerApiResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 async function fetchDayAccuracy(date: string) {
@@ -21,6 +21,38 @@ async function fetchDayAccuracy(date: string) {
   return { total: rows.length, resolved: resolved.length, hits };
 }
 
+async function fetchDataStatus(): Promise<DataStatus> {
+  const res = await fetch("/api/data-status", { cache: "no-store" });
+  if (!res.ok) throw new Error("data-status unavailable");
+  return res.json();
+}
+
+function pendingCopy(
+  date: string,
+  status: DataStatus | null | undefined,
+): string {
+  const today = status?.today;
+  const resolvedThrough = status?.latest_resolved_prediction_date;
+
+  // Past calendar day with no outcome → need next session's close in DB + daily refresh
+  if (today && date < today) {
+    return `${date} — outcome pending (resolves after the next trading day's close + data refresh${resolvedThrough ? `; results through ${resolvedThrough}` : ""})`;
+  }
+
+  const reason = status?.pending_reason;
+  const market = status?.market_status;
+  if (reason === "awaiting_next_close" || market === "open") {
+    return `${date} — session in progress, outcomes pending after close`;
+  }
+  if (reason === "awaiting_data_refresh") {
+    return `${date} — outcome pending (next data refresh will resolve${resolvedThrough ? `; results through ${resolvedThrough}` : ""})`;
+  }
+  if (market === "pre_market") {
+    return `${date} — pre-market, outcomes resolve after 4 PM ET`;
+  }
+  return `${date} — results pending`;
+}
+
 interface Props {
   date: string | null;
 }
@@ -31,6 +63,12 @@ export function DayAccuracyBanner({ date }: Props) {
     queryFn: () => fetchDayAccuracy(date!),
     enabled: !!date,
     staleTime: 60_000,
+  });
+
+  const { data: statusData } = useQuery({
+    queryKey: ["data-status"],
+    queryFn: fetchDataStatus,
+    staleTime: 120_000,
   });
 
   if (!date || isLoading) {
@@ -46,8 +84,8 @@ export function DayAccuracyBanner({ date }: Props) {
   if (data.resolved === 0) {
     return (
       <div className="rounded-lg border px-4 py-2.5 text-sm flex items-center justify-between gap-3">
-        <span className="text-muted-foreground">
-          <span className="font-mono text-xs">{date}</span> — results pending (market not closed yet)
+        <span className="text-muted-foreground text-xs">
+          {pendingCopy(date, statusData)}
         </span>
       </div>
     );

@@ -1,29 +1,33 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import type { LastResolvedRow } from "@/lib/types";
+import type { ModelId } from "@/lib/tickers";
 import { cn } from "@/lib/utils";
 import { chartWindowDays, type ChartWindow } from "@/lib/chartWindow";
 
 interface Props {
   ticker: string;
   window: ChartWindow;
+  model?: ModelId;
 }
 
 async function fetchLastResolved(
   ticker: string,
-  n: number
+  n: number,
+  model: ModelId
 ): Promise<{ ticker: string; rows: LastResolvedRow[] }> {
-  const res = await fetch(`/api/last-resolved?ticker=${ticker}&n=${n}`, { cache: "no-store" });
+  const params = new URLSearchParams({ ticker, n: String(n), model });
+  const res = await fetch(`/api/last-resolved?${params}`, { cache: "no-store" });
   if (!res.ok) throw new Error("fetch failed");
   return res.json();
 }
 
-export function ResolvedStrip({ ticker, window }: Props) {
+export function ResolvedStrip({ ticker, window, model = "ensemble" }: Props) {
   const n = chartWindowDays(window);
 
   const { data } = useQuery({
-    queryKey: ["last-resolved", ticker, n],
-    queryFn: () => fetchLastResolved(ticker, n),
+    queryKey: ["last-resolved", ticker, n, model],
+    queryFn: () => fetchLastResolved(ticker, n, model),
     staleTime: 300_000,
   });
 

@@ -2,25 +2,29 @@
 import { useQuery } from "@tanstack/react-query";
 import type { AccuracySummary } from "@/lib/types";
 import type { ChartWindow } from "@/lib/chartWindow";
+import type { ModelId } from "@/lib/tickers";
 
 interface Props {
   ticker: string;
   window: ChartWindow;
+  model?: ModelId;
 }
 
-async function fetchAccuracy(ticker: string, window: string): Promise<AccuracySummary> {
-  const res = await fetch(
-    `/api/accuracy-summary?ticker=${ticker}&window=${window}`,
-    { cache: "no-store" }
-  );
+async function fetchAccuracy(
+  ticker: string,
+  window: string,
+  model: ModelId
+): Promise<AccuracySummary> {
+  const params = new URLSearchParams({ ticker, window, model });
+  const res = await fetch(`/api/accuracy-summary?${params}`, { cache: "no-store" });
   if (!res.ok) throw new Error("fetch failed");
   return res.json();
 }
 
-export function AccuracyPanel({ ticker, window }: Props) {
+export function AccuracyPanel({ ticker, window, model = "ensemble" }: Props) {
   const { data, isLoading } = useQuery({
-    queryKey: ["accuracy-summary", ticker, window],
-    queryFn: () => fetchAccuracy(ticker, window),
+    queryKey: ["accuracy-summary", ticker, window, model],
+    queryFn: () => fetchAccuracy(ticker, window, model),
     staleTime: 300_000,
   });
 

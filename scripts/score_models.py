@@ -23,6 +23,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -94,6 +96,12 @@ def _score_tfidf(horizon: int, dry_run: bool) -> bool:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     out_df[col_order].to_csv(out_csv, index=False)
     print(f"[score_tfidf] Saved {len(out_df)} rows → {out_csv}")
+
+    # Append live-day predictions (no labels yet) via news_live_export
+    from src.ml.news_live_export import append_live_tfidf_predictions  # noqa: E402
+    n_live = append_live_tfidf_predictions(model_path=model_path, out_csv=out_csv)
+    if n_live:
+        print(f"[score_tfidf] Appended {n_live} live rows → {out_csv}")
     return True
 
 
@@ -135,7 +143,88 @@ def _score_embeddings(horizon: int, dry_run: bool) -> bool:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     out_df[col_order].to_csv(out_csv, index=False)
     print(f"[score_embeddings] Saved {len(out_df)} rows → {out_csv}")
+
+    # Append live-day predictions (no labels yet) via news_live_export
+    from src.ml.news_live_export import append_live_embedding_predictions  # noqa: E402
+    n_live = append_live_embedding_predictions(model_path=model_path, out_csv=out_csv)
+    if n_live:
+        print(f"[score_embeddings] Appended {n_live} live rows → {out_csv}")
     return True
+
+
+# ---------------------------------------------------------------------------
+# Backfill actual_binary from labels onto live prediction rows
+# ---------------------------------------------------------------------------
+
+def backfill_outcomes(dry_run: bool = False) -> int:
+    """Join labels from the DB onto live rows in price and ensemble CSVs.
+
+    Returns total number of rows updated across both CSVs.
+    """
+    import sqlite3
+    conn = sqlite3.connect(str(DATABASE_PATH))
+    try:
+        labels = pd.read_sql_query(
+            "SELECT ticker, date AS prediction_date, label_binary AS actual_binary FROM labels",
+            conn,
+        )
+    finally:
+        conn.close()
+
+    if labels.empty:
+        return 0
+
+    labels["prediction_date"] = labels["prediction_date"].astype(str)
+    label_map: dict[tuple, int] = {
+        (r["ticker"], r["prediction_date"]): int(r["actual_binary"])
+        for _, r in labels.dropna(subset=["actual_binary"]).iterrows()
+    }
+
+    total = 0
+    csv_paths = [
+        PROCESSED_DATA_DIR / "price_predictions.csv",
+        PROCESSED_DATA_DIR / "news_tfidf_predictions.csv",
+        PROCESSED_DATA_DIR / "news_embeddings_predictions.csv",
+        PROCESSED_DATA_DIR / "final_ensemble_predictions.csv",
+    ]
+    for csv_path in csv_paths:
+        if not csv_path.exists():
+            continue
+        df = pd.read_csv(csv_path)
+        df["prediction_date"] = df["prediction_date"].astype(str)
+        null_mask = df["actual_binary"].isna()
+        if not null_mask.any():
+            continue
+
+        def _fill(row):
+            if pd.isna(row["actual_binary"]):
+                return label_map.get((row["ticker"], row["prediction_date"]))
+            return row["actual_binary"]
+
+        updated = df[null_mask].apply(_fill, axis=1)
+        filled = updated.notna().sum()
+        if filled == 0:
+            continue
+        if dry_run:
+            print(f"[backfill_outcomes] DRY-RUN – would fill {filled} rows in {csv_path.name}")
+            total += filled
+            continue
+        df.loc[null_mask, "actual_binary"] = updated
+        if (
+            "hit" in df.columns
+            and "ensemble_pred_binary" in df.columns
+            and csv_path.name == "final_ensemble_predictions.csv"
+        ):
+            resolved = df["actual_binary"].notna()
+            df.loc[resolved, "hit"] = (
+                df.loc[resolved, "ensemble_pred_binary"].astype(int)
+                == df.loc[resolved, "actual_binary"].astype(int)
+            ).astype(int)
+        df.to_csv(csv_path, index=False)
+        print(f"[backfill_outcomes] Filled {filled} actual_binary values in {csv_path.name}")
+        total += filled
+
+    return total
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +238,8 @@ def main() -> None:
     parser.add_argument("--skip-lstm", action="store_true")
     parser.add_argument("--skip-tfidf", action="store_true")
     parser.add_argument("--skip-embeddings", action="store_true")
+    parser.add_argument("--skip-backfill", action="store_true",
+                        help="Skip backfilling actual_binary on live rows.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Report what would run without executing.")
     args = parser.parse_args()
@@ -163,6 +254,9 @@ def main() -> None:
         _score_tfidf(horizon, args.dry_run)
     if not args.skip_embeddings:
         _score_embeddings(horizon, args.dry_run)
+    if not args.skip_backfill:
+        n = backfill_outcomes(dry_run=args.dry_run)
+        print(f"[score_models] backfill_outcomes: {n} rows updated")
 
     print("[score_models] Done.")
 

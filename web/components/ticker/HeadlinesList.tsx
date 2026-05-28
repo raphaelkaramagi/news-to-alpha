@@ -91,10 +91,18 @@ export function HeadlinesList({ ticker, date }: Props) {
     );
   }
 
-  if (error || !data?.headlines?.length) {
+  if (error) {
     return (
       <p className="text-sm text-muted-foreground py-4">
-        No headlines for {date}. Try another date or check that news was collected.
+        Could not load headlines — API unavailable. Check that the backend is running.
+      </p>
+    );
+  }
+
+  if (!data?.headlines?.length) {
+    return (
+      <p className="text-sm text-muted-foreground py-4">
+        No headlines found for {date}. The news feed may not have covered this ticker on this date.
       </p>
     );
   }
