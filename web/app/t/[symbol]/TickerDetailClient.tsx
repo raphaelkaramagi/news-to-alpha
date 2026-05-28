@@ -1,8 +1,9 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type { TickerApiResponse } from "@/lib/types";
 import type { ModelId } from "@/lib/tickers";
+import type { ChartWindow } from "@/lib/chartWindow";
 import { CallHero } from "@/components/ticker/CallHero";
 import { ModelPicker } from "@/components/ticker/ModelPicker";
 import { DateScrubber } from "@/components/ticker/DateScrubber";
@@ -12,6 +13,7 @@ import { PriceAccuracySection } from "@/components/ticker/PriceAccuracySection";
 import { AdvancedPanel } from "@/components/ticker/AdvancedPanel";
 import { ModelBlurb } from "@/components/ticker/ModelBlurb";
 import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
+import { cn } from "@/lib/utils";
 
 async function fetchTicker(
   ticker: string,
@@ -45,6 +47,7 @@ export function TickerDetailClient({
   const { selectedDate, setSelectedDate } = useSelectedDate();
   const [model, setModel] = useState<ModelId>("ensemble");
   const [tab, setTab] = useState<Tab>("headlines");
+  const [chartWindow, setChartWindow] = useState<ChartWindow>("30");
 
   // Sync global date from URL on first load
   useEffect(() => {
@@ -54,7 +57,7 @@ export function TickerDetailClient({
 
   const activeDate = selectedDate ?? initialDate;
 
-  const { data } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["ticker-detail", symbol, model, activeDate],
     queryFn: () => fetchTicker(symbol, model, activeDate),
     initialData:
@@ -62,6 +65,7 @@ export function TickerDetailClient({
         ? (initialData ?? undefined)
         : undefined,
     staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const handleDateChange = useCallback(
@@ -79,7 +83,7 @@ export function TickerDetailClient({
     );
   }
 
-  if (!data || !activeDate) {
+  if ((!data || !activeDate) && isLoading) {
     return (
       <div className="space-y-4">
         <div className="h-20 rounded-lg bg-muted animate-pulse" />
@@ -89,8 +93,12 @@ export function TickerDetailClient({
     );
   }
 
+  if (!data || !activeDate) {
+    return null;
+  }
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className={cn("space-y-6 animate-fade-in", isFetching && "opacity-80")}>
       <CallHero data={data} date={activeDate} />
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -117,7 +125,14 @@ export function TickerDetailClient({
           ))}
         </div>
         {tab === "headlines" && <HeadlinesList ticker={symbol} date={activeDate} />}
-        {tab === "why" && <RationaleBars ticker={symbol} date={activeDate} model={model} />}
+        {tab === "why" && (
+          <RationaleBars
+            ticker={symbol}
+            date={activeDate}
+            model={model}
+            onOpenHeadlines={() => setTab("headlines")}
+          />
+        )}
         {tab === "advanced" && (
           <AdvancedPanel
             ticker={symbol}
@@ -132,7 +147,10 @@ export function TickerDetailClient({
       <PriceAccuracySection
         ticker={symbol}
         selectedDate={activeDate}
+        targetDate={data.price_context?.target_date}
         model={model}
+        window={chartWindow}
+        onWindowChange={setChartWindow}
       />
     </div>
   );

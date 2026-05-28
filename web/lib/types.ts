@@ -6,11 +6,32 @@ export type PerModelEntry = {
   confidence: number;
 };
 
+/** Close(T) → close(T+1) price context for a forecast session. */
+export type PriceContext = {
+  session_date: string;
+  target_date: string | null;
+  /** Scoring uses these two closes only (not same-day open→close). */
+  validation_basis: "close_to_close";
+  start_close_date: string;
+  start_close: number | null;
+  end_close_date: string | null;
+  end_close: number | null;
+  session_open: number | null;
+  session_close: number | null;
+  target_open: number | null;
+  target_close: number | null;
+  return_pct: number | null;
+  resolved: boolean;
+  actual_direction: "up" | "down" | null;
+  horizon_label: string;
+};
+
 /** Response from Flask `GET /api/ticker` */
 export type TickerApiResponse = {
   ticker: string;
   company: string;
   prediction_date: string;
+  forecast_date?: string | null;
   model: ModelId | string;
   proba: number;
   binary: number;
@@ -20,6 +41,7 @@ export type TickerApiResponse = {
   realized_return: number | null;
   top_headlines: string[];
   per_model: Record<string, PerModelEntry>;
+  price_context?: PriceContext;
 };
 
 export type DataStatus = {
@@ -176,7 +198,11 @@ export type HistoryPoint = {
 
 export type PricePoint = {
   date: string;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
   close: number;
+  volume?: number | null;
 };
 
 export type HistoryResponse = {
@@ -187,11 +213,21 @@ export type HistoryResponse = {
 };
 
 export type AccuracySummary = {
-  ticker: string;
+  ticker?: string;
+  scope?: string;
   window: string;
   n: number;
   hits: number;
   accuracy: number | null;
+  rows?: Array<{
+    date: string;
+    ticker?: string;
+    pred_binary?: number | null;
+    actual_binary?: number | null;
+    hit: number;
+    return?: number | null;
+    proba?: number | null;
+  }>;
 };
 
 export type ConvictionBucket = {
@@ -220,4 +256,7 @@ export type LastResolvedRow = {
   actual_binary: number | null;
   hit: number | null;
   return: number | null;
+  session_close?: number | null;
+  target_close?: number | null;
+  target_date?: string | null;
 };

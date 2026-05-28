@@ -83,10 +83,12 @@ def _label_columns(horizon: int) -> tuple[str, str]:
 class SequenceGenerator:
     def __init__(self, db_path: str | Path = DATABASE_PATH,
                  sequence_length: int | None = None,
-                 horizon: int = 1):
+                 horizon: int = 1,
+                 feature_columns: list[str] | None = None):
         self.db_path = Path(db_path)
         self.seq_len = sequence_length or LSTM_CONFIG["sequence_length"]
         self.horizon = horizon
+        self.feature_columns = list(feature_columns or FEATURE_COLUMNS)
         self._label_col, self._return_col = _label_columns(horizon)
 
     def generate(
@@ -130,7 +132,7 @@ class SequenceGenerator:
         labels_df["date"] = pd.to_datetime(labels_df["date"])
         labels_df = labels_df.set_index("date")
 
-        indicator_df = df[FEATURE_COLUMNS].dropna()
+        indicator_df = df[self.feature_columns].dropna()
         if len(indicator_df) < self.seq_len + 1:
             logger.warning(
                 "%s: only %d valid rows, need at least %d for one sequence",
@@ -190,7 +192,7 @@ class SequenceGenerator:
             else pd.Timestamp("1900-01-01")
         )
 
-        indicator_df = df[FEATURE_COLUMNS].dropna()
+        indicator_df = df[self.feature_columns].dropna()
         if len(indicator_df) < self.seq_len + 1:
             return np.array([]), []
 

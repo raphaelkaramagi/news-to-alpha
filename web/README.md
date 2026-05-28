@@ -6,6 +6,8 @@ Next.js 16 App Router frontend. Server routes under `app/api/*` proxy read-only 
 
 ## Local development
 
+See **[docs/LOCAL_TESTING.md](../docs/LOCAL_TESTING.md)** for the full checklist (CLI refresh, smoke curls, UI verification, troubleshooting).
+
 ```bash
 # Terminal 1 — from repository root
 source .venv/bin/activate
@@ -14,11 +16,14 @@ python app/server.py --port 8000
 # Terminal 2 — from web/
 cd web
 cp .env.example .env.local   # API_BASE_URL=http://127.0.0.1:8000
-npm install
-npm run dev
+npm install && npm run dev
 ```
 
 Open http://localhost:3000
+
+```bash
+curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool
+```
 
 ---
 
@@ -26,8 +31,8 @@ Open http://localhost:3000
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets — ticker grid, outcome dots, overview chart |
-| `/t/[symbol]` | Ticker detail — call, headlines, Why / Advanced, charts |
+| `/` | Markets — ticker grid, ✓/✗ resolved calls, overview chart |
+| `/t/[symbol]` | Ticker detail — close-to-close hero, resolved strip (7/30/90d), Why / Advanced, charts |
 | `/status` | Data freshness and evaluation summary |
 
 Global date picker syncs across pages.

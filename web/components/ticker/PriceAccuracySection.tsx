@@ -8,15 +8,25 @@ import { ResolvedStrip } from "@/components/ticker/ResolvedStrip";
 import type { ChartWindow } from "@/lib/chartWindow";
 import type { ModelId } from "@/lib/tickers";
 import { MODEL_CHART_CONFIG, MODEL_DISPLAY_LABELS } from "@/lib/models";
+import { shortDate } from "@/lib/forecastHorizon";
 
 interface Props {
   ticker: string;
   selectedDate: string;
+  targetDate?: string | null;
   model?: ModelId;
+  window: ChartWindow;
+  onWindowChange: (window: ChartWindow) => void;
 }
 
-export function PriceAccuracySection({ ticker, selectedDate, model = "ensemble" }: Props) {
-  const [window, setWindow] = useState<ChartWindow>("30");
+export function PriceAccuracySection({
+  ticker,
+  selectedDate,
+  targetDate,
+  model = "ensemble",
+  window,
+  onWindowChange,
+}: Props) {
   const chartCfg = MODEL_CHART_CONFIG[model];
 
   return (
@@ -25,17 +35,24 @@ export function PriceAccuracySection({ ticker, selectedDate, model = "ensemble" 
         <h2 className="text-sm font-medium">
           Price & accuracy · {MODEL_DISPLAY_LABELS[model]}
         </h2>
-        <ChartWindowPicker value={window} onChange={setWindow} />
+        <ChartWindowPicker value={window} onChange={onWindowChange} />
       </div>
 
       <div>
         <p className="text-xs font-medium text-muted-foreground mb-1">Share price & forecast</p>
         <p className="text-[10px] text-muted-foreground mb-2">
           {chartCfg.probaLegend}
+          {targetDate && (
+            <>
+              {" · "}
+              Dashed line: close {shortDate(selectedDate)} → target {shortDate(targetDate)}
+            </>
+          )}
         </p>
         <PricePredictionChart
           ticker={ticker}
           selectedDate={selectedDate}
+          targetDate={targetDate}
           model={model}
           window={window}
         />
@@ -54,7 +71,7 @@ export function PriceAccuracySection({ ticker, selectedDate, model = "ensemble" 
         />
       </div>
 
-      <ResolvedStrip ticker={ticker} window={window} model={model} />
+      <ResolvedStrip ticker={ticker} chartWindow={window} model={model} />
 
       <div>
         <p className="text-sm font-medium mb-3">Accuracy ({window}d window)</p>

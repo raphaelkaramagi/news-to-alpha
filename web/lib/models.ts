@@ -56,3 +56,13 @@ export const MODEL_DESCRIPTIONS: Record<
     body: "Scores financial sentiment from headline meaning (ProsusAI/finbert). Only runs when headlines are present.",
   },
 };
+
+/** Layperson copy for the Why tab input cards. */
+export const ENSEMBLE_INPUT_WHY: Record<"lstm" | "tfidf" | "embeddings", string> = {
+  lstm:
+    "Chart-based signal from ~60 days of prices and indicators. Its P(up) is one vote; the combiner leans on it heavily when headlines are absent.",
+  tfidf:
+    "Scores headline wording (keyword patterns) before the close. P(up) above 50% means bullish tone—fed into the news combiner with FinBERT.",
+  embeddings:
+    "FinBERT reads financial meaning in headlines. P(up) captures bullish vs bearish sentiment—balanced against Keywords and Price in the final merge.",
+};

@@ -71,7 +71,11 @@ class PriceCollector(BaseCollector):
                 self.logger.info("Fetching %s (%s)  %s -> %s  (attempt %d/%d)",
                                  ticker, yf_ticker, start_date, end_date, attempt, max_retries)
 
-                df = yf.download(yf_ticker, start=start_date, end=end_date,
+                # yfinance `end` is exclusive — add one day so today's session is included
+                end_exclusive = (
+                    pd.Timestamp(end_date) + pd.Timedelta(days=1)
+                ).strftime("%Y-%m-%d")
+                df = yf.download(yf_ticker, start=start_date, end=end_exclusive,
                                  progress=False, auto_adjust=False)
 
                 if df.empty:
