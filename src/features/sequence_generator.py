@@ -43,6 +43,9 @@ SCALE_INVARIANT_FEATURES: list[str] = [
     "market_return_5d",
     "excess_return",
     "volume_zscore_20",
+    # VIX regime features — default 0 when VIX not collected yet
+    "vix_level",   # absolute VIX level (10–80+); scaled by StandardScaler
+    "vix_change",  # daily % change in VIX (fear spike signal)
 ]
 
 LEVEL_FEATURES: list[str] = [

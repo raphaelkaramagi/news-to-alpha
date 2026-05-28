@@ -44,7 +44,7 @@ export function MarketsOverview() {
         <>
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-1">Basket price (indexed)</p>
-            <p className="text-[10px] text-muted-foreground mb-2">100 = start of window · all 15 tickers weighted equally</p>
+            <p className="text-[10px] text-muted-foreground mb-2">100 = start of window · all 20 tickers weighted equally</p>
             <PriceIndexChart
               data={data.price_index}
               selectedDate={selectedDate ?? undefined}

@@ -35,7 +35,11 @@ def _load_predictor(model_path: Path):
     seed_files = sorted(model_path.parent.glob("lstm_model_seed*.pt"))
     if seed_files:
         extra = [LSTMTrainer.load(p) for p in seed_files]
-        return SeedEnsemble([trainer] + extra)
+        ens = SeedEnsemble([trainer] + extra)
+        ens.calibrator = trainer.calibrator
+        ens.calibration_method = trainer.calibration_method
+        ens.decision_threshold = trainer.decision_threshold
+        return ens
     return trainer
 
 

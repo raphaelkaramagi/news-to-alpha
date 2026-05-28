@@ -36,9 +36,10 @@ for _dir in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, MODELS_DIR,
 
 # Tickers we're predicting
 TICKERS: list[str] = [
-    "AAPL", "NVDA", "WMT", "LLY", "JPM", 
-    "XOM", "MCD", "TSLA", "DAL", "MAR", 
-    "GS", "NFLX", "META", "ORCL", "PLTR"
+    "AAPL", "NVDA", "WMT", "LLY", "JPM",
+    "XOM", "MCD", "TSLA", "DAL", "MAR",
+    "GS", "NFLX", "META", "ORCL", "PLTR",
+    "GOOGL", "MSFT", "MU", "AMD", "AMZN",
 ]
 
 TICKER_TO_COMPANY: dict[str, str] = {
@@ -46,7 +47,9 @@ TICKER_TO_COMPANY: dict[str, str] = {
     "LLY": "Eli Lilly", "JPM": "JPMorgan Chase", "XOM": "Exxon Mobil",
     "MCD": "McDonald's", "TSLA": "Tesla", "DAL": "Delta Air Lines",
     "MAR": "Marriott International", "GS": "Goldman Sachs Group",
-    "NFLX": "Netflix", "META": "Meta", "ORCL": "Oracle", "PLTR": "Palantir"
+    "NFLX": "Netflix", "META": "Meta", "ORCL": "Oracle", "PLTR": "Palantir",
+    "GOOGL": "Alphabet", "MSFT": "Microsoft", "MU": "Micron Technology",
+    "AMD": "Advanced Micro Devices", "AMZN": "Amazon",
 }
 
 # API keys (from .env file)
@@ -65,7 +68,7 @@ RETRY_BASE_DELAY_SECONDS: float = 2.0
 # Reproducibility
 RANDOM_SEED: int = 42
 
-# Market regime feature ticker (collected alongside the 15 stocks).
+# Market regime feature ticker (collected alongside the stock universe).
 MARKET_INDEX_TICKER: str = "SPY"
 
 # Model hyperparameters
@@ -78,6 +81,9 @@ LSTM_CONFIG: dict = {
     "dropout": 0.4,
     "weight_decay": 1e-4,
     "ticker_embed_dim": 4,
+    "use_focal_loss": True,
+    "focal_gamma": 2.0,
+    "focal_alpha": 0.5,
     "patience": 20,
     "seeds": [42, 1337, 2024],
 }

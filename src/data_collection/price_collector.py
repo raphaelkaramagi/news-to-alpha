@@ -52,16 +52,27 @@ class PriceCollector(BaseCollector):
         self._log_run(stats, run_start, duration)
         return stats
 
-    def _collect_one(self, ticker: str, start_date: str, end_date: str, 
+    # Tickers stored with a different name in the DB vs yfinance symbol.
+    # Key = DB ticker, Value = yfinance symbol.
+    _TICKER_MAP: dict[str, str] = {
+        "VIX": "^VIX",  # CBOE Volatility Index
+    }
+
+    def _collect_one(self, ticker: str, start_date: str, end_date: str,
                      cursor: sqlite3.Cursor, max_retries: int) -> tuple[int, int, str | None]:
-        """Fetch and insert data for one ticker with retry logic."""
+        """Fetch and insert data for one ticker with retry logic.
+
+        Handles index tickers (e.g. VIX / ^VIX) that have no volume column by
+        falling back to 0 volume so the rest of the schema stays consistent.
+        """
+        yf_ticker = self._TICKER_MAP.get(ticker, ticker)
         for attempt in range(1, max_retries + 1):
             try:
-                self.logger.info("Fetching %s  %s -> %s  (attempt %d/%d)", 
-                               ticker, start_date, end_date, attempt, max_retries)
-                
-                df = yf.download(ticker, start=start_date, end=end_date, 
-                               progress=False, auto_adjust=False)
+                self.logger.info("Fetching %s (%s)  %s -> %s  (attempt %d/%d)",
+                                 ticker, yf_ticker, start_date, end_date, attempt, max_retries)
+
+                df = yf.download(yf_ticker, start=start_date, end=end_date,
+                                 progress=False, auto_adjust=False)
 
                 if df.empty:
                     return 0, 0, "No data returned"
@@ -83,7 +94,12 @@ class PriceCollector(BaseCollector):
 
     @staticmethod
     def _insert_rows(ticker: str, df: pd.DataFrame, cursor: sqlite3.Cursor) -> tuple[int, int]:
-        """Insert DataFrame rows into database."""
+        """Insert DataFrame rows into database.
+
+        Handles index tickers (e.g. VIX) that have no Volume column by
+        inserting 0; handles both old multi-level and single-level yfinance
+        column formats.
+        """
         added = 0
         dupes = 0
 
@@ -93,12 +109,13 @@ class PriceCollector(BaseCollector):
 
         for date_idx, row in df.iterrows():
             try:
+                volume = int(row["Volume"]) if "Volume" in row.index and pd.notna(row["Volume"]) else 0
                 cursor.execute(
                     """INSERT INTO prices (ticker, date, open, high, low, close, volume, adjusted_close)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (ticker, pd.Timestamp(date_idx).strftime("%Y-%m-%d"),
                      float(row["Open"]), float(row["High"]), float(row["Low"]),
-                     float(row["Close"]), int(row["Volume"]),
+                     float(row["Close"]), volume,
                      float(row["Adj Close"]) if "Adj Close" in row.index else None)
                 )
                 added += 1

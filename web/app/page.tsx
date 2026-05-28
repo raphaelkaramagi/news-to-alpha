@@ -12,7 +12,7 @@ export default async function MarketsPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Markets</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Next-session direction forecasts for 15 US tickers.
+          Next-session direction forecasts for 20 US tickers.
         </p>
       </div>
 

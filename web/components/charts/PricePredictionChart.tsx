@@ -14,6 +14,8 @@ import {
 import type { HistoryResponse } from "@/lib/types";
 import type { ChartWindow } from "@/lib/chartWindow";
 import { chartWindowDays } from "@/lib/chartWindow";
+import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
+import { CHART_CLICK_HINT, dateFromChartClick } from "@/lib/chartClick";
 
 interface Props {
   ticker: string;
@@ -47,6 +49,7 @@ export function PricePredictionChart({
   window,
 }: Props) {
   const days = chartWindowDays(window);
+  const { setSelectedDate } = useSelectedDate();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["history", ticker, days, model],
     queryFn: () => fetchHistory(ticker, days),
@@ -107,7 +110,15 @@ export function PricePredictionChart({
   return (
     <div className="w-full h-60 min-h-[240px]">
       <ResponsiveContainer width="100%" height={240}>
-        <ComposedChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+        <ComposedChart
+          data={chartData}
+          margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+          onClick={(state) => {
+            const d = dateFromChartClick(state);
+            if (d) setSelectedDate(d);
+          }}
+          style={{ cursor: "pointer" }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
           <XAxis
             dataKey="date"
@@ -186,6 +197,7 @@ export function PricePredictionChart({
           )}
         </ComposedChart>
       </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center mt-1">{CHART_CLICK_HINT}</p>
       {!hasPrices && hasProba && (
         <p className="text-xs text-muted-foreground text-center mt-1">
           Price line unavailable — showing P(UP) only.

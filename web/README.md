@@ -22,7 +22,7 @@ Open http://localhost:3000
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets — 15-ticker grid, outcome dots, overview chart |
+| `/` | Markets — 20-ticker grid, outcome dots, overview chart |
 | `/t/[symbol]` | Ticker detail — call, headlines, Why tab, charts |
 | `/status` | Data freshness |
 

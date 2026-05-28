@@ -10,11 +10,11 @@ function leanDisplay(proba: number): { display: string; direction: "UP" | "DOWN"
 }
 
 const DRIVER_LABELS: Record<string, string> = {
-  financial_pred_proba: "Price model lean",
+  financial_pred_proba: "Price model",
   lstm_confidence: "Price conviction",
-  news_tfidf_pred_proba: "Keyword headlines",
-  news_embeddings_pred_proba: "Headline meaning",
-  spy_return_5d: "Broad market (5d)",
+  news_tfidf_pred_proba: "Keywords",
+  news_embeddings_pred_proba: "FinBERT",
+  spy_return_5d: "Market (5d)",
   all_agree: "Models agree",
 };
 
@@ -25,22 +25,35 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
     return null;
   }
 
+  const hasNews = data.has_news ?? false;
+  const route = data.ensemble_route ?? (hasNews ? "has_news" : "no_news");
   const pm = data.per_model ?? {};
   const lstm = pm.lstm?.proba ?? pm.financial?.proba ?? 0.5;
   const tfidf = pm.tfidf?.proba ?? 0.5;
   const emb = pm.embeddings?.proba ?? 0.5;
-  const simpleAvg = (lstm + tfidf + emb) / 3;
+  const simpleAvg = hasNews ? (lstm + tfidf + emb) / 3 : lstm;
   const direction = proba >= 0.5 ? "UP" : "DOWN";
   const confidence = data.ensemble_confidence ?? confidenceFromProba(proba);
   const label = confidenceLabel(confidence);
 
-  const base_votes = [
-    { model: "lstm", label: "Price", proba: lstm, ...leanDisplay(lstm) },
-    { model: "tfidf", label: "Keywords", proba: tfidf, ...leanDisplay(tfidf) },
-    { model: "embeddings", label: "Meaning", proba: emb, ...leanDisplay(emb) },
+  const base_votes: EnsembleExplanation["base_votes"] = [
+    { model: "lstm", label: "Price", proba: lstm, active: true, ...leanDisplay(lstm) },
   ];
-  const upVotes = base_votes.filter((v) => v.direction === "UP").length;
-  const downVotes = 3 - upVotes;
+  if (hasNews) {
+    base_votes.push(
+      { model: "tfidf", label: "Keywords", proba: tfidf, active: true, ...leanDisplay(tfidf) },
+      { model: "embeddings", label: "FinBERT", proba: emb, active: true, ...leanDisplay(emb) }
+    );
+  } else {
+    base_votes.push(
+      { model: "tfidf", label: "Keywords", proba: tfidf, active: false, display: "No headlines", direction: "N/A" },
+      { model: "embeddings", label: "FinBERT", proba: emb, active: false, display: "No headlines", direction: "N/A" }
+    );
+  }
+
+  const active = base_votes.filter((v) => v.active !== false);
+  const upVotes = active.filter((v) => v.direction === "UP").length;
+  const downVotes = active.filter((v) => v.direction === "DOWN").length;
 
   const headline =
     direction === "DOWN"
@@ -48,7 +61,9 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
       : `Final call is **UP** (${(proba * 100).toFixed(0)}% UP) — above the 50% threshold.`;
 
   const bullets = [headline];
-  if (upVotes > 0 && downVotes > 0) {
+  if (!hasNews) {
+    bullets.push("No headlines before 4 PM ET — price-only combiner.");
+  } else if (upVotes > 0 && downVotes > 0) {
     bullets.push(
       `Models split **${upVotes} up / ${downVotes} down**; simple avg **${(simpleAvg * 100).toFixed(0)}% UP** → ensemble **${(proba * 100).toFixed(0)}% UP**.`
     );
@@ -74,6 +89,8 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
     base_votes,
     drivers,
     news_weight_note: null,
-    models_disagree: upVotes > 0 && downVotes > 0,
+    models_disagree: hasNews && upVotes > 0 && downVotes > 0,
+    ensemble_route: route,
+    has_news: hasNews,
   };
 }

@@ -19,6 +19,10 @@ from src.config import TICKERS, MARKET_INDEX_TICKER  # noqa: E402
 from src.database.schema import DatabaseSchema  # noqa: E402
 from src.data_collection.price_collector import PriceCollector  # noqa: E402
 
+# VIX is collected as a regime feature alongside SPY. yfinance uses "^VIX"
+# but we store it in the DB as "VIX" (see PriceCollector._collect_one).
+VIX_TICKER = "VIX"
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Collect stock price data")
@@ -35,9 +39,10 @@ def main() -> None:
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=args.days)).strftime("%Y-%m-%d")
     tickers = args.tickers or TICKERS
-    # Always include the market-index ticker for LSTM regime features
-    if MARKET_INDEX_TICKER not in tickers:
-        tickers = [*tickers, MARKET_INDEX_TICKER]
+    # Always include the market-index and VIX tickers for LSTM regime features.
+    for regime_ticker in (MARKET_INDEX_TICKER, VIX_TICKER):
+        if regime_ticker not in tickers:
+            tickers = [*tickers, regime_ticker]
 
     # Ensure tables exist
     DatabaseSchema().create_all_tables()

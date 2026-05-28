@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { PredictionDatePicker } from "@/components/shared/PredictionDatePicker";
 
 interface Props {
   ticker: string;
@@ -46,33 +47,36 @@ export function DateScrubber({ ticker, selected, onChange }: Props) {
   return (
     <div className="flex flex-col items-end gap-0.5">
       <div className="flex items-center gap-2 text-sm">
-      <button
-        onClick={goPrev}
-        disabled={idx <= 0}
-        className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        aria-label="Previous date"
-      >
-        <ChevronLeft size={16} />
-      </button>
-      <span className="font-mono text-xs tabular-nums min-w-[6rem] text-center">
-        {selected}
-      </span>
-      <button
-        onClick={goNext}
-        disabled={isLatest}
-        className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        aria-label="Next date"
-      >
-        <ChevronRight size={16} />
-      </button>
-      {!isLatest && (
         <button
-          onClick={goLatest}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors ml-1"
+          onClick={goPrev}
+          disabled={idx <= 0}
+          className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          aria-label="Previous date"
         >
-          Latest →
+          <ChevronLeft size={16} />
         </button>
-      )}
+        <PredictionDatePicker
+          dates={dates}
+          selected={selected}
+          onChange={onChange}
+          align="right"
+        />
+        <button
+          onClick={goNext}
+          disabled={isLatest}
+          className="p-1 rounded hover:bg-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          aria-label="Next date"
+        >
+          <ChevronRight size={16} />
+        </button>
+        {!isLatest && (
+          <button
+            onClick={goLatest}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors ml-1"
+          >
+            Latest →
+          </button>
+        )}
       </div>
       {gapHint && (
         <p className="text-[10px] text-muted-foreground">{gapHint}</p>

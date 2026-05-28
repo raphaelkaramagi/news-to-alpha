@@ -4,7 +4,7 @@ Predict whether a stock will go **up or down** the next trading session by combi
 
 **Live site:** [stock.raphaelkaramagi.com](https://stock.raphaelkaramagi.com) (Vercel UI → Railway API)
 
-**15 tickers:** AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR
+**20 tickers:** AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR, GOOGL, MSFT, MU, AMD, AMZN
 
 ---
 
@@ -110,7 +110,8 @@ python scripts/publish_deploy_bundle.py --dry-run
 python scripts/run_pipeline.py --preset quick      # 2 tickers, fast
 python scripts/run_pipeline.py --preset balanced   # 5 tickers, 3-day horizon
 python scripts/run_pipeline.py --preset advanced   # all tickers, 3-day + FinBERT
-python scripts/run_pipeline.py --preset max        # all tickers, next-day — deploy this
+python scripts/run_pipeline.py --preset max        # all tickers, next-day — production deploy
+python scripts/run_pipeline.py --preset max_v2     # accuracy experiment (FinBERT + conditional ensemble)
 ```
 
 All scripts accept `--help`.

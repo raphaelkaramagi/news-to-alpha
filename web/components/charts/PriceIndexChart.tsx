@@ -9,6 +9,8 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
+import { CHART_CLICK_HINT, dateFromChartClick } from "@/lib/chartClick";
 
 export type IndexPoint = { date: string; index: number };
 
@@ -18,6 +20,8 @@ interface Props {
 }
 
 export function PriceIndexChart({ data, selectedDate }: Props) {
+  const { setSelectedDate } = useSelectedDate();
+
   if (data.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-6 text-center">
@@ -33,7 +37,15 @@ export function PriceIndexChart({ data, selectedDate }: Props) {
   return (
     <div className="w-full h-60 min-h-[240px]">
       <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+        <LineChart
+          data={data}
+          margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+          onClick={(state) => {
+            const d = dateFromChartClick(state);
+            if (d) setSelectedDate(d);
+          }}
+          style={{ cursor: "pointer" }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
           <XAxis
             dataKey="date"
@@ -73,9 +85,7 @@ export function PriceIndexChart({ data, selectedDate }: Props) {
           />
         </LineChart>
       </ResponsiveContainer>
-      <p className="text-xs text-muted-foreground text-center mt-1">
-        Equal-weight index (100 = start of window)
-      </p>
+      <p className="text-[10px] text-muted-foreground text-center mt-1">{CHART_CLICK_HINT}</p>
     </div>
   );
 }

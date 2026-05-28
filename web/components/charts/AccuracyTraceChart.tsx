@@ -11,6 +11,8 @@ import {
   ReferenceLine,
 } from "recharts";
 import { chartWindowDays, type ChartWindow } from "@/lib/chartWindow";
+import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
+import { CHART_CLICK_HINT, dateFromChartClick } from "@/lib/chartClick";
 
 type TracePoint = { date: string; accuracy: number | null };
 
@@ -50,6 +52,7 @@ export function AccuracyTraceChart({
 }: Props) {
   const displayDays = chartWindowDays(window);
   const rollingWindow = Math.min(7, Math.max(3, Math.floor(displayDays / 4)));
+  const { setSelectedDate } = useSelectedDate();
 
   const { data: fetched = [], isLoading: fetchLoading, isError } = useQuery({
     queryKey: ["accuracy-trace", ticker ?? "ALL", rollingWindow, displayDays],
@@ -76,7 +79,15 @@ export function AccuracyTraceChart({
   return (
     <div className="w-full h-40 min-h-[160px]">
       <ResponsiveContainer width="100%" height={160}>
-        <LineChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+        <LineChart
+          data={chartData}
+          margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+          onClick={(state) => {
+            const d = dateFromChartClick(state);
+            if (d) setSelectedDate(d);
+          }}
+          style={{ cursor: "pointer" }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.5} />
           <XAxis
             dataKey="date"
@@ -117,6 +128,7 @@ export function AccuracyTraceChart({
           />
         </LineChart>
       </ResponsiveContainer>
+      <p className="text-[10px] text-muted-foreground text-center mt-1">{CHART_CLICK_HINT}</p>
     </div>
   );
 }

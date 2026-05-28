@@ -6,10 +6,10 @@ Predicts whether a stock goes **up or down** the next trading day by combining t
 
 1. **LSTM (price)** — 60 days of price history + ~20 technical indicators (RSI, MACD, Bollinger, ATR, ROC, OBV, realized vol, SPY market-return). Includes a ticker embedding so the model knows which company it's looking at.
 2. **TF-IDF NLP** — bigram TF-IDF over cutoff-aligned news headlines into a Platt-calibrated logistic regression.
-3. **News embeddings** — per-headline MiniLM sentence embeddings, mean-pooled per ticker-day, fed to a calibrated logistic regression. Optionally concatenated with FinBERT sentiment features.
-4. **Ensemble** — a **HistGradientBoosting** meta-model fit on the validation split of the three calibrated probability streams plus interaction features (agreement, conviction, SPY context). Handles no-news rows by passing 0.5 to the news models.
+3. **News embeddings** — FinBERT (`ProsusAI/finbert`) in max_v2, or MiniLM in older presets; mean-pooled per ticker-day.
+4. **Ensemble** — HistGradientBoosting meta-model on val split. Optional **conditional** mode (`--conditional`): separate combiners for days with vs without headlines.
 
-End goal (shipped): a **Next.js UI** (`web/`) on Vercel plus a **Flask JSON API** (`app/server.py`) on Railway. Browse 15 tickers, switch Ensemble / LSTM / TF-IDF / Embeddings, see price + P(UP) charts, headlines (top 3 + expand), **Why this call** (counterfactual explanation), outcome dots on Markets, and accuracy. Training runs locally via CLI — not from the web UI.
+End goal (shipped): a **Next.js UI** (`web/`) on Vercel plus a **Flask JSON API** (`app/server.py`) on Railway. Browse 20 tickers, switch Ensemble / LSTM / TF-IDF / Embeddings, see price + P(UP) charts, headlines (top 3 + expand), **Why this call** (counterfactual explanation), outcome dots on Markets, and accuracy. Training runs locally via CLI — not from the web UI.
 
 **Docs:** [README.md](README.md) (index), [DATA.md](DATA.md), [DEPLOY_UI.md](DEPLOY_UI.md).
 
@@ -74,7 +74,7 @@ All scripts accept `--help`.
 ## What Each File Does
 
 ### `src/config.py`
-The single source of truth for the whole project. Defines file paths, the 15 tickers, the Finnhub API key (read from `.env`), the 4PM ET prediction cutoff, and LSTM/NLP hyperparameters. Also auto-creates `data/` subdirectories on import so nothing else has to.
+The single source of truth for the whole project. Defines file paths, the 20 tickers, the Finnhub API key (read from `.env`), the 4PM ET prediction cutoff, and LSTM/NLP hyperparameters. Also auto-creates `data/` subdirectories on import so nothing else has to.
 
 ### `src/database/schema.py`
 Creates and manages 5 SQLite tables:

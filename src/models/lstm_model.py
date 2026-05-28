@@ -30,6 +30,23 @@ from src.config import LSTM_CONFIG
 logger = logging.getLogger(__name__)
 
 
+class FocalLoss(nn.Module):
+    """Down-weight easy examples so the LSTM learns hard DOWN days, not just 'always UP'."""
+
+    def __init__(self, gamma: float = 2.0, alpha: float = 0.5):
+        super().__init__()
+        self.gamma = gamma
+        self.alpha = float(alpha)
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        targets = targets.float()
+        bce = nn.functional.binary_cross_entropy_with_logits(logits, targets, reduction="none")
+        p = torch.sigmoid(logits)
+        pt = torch.where(targets >= 0.5, p, 1 - p)
+        alpha_t = torch.where(targets >= 0.5, self.alpha, 1 - self.alpha)
+        return (alpha_t * ((1 - pt) ** self.gamma) * bce).mean()
+
+
 # Below this validation-set size, fitting an isotonic step function on a
 # seed-averaged LSTM collapses the calibrated output into a handful of
 # plateaus. Use sigmoid (Platt) scaling instead when val is small.
@@ -150,6 +167,11 @@ class LSTMTrainer:
         if pos_weight is not None:
             pw = torch.tensor([float(pos_weight)], device=self.device)
             self.criterion = nn.BCEWithLogitsLoss(pos_weight=pw)
+        elif self.config.get("use_focal_loss", True):
+            self.criterion = FocalLoss(
+                gamma=float(self.config.get("focal_gamma", 2.0)),
+                alpha=float(self.config.get("focal_alpha", 0.5)),
+            )
         else:
             self.criterion = nn.BCEWithLogitsLoss()
         self.pos_weight = float(pos_weight) if pos_weight is not None else None
@@ -160,6 +182,7 @@ class LSTMTrainer:
         self.scaler_state = scaler_state
         self.calibrator = None
         self.calibration_method: str | None = None
+        self.decision_threshold: float = 0.5
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray,
               X_val: np.ndarray, y_val: np.ndarray,
@@ -169,22 +192,24 @@ class LSTMTrainer:
         train_loader = self._make_loader(X_train, y_train, tidx_train, shuffle=True)
         val_loader = self._make_loader(X_val, y_val, tidx_val, shuffle=False)
 
-        best_val_acc, best_state, wait = 0.0, None, 0
+        # Use balanced accuracy (avg of UP and DOWN recall) to prevent the model
+        # collapsing to "predict all UP always" — raw accuracy does not penalise this.
+        best_val_metric, best_state, wait = 0.0, None, 0
         epochs = self.config["epochs"]
 
         for epoch in range(epochs):
             train_loss, train_acc = self._train_epoch(train_loader)
-            val_acc = self._eval_accuracy(val_loader)
+            val_bal_acc = self._eval_balanced_accuracy(val_loader)
 
             self.history["train_loss"].append(train_loss)
             self.history["train_acc"].append(train_acc)
-            self.history["val_acc"].append(val_acc)
+            self.history["val_acc"].append(val_bal_acc)
 
-            self.scheduler.step(val_acc)
+            self.scheduler.step(val_bal_acc)
 
-            improved = val_acc > best_val_acc
+            improved = val_bal_acc > best_val_metric
             if improved:
-                best_val_acc = val_acc
+                best_val_metric = val_bal_acc
                 best_state = copy.deepcopy(self.model.state_dict())
                 wait = 0
             else:
@@ -195,7 +220,7 @@ class LSTMTrainer:
                 print(f"  Epoch {epoch + 1:3d}/{epochs}  "
                       f"Loss: {train_loss:.4f}  "
                       f"Train Acc: {train_acc:.4f}  "
-                      f"Val Acc: {val_acc:.4f}{marker}")
+                      f"Val BalAcc: {val_bal_acc:.4f}{marker}")
 
             if wait >= patience:
                 print(f"  Early stopping at epoch {epoch + 1} "
@@ -204,7 +229,7 @@ class LSTMTrainer:
 
         if best_state is not None:
             self.model.load_state_dict(best_state)
-        print(f"\n  Best validation accuracy: {best_val_acc:.4f}")
+        print(f"\n  Best validation balanced accuracy: {best_val_metric:.4f}")
         return self.history
 
     def evaluate(self, X: np.ndarray, y: np.ndarray,
@@ -230,7 +255,7 @@ class LSTMTrainer:
     def predict(self, X: np.ndarray,
                 ticker_idx: np.ndarray | None = None) -> np.ndarray:
         probs = self.predict_proba(X, ticker_idx)
-        return (probs >= 0.5).astype(np.int32)
+        return (probs >= self.decision_threshold).astype(np.int32)
 
     def predict_proba(self, X: np.ndarray,
                       ticker_idx: np.ndarray | None = None,
@@ -262,6 +287,10 @@ class LSTMTrainer:
         collapses the output into a handful of plateaus (e.g. 96% of rows
         landing on exactly p=0.541). Sigmoid is a smooth 2-parameter fit
         and produces continuous, informative confidences.
+
+        Calibration is skipped when the raw probabilities are degenerate
+        (std < 0.005 or all predictions go to the same class) — in this case
+        calibration would only add noise to a meaningless signal.
         """
         if len(X_val) == 0:
             self.calibrator = None
@@ -273,6 +302,23 @@ class LSTMTrainer:
             self.calibration_method = None
             return
 
+        raw_std = float(np.std(raw))
+        logger.info("LSTM pre-calibration raw proba: min=%.4f max=%.4f std=%.4f",
+                    float(raw.min()), float(raw.max()), raw_std)
+
+        # If the model outputs a near-constant probability, calibration cannot
+        # recover variance — it will only collapse outputs further into plateaus.
+        DEGENERATE_STD_THRESH = 0.005
+        if raw_std < DEGENERATE_STD_THRESH:
+            logger.warning(
+                "Skipping calibration: raw proba std=%.4f < %.3f (degenerate — "
+                "model collapse likely). Run with balanced accuracy objective to fix.",
+                raw_std, DEGENERATE_STD_THRESH,
+            )
+            self.calibrator = None
+            self.calibration_method = "none_degenerate"
+            return
+
         if len(raw) >= CAL_ISOTONIC_MIN_ROWS:
             from sklearn.isotonic import IsotonicRegression
             cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
@@ -282,6 +328,25 @@ class LSTMTrainer:
         else:
             self.calibrator = _SigmoidCalibrator().fit(raw, y_val.astype(int))
             self.calibration_method = "sigmoid"
+
+    @staticmethod
+    def tune_decision_threshold(y_true: np.ndarray, proba: np.ndarray) -> float:
+        """Pick the 0.35–0.65 cutoff that maximizes balanced accuracy on validation."""
+        y = np.asarray(y_true).astype(int)
+        p = np.asarray(proba, dtype=float)
+        if len(y) == 0 or len(np.unique(y)) < 2:
+            return 0.5
+        best_t, best_ba = 0.5, -1.0
+        for t in np.linspace(0.35, 0.65, 61):
+            pred = (p >= t).astype(int)
+            up = int((y == 1).sum())
+            down = int((y == 0).sum())
+            r_up = int(((pred == 1) & (y == 1)).sum()) / max(up, 1)
+            r_down = int(((pred == 0) & (y == 0)).sum()) / max(down, 1)
+            ba = (r_up + r_down) / 2.0
+            if ba > best_ba:
+                best_ba, best_t = ba, float(t)
+        return best_t
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -298,6 +363,9 @@ class LSTMTrainer:
             "pos_weight": self.pos_weight,
             "calibrator": self.calibrator,
             "calibration_method": self.calibration_method,
+            "decision_threshold": self.decision_threshold,
+            # Diagnostic: val balanced-accuracy history (helps track collapse)
+            "early_stop_metric": "balanced_accuracy",
         }, path)
         logger.info("Model saved to %s", path)
 
@@ -326,6 +394,7 @@ class LSTMTrainer:
         trainer.history = checkpoint.get("history", {})
         trainer.calibrator = checkpoint.get("calibrator")
         trainer.calibration_method = checkpoint.get("calibration_method")
+        trainer.decision_threshold = float(checkpoint.get("decision_threshold", 0.5))
         return trainer
 
     def _train_epoch(self, loader: DataLoader) -> tuple[float, float]:
@@ -366,6 +435,33 @@ class LSTMTrainer:
                 correct += (preds == y_batch.long()).sum().item()
                 total += len(y_batch)
         return correct / max(total, 1)
+
+    def _eval_balanced_accuracy(self, loader: DataLoader) -> float:
+        """Balanced accuracy = mean of UP recall and DOWN recall.
+
+        Unlike raw accuracy, this cannot be gamed by predicting all UP when
+        the class distribution is ~51/49. A model that predicts all UP scores
+        0.5 (same as coin flip), forcing the optimizer to learn DOWN predictions
+        too.
+        """
+        self.model.eval()
+        tp_up = tp_down = tot_up = tot_down = 0
+        with torch.no_grad():
+            for batch in loader:
+                X_batch, y_batch, *tidx_batch = batch
+                X_batch = X_batch.to(self.device)
+                y_batch = y_batch.to(self.device)
+                tidx_t = tidx_batch[0].to(self.device) if tidx_batch else None
+                logits = self.model(X_batch, tidx_t)
+                preds = (torch.sigmoid(logits) >= 0.5).long()
+                labels_l = y_batch.long()
+                tp_up += int(((preds == 1) & (labels_l == 1)).sum())
+                tot_up += int((labels_l == 1).sum())
+                tp_down += int(((preds == 0) & (labels_l == 0)).sum())
+                tot_down += int((labels_l == 0).sum())
+        recall_up = tp_up / max(tot_up, 1)
+        recall_down = tp_down / max(tot_down, 1)
+        return (recall_up + recall_down) / 2.0
 
     def _make_loader(self, X: np.ndarray, y: np.ndarray,
                      ticker_idx: np.ndarray | None,

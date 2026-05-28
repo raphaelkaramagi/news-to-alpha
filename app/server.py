@@ -472,6 +472,12 @@ def api_data_status():
         "horizon": horizon,
         "last_published_at": last_published,
         "deploy_mode": "inference_only" if _INFERENCE_ONLY else "full",
+        "train_config": {
+            "encoder_model": pipeline_cfg.get("encoder_model") or ("finbert" if pipeline_cfg.get("use_finbert") else "minilm"),
+            "conditional_ensemble": bool(pipeline_cfg.get("conditional_ensemble")),
+            "min_move_pct": pipeline_cfg.get("min_move_pct"),
+            "lstm_epochs": pipeline_cfg.get("lstm_epochs"),
+        },
     })
 
 
@@ -964,26 +970,32 @@ _FEATURE_BASELINES: dict[str, float] = {
 }
 
 _FEATURE_LABELS: dict[str, str] = {
-    "financial_pred_proba": "Price model (LSTM)",
-    "news_tfidf_pred_proba": "Headline keywords (TF-IDF)",
-    "news_embeddings_pred_proba": "Headline meaning (embeddings)",
-    "lstm_confidence": "How sure the price model is",
-    "tfidf_confidence": "How sure the keyword model is",
-    "emb_confidence": "How sure the embedding model is",
-    "all_agree": "All models point the same way",
-    "has_news": "News available that day",
-    "n_headlines": "Number of headlines",
-    "spy_return_5d": "Broad market (SPY) last 5 days",
+    "financial_pred_proba": "Price P(UP)",
+    "news_tfidf_pred_proba": "Keywords P(UP)",
+    "news_embeddings_pred_proba": "FinBERT P(UP)",
+    "lstm_confidence": "Price conviction",
+    "tfidf_confidence": "Keyword conviction",
+    "emb_confidence": "FinBERT conviction",
+    "all_agree": "All models agree",
+    "has_news": "Headlines present",
+    "n_headlines": "Headline count",
+    "spy_return_5d": "SPY 5-day return",
+    "news_tfidf_x_has_news": "Keywords × headlines",
+    "news_emb_x_has_news": "FinBERT × headlines",
+    "lstm_x_agree": "Price × agreement",
 }
 
 _FEATURE_HINTS: dict[str, str] = {
-    "financial_pred_proba": "60-day price + technicals; above 50% favors UP.",
-    "news_tfidf_pred_proba": "Logistic model on headline word patterns.",
-    "news_embeddings_pred_proba": "Sentence embeddings of headlines, pooled per day.",
-    "spy_return_5d": "When the market has been weak, the ensemble tilts DOWN.",
-    "has_news": "No news → neutral news inputs (50%).",
-    "n_headlines": "More headlines can strengthen the news leg when present.",
-    "all_agree": "1 when LSTM, TF-IDF, and embeddings all agree on direction.",
+    "financial_pred_proba": "LSTM output from 60-day price + technicals + VIX.",
+    "news_tfidf_pred_proba": "TF-IDF headline model.",
+    "news_embeddings_pred_proba": "FinBERT headline model.",
+    "spy_return_5d": "Broad market regime — SPY 5-day % change.",
+    "has_news": "1 when at least one headline before 4 PM ET.",
+    "n_headlines": "Headlines counted for that session.",
+    "all_agree": "1 when price, keywords, and FinBERT agree on direction.",
+    "news_tfidf_x_has_news": "Keyword score gated by headline presence.",
+    "news_emb_x_has_news": "FinBERT score gated by headline presence.",
+    "lstm_x_agree": "Price score boosted when all models agree.",
 }
 
 
@@ -1004,6 +1016,34 @@ def _compute_feature_scales(df: pd.DataFrame, features: list[str]) -> dict[str, 
         scale = float(max(q3 - q1, series.std() or 0.0, 1e-6))
         out[f] = {"baseline": float(baseline), "scale": scale}
     return out
+
+
+def _meta_payload_for_explanation(row: pd.Series, full_payload: dict) -> dict[str, Any]:
+    """Select the correct meta-model for counterfactual explanation on one row."""
+    if full_payload.get("conditional"):
+        has_news = int(row.get("has_news", 0) or 0) == 1
+        if has_news:
+            return {
+                "meta": full_payload.get("has_news_model"),
+                "temperature": float(full_payload.get("has_news_temperature", 1.0)),
+                "importances": full_payload.get("importances") or [],
+                "conditional": True,
+                "route": "has_news",
+            }
+        return {
+            "meta": full_payload.get("no_news_model"),
+            "temperature": float(full_payload.get("no_news_temperature", 1.0)),
+            "importances": full_payload.get("importances") or [],
+            "conditional": True,
+            "route": "no_news",
+        }
+    return {
+        "meta": full_payload.get("meta"),
+        "temperature": float(full_payload.get("temperature", 1.0)),
+        "importances": full_payload.get("importances") or [],
+        "conditional": False,
+        "route": "unified",
+    }
 
 
 @app.route("/api/rationale")
@@ -1031,14 +1071,22 @@ def api_rationale():
     features: list[str] = []
     importances: list[tuple[str, float]] = []
     temperature = 1.0
+    ensemble_route: str | None = None
     if META_MODEL_PATH.exists():
         try:
             payload = joblib.load(META_MODEL_PATH)
             features = payload.get("features", [])
             importances = payload.get("importances", []) or []
-            temperature = float(payload.get("temperature", 1.0))
+            meta_for_row = _meta_payload_for_explanation(row, payload)
+            temperature = float(meta_for_row.get("temperature", 1.0))
+            ensemble_route = meta_for_row.get("route")
+            if payload.get("conditional"):
+                importances = meta_for_row.get("importances") or importances
         except Exception:
             features, importances = [], []
+            meta_for_row = {"meta": None, "temperature": 1.0, "importances": []}
+    else:
+        meta_for_row = {"meta": None, "temperature": 1.0, "importances": []}
 
     imp_map = {k: v for k, v in importances}
     scales = _compute_feature_scales(df, features)
@@ -1088,22 +1136,33 @@ def api_rationale():
     try:
         from src.ml.ensemble_explain import explain_ensemble_row
 
-        meta_payload = {
-            "meta": None,
-            "temperature": temperature,
-            "importances": importances,
-        }
-        if META_MODEL_PATH.exists():
-            full_payload = joblib.load(META_MODEL_PATH)
-            meta_payload["meta"] = full_payload.get("meta")
-            meta_payload["temperature"] = float(full_payload.get("temperature", temperature))
-            meta_payload["importances"] = full_payload.get("importances") or importances
-        if meta_payload["meta"] is not None:
-            explanation = explain_ensemble_row(row, meta_payload)
+        if META_MODEL_PATH.exists() and meta_for_row.get("meta") is not None:
+            explanation = explain_ensemble_row(row, meta_for_row)
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("ensemble explain failed: %s", exc)
         explanation = {}
+
+    has_news = int(row.get("has_news", 0) or 0) == 1
+
+    from scripts.build_ensemble import META_FEATURES
+    from src.features.lstm_snapshot import get_lstm_snapshot
+
+    meta_features: list[dict[str, Any]] = []
+    for feat in META_FEATURES:
+        if feat in row.index and pd.notna(row[feat]):
+            val = float(row[feat])
+        else:
+            val = 0.0
+        meta_features.append({
+            "key": feat,
+            "label": _FEATURE_LABELS.get(feat, feat.replace("_", " ")),
+            "hint": _FEATURE_HINTS.get(feat, ""),
+            "value": val,
+            "importance": float(imp_map.get(feat, 0.0)),
+        })
+
+    lstm_context = get_lstm_snapshot(ticker, str(row["prediction_date"]))
 
     return _jsonify_safe({
         "ticker": ticker,
@@ -1111,6 +1170,10 @@ def api_rationale():
         "per_model": per_model,
         "ensemble_proba": float(row.get("ensemble_pred_proba", 0.5)) if "ensemble_pred_proba" in row_df.columns else None,
         "ensemble_confidence": float(row.get("ensemble_confidence", 0.0)) if "ensemble_confidence" in row_df.columns else None,
+        "has_news": has_news,
+        "ensemble_route": ensemble_route,
+        "meta_features": meta_features,
+        "lstm_context": lstm_context,
         "contributions": contributions[:8],
         "features": contributions[:8],
         "explanation": explanation,

@@ -37,6 +37,12 @@ export type DataStatus = {
   last_published_at: string | null;
   deploy_mode: "inference_only" | "full";
   horizon?: number;
+  train_config?: {
+    encoder_model?: string;
+    conditional_ensemble?: boolean;
+    min_move_pct?: number;
+    lstm_epochs?: number;
+  };
 };
 
 export type JobSpec = {
@@ -100,7 +106,8 @@ export type EnsembleExplanation = {
     label: string;
     proba: number;
     display: string;
-    direction: "UP" | "DOWN";
+    direction: "UP" | "DOWN" | "N/A";
+    active?: boolean;
   }>;
   drivers: Array<{
     feature: string;
@@ -111,6 +118,8 @@ export type EnsembleExplanation = {
   }>;
   news_weight_note?: string | null;
   models_disagree?: boolean;
+  ensemble_route?: "has_news" | "no_news" | "unified" | null;
+  has_news?: boolean;
 };
 
 export type RationaleResponse = {
@@ -124,6 +133,32 @@ export type RationaleResponse = {
   features?: RationaleFeature[];
   contributions?: RationaleFeature[];
   explanation?: EnsembleExplanation;
+  has_news?: boolean;
+  ensemble_route?: "has_news" | "no_news" | "unified" | null;
+  temperature?: number;
+  meta_features?: MetaFeatureRow[];
+  lstm_context?: LstmContextSnapshot | null;
+};
+
+export type MetaFeatureRow = {
+  key: string;
+  label: string;
+  hint?: string;
+  value: number;
+  importance?: number;
+};
+
+export type LstmContextField = {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+};
+
+export type LstmContextSnapshot = {
+  available: boolean;
+  note?: string;
+  fields: LstmContextField[];
 };
 
 export type HistoryPoint = {
@@ -161,6 +196,18 @@ export type ConvictionBucket = {
   confidence_max: number;
   n: number;
   accuracy: number | null;
+};
+
+export type MetricsResponse = {
+  overall: Array<{
+    model: string;
+    split: string;
+    subset: string;
+    accuracy: number;
+    auc: number;
+    n: number;
+  }>;
+  by_ticker: unknown[];
 };
 
 export type LastResolvedRow = {

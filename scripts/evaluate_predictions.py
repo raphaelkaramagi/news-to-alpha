@@ -8,9 +8,10 @@ Inputs
 
 Outputs (written to data/processed/)
 -----------------------------------
-  evaluation_overall.csv
-  evaluation_by_ticker.csv
-  evaluation_summary.txt
+  evaluation_overall.csv          - metrics for all rows
+  evaluation_by_ticker.csv        - per-ticker breakdown
+  evaluation_summary.txt          - human-readable table (all / has_news / high_conf)
+  evaluation_by_confidence.csv    - accuracy per confidence bucket
 
 Reported models:
   - lstm_price
@@ -22,6 +23,15 @@ Reported models:
 
 Metrics: accuracy, precision_up, recall_up, f1_up, auc (when both classes
 present), n.
+
+Subset breakdown (printed in summary, also written to evaluation_overall.csv):
+  - all        : every labeled test row (current behavior)
+  - has_news   : rows where has_news == 1 (real news, not 0.5 fill)
+  - high_conf  : rows where ensemble_confidence >= 0.3
+
+LSTM diagnostics:
+  Reads price_predictions.csv (produced by train_lstm.py) and prints the
+  pre-calibration proba distribution to flag model collapse early.
 """
 
 from __future__ import annotations
@@ -140,20 +150,48 @@ def evaluate_all(
         raise RuntimeError(f"No labeled rows found for split={split!r}")
 
     df["actual_binary"] = df["actual_binary"].astype(int)
-    y_true = df["actual_binary"].to_numpy()
 
+    # Build subset masks for diagnostic evaluation.
+    has_news_mask = None
+    if "has_news" in df.columns:
+        has_news_mask = df["has_news"].fillna(0).astype(int).to_numpy().astype(bool)
+    high_conf_mask = None
+    if "ensemble_confidence" in df.columns:
+        high_conf_mask = (df["ensemble_confidence"].fillna(0.0) >= 0.3).to_numpy()
+    elif "ensemble_pred_proba" in df.columns:
+        conf = (df["ensemble_pred_proba"].fillna(0.5) - 0.5).abs() * 2
+        high_conf_mask = (conf >= 0.3).to_numpy()
+
+    y_true = df["actual_binary"].to_numpy()
     overall_rows: list[dict] = []
     by_ticker_rows: list[dict] = []
 
-    def _add(name: str, y_pred: np.ndarray, y_proba: Optional[np.ndarray]):
-        metrics = _compute_metrics(y_true, y_pred, y_proba)
-        overall_rows.append({"model": name, "split": split, **metrics})
+    def _add_subset(name: str, y_pred: np.ndarray, y_proba: Optional[np.ndarray],
+                    subset: str = "all", mask: Optional[np.ndarray] = None):
+        if mask is not None:
+            if mask.sum() == 0:
+                return
+            yt = y_true[mask]
+            yp = y_pred[mask]
+            ya = y_proba[mask] if y_proba is not None else None
+        else:
+            yt, yp, ya = y_true, y_pred, y_proba
+        metrics = _compute_metrics(yt, yp, ya)
+        overall_rows.append({"model": name, "split": split, "subset": subset, **metrics})
 
+    def _add(name: str, y_pred: np.ndarray, y_proba: Optional[np.ndarray]):
+        _add_subset(name, y_pred, y_proba, subset="all")
+        if has_news_mask is not None:
+            _add_subset(name, y_pred, y_proba, subset="has_news", mask=has_news_mask)
+        if high_conf_mask is not None:
+            _add_subset(name, y_pred, y_proba, subset="high_conf", mask=high_conf_mask)
+
+        # Per-ticker (all rows)
         for ticker, sub in df.groupby("ticker"):
-            mask = df["ticker"] == ticker
-            sub_true = sub["actual_binary"].to_numpy()
-            sub_pred = y_pred[mask.to_numpy()]
-            sub_proba = y_proba[mask.to_numpy()] if y_proba is not None else None
+            mask = (df["ticker"] == ticker).to_numpy()
+            sub_true = y_true[mask]
+            sub_pred = y_pred[mask]
+            sub_proba = y_proba[mask] if y_proba is not None else None
             m = _compute_metrics(sub_true, sub_pred, sub_proba)
             by_ticker_rows.append({
                 "model": name,
@@ -190,9 +228,83 @@ def evaluate_all(
     else:
         print("  [skip] previous_day_direction: no labels available")
 
-    overall = pd.DataFrame(overall_rows).sort_values("accuracy", ascending=False)
+    overall = pd.DataFrame(overall_rows).sort_values(
+        ["subset", "accuracy"], ascending=[True, False]
+    )
     by_ticker = pd.DataFrame(by_ticker_rows).sort_values(["model", "ticker"])
     return overall, by_ticker, overall_rows
+
+
+def _lstm_diagnostics(processed_dir: Path) -> str:
+    """Read price_predictions.csv and report LSTM proba distribution statistics.
+
+    This catches model collapse (all probas near 0.5, zero DOWN predictions)
+    before the full ensemble evaluation runs.
+    """
+    csv = processed_dir / "price_predictions.csv"
+    if not csv.exists():
+        return "  [skip] price_predictions.csv not found"
+    df = pd.read_csv(csv)
+    test = df[df["split"] == "test"].copy() if "split" in df.columns else df
+    if test.empty or "financial_pred_proba" not in test.columns:
+        return "  [skip] no test rows or missing column"
+
+    proba = test["financial_pred_proba"].astype(float)
+    pred = (proba >= 0.5).astype(int)
+    n = len(proba)
+    n_up = int((pred == 1).sum())
+    lines = [
+        f"  n_test={n}   UP_predictions={n_up} ({n_up/max(n,1):.0%})  "
+        f"DOWN_predictions={n - n_up} ({(n-n_up)/max(n,1):.0%})",
+        f"  proba  min={proba.min():.4f}  max={proba.max():.4f}  "
+        f"mean={proba.mean():.4f}  std={proba.std():.4f}",
+    ]
+    if proba.std() < 0.01:
+        lines.append("  *** COLLAPSED: std < 0.01 — model is essentially constant ***")
+    if n_up == n:
+        lines.append("  *** DEGENERATE: 100% UP predictions — balanced accuracy = 50% ***")
+    return "\n".join(lines)
+
+
+def _data_coverage_report(db_path: Path) -> str:
+    """Print news vs price date range per ticker to quantify news sparsity."""
+    if not db_path.exists():
+        return "  [skip] database not found"
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    try:
+        prices = pd.read_sql_query(
+            "SELECT ticker, MIN(date) AS price_min, MAX(date) AS price_max, "
+            "COUNT(*) AS price_rows FROM prices WHERE ticker != 'SPY' "
+            "GROUP BY ticker ORDER BY ticker",
+            conn,
+        )
+        news = pd.read_sql_query(
+            "SELECT ticker, MIN(published_at) AS news_min, MAX(published_at) AS news_max, "
+            "COUNT(*) AS news_rows FROM news GROUP BY ticker ORDER BY ticker",
+            conn,
+        )
+    finally:
+        conn.close()
+
+    if prices.empty:
+        return "  [skip] no price data in DB"
+
+    merged = prices.merge(news, on="ticker", how="left")
+    lines = [
+        f"  {'Ticker':6s}  {'Price from':10s}  {'Price to':10s}  "
+        f"{'News from':10s}  {'News to':10s}  {'News rows':>9s}  {'Price rows':>10s}"
+    ]
+    for _, r in merged.iterrows():
+        news_min = r.get("news_min", "—") or "—"
+        news_max = r.get("news_max", "—") or "—"
+        news_rows = int(r["news_rows"]) if pd.notna(r.get("news_rows")) else 0
+        lines.append(
+            f"  {r['ticker']:6s}  {str(r['price_min'])[:10]:10s}  "
+            f"{str(r['price_max'])[:10]:10s}  {str(news_min)[:10]:10s}  "
+            f"{str(news_max)[:10]:10s}  {news_rows:>9,d}  {int(r['price_rows']):>10,d}"
+        )
+    return "\n".join(lines)
 
 
 def _evaluate_by_confidence(
@@ -242,28 +354,36 @@ def _evaluate_by_confidence(
 
 
 def _format_summary(overall: pd.DataFrame, split: str) -> str:
-    lines = [
-        "=" * 72,
-        f"EVALUATION SUMMARY (split={split})",
-        "=" * 72,
-        "",
-        f"{'model':<28s}{'acc':>8s}{'prec_up':>10s}{'recall_up':>12s}"
-        f"{'f1_up':>10s}{'auc':>8s}{'n':>8s}",
-        "-" * 72,
-    ]
-    for _, r in overall.iterrows():
-        auc = "nan" if (isinstance(r["auc"], float) and np.isnan(r["auc"])) else f"{r['auc']:.3f}"
-        lines.append(
-            f"{r['model']:<28s}"
-            f"{r['accuracy']:>8.3f}"
-            f"{r['precision_up']:>10.3f}"
-            f"{r['recall_up']:>12.3f}"
-            f"{r['f1_up']:>10.3f}"
-            f"{auc:>8s}"
-            f"{int(r['n']):>8d}"
-        )
-    lines.append("=" * 72)
-    return "\n".join(lines)
+    subsets = ["all", "has_news", "high_conf"] if "subset" in overall.columns else ["all"]
+    lines = []
+    for subset in subsets:
+        sub = overall[overall["subset"] == subset] if "subset" in overall.columns else overall
+        if sub.empty:
+            continue
+        n_label = f"  subset={subset!r}" if subset != "all" else ""
+        lines += [
+            "=" * 76,
+            f"EVALUATION SUMMARY (split={split}){n_label}",
+            "=" * 76,
+            "",
+            f"{'model':<28s}{'acc':>8s}{'prec_up':>10s}{'recall_up':>12s}"
+            f"{'f1_up':>10s}{'auc':>8s}{'n':>8s}",
+            "-" * 76,
+        ]
+        for _, r in sub.iterrows():
+            auc = "nan" if (isinstance(r["auc"], float) and np.isnan(r["auc"])) else f"{r['auc']:.3f}"
+            lines.append(
+                f"{r['model']:<28s}"
+                f"{r['accuracy']:>8.3f}"
+                f"{r['precision_up']:>10.3f}"
+                f"{r['recall_up']:>12.3f}"
+                f"{r['f1_up']:>10.3f}"
+                f"{auc:>8s}"
+                f"{int(r['n']):>8d}"
+            )
+        lines.append("=" * 76)
+        lines.append("")
+    return "\n".join(lines).rstrip()
 
 
 def main() -> None:
@@ -319,6 +439,13 @@ def main() -> None:
 
     overall.to_csv(overall_path, index=False)
     by_ticker.to_csv(by_ticker_path, index=False)
+
+    print("\n--- LSTM Probability Diagnostics ---")
+    print(_lstm_diagnostics(output_dir))
+
+    print("\n--- Data Coverage Report ---")
+    print(_data_coverage_report(DATABASE_PATH))
+
     summary = _format_summary(overall, args.split)
     summary_path.write_text(summary + "\n")
 
@@ -328,7 +455,7 @@ def main() -> None:
     if conviction is not None:
         conviction.to_csv(conviction_path, index=False)
 
-    print(summary)
+    print("\n" + summary)
     print(f"\nSaved:\n  {overall_path}\n  {by_ticker_path}\n  {summary_path}")
     if conviction is not None:
         print(f"  {conviction_path}")

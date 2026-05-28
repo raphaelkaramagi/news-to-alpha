@@ -1,6 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
+import { PredictionDatePicker } from "@/components/shared/PredictionDatePicker";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,9 +37,12 @@ export function GlobalDateNav() {
       >
         <ChevronLeft size={14} />
       </button>
-      <span className="font-mono tabular-nums min-w-[5.5rem] text-center text-muted-foreground">
-        {selectedDate}
-      </span>
+      <PredictionDatePicker
+        dates={dates}
+        selected={selectedDate}
+        onChange={setSelectedDate}
+        align="right"
+      />
       <button
         onClick={goNext}
         disabled={isLatest || idx >= dates.length - 1}

@@ -36,7 +36,7 @@ Used by: collection scripts, headlines API, chart price line, resolved-call badg
 | `news_embeddings_predictions.csv` | Embedding news scores |
 | `eval_dataset.csv` | Joined per-model CSVs |
 | **`final_ensemble_predictions.csv`** | **What the UI reads** — ensemble + all model columns |
-| `evaluation_*.csv` | Accuracy / conviction metrics |
+| `evaluation_*.csv` | Accuracy metrics (`all`, `has_news`, `high_conf` subsets) |
 | `pipeline_config.json` | Last train config (horizon, seeds, tickers) |
 | `last_published.json` | Timestamp written by publish script |
 
@@ -46,8 +46,8 @@ Used by: collection scripts, headlines API, chart price line, resolved-call badg
 |------|---------|
 | `lstm_model.pt` | LSTM weights + scaler (+ optional seed models) |
 | `nlp_baseline.joblib` | TF-IDF + logistic |
-| `news_embeddings.joblib` | MiniLM + classifier |
-| `ensemble_meta.joblib` | Meta-model + feature importances (Why tab) |
+| `news_embeddings.joblib` | FinBERT (max_v2) or MiniLM + classifier |
+| `ensemble_meta.joblib` | Meta-model(s) + feature importances (Why tab) |
 
 ---
 
@@ -79,7 +79,7 @@ So jumping from 5/22 to 5/26 is expected — there were no trading sessions in b
 
 ### First-time or full retrain (production)
 
-Use the **`max`** preset before your first deploy — all 15 tickers, 3 years of prices, next-day horizon (matches the UI), FinBERT embeddings, 3-seed LSTM with 120 epochs:
+Use the **`max`** preset before your first deploy — all 20 tickers, 3 years of prices, next-day horizon (matches the UI), FinBERT embeddings, 3-seed LSTM with 120 epochs:
 
 ```bash
 source .venv/bin/activate
@@ -98,7 +98,21 @@ Other presets:
 | `quick` | 2 tickers, smoke test (~minutes) |
 | `balanced` | 5 tickers, 3-day horizon, faster iteration |
 | `advanced` | All tickers, 3-day horizon, FinBERT |
-| **`max`** | **All tickers, next-day, most data — use before deploy** |
+| **`max`** | **All tickers, next-day — current production deploy preset** |
+| **`max_v2`** | **Accuracy experiment: FinBERT, conditional ensemble, 0.3% min-move filter, VIX features, 150 LSTM epochs** |
+
+`max_v2` is the recommended local retrain after the accuracy roadmap. Production still uses `max` until you publish a new bundle.
+
+```bash
+# Full retrain with all accuracy improvements (skips price re-download if already current)
+python scripts/run_pipeline.py --preset max_v2 --skip-collect --skip-news
+
+# Backfill historical news (Finnhub free tier ~1 year; always chunk + fill gaps):
+python scripts/collect_news.py --days 365 --backfill --fill-gaps --chunk-days 7
+
+# Repair a sparse month (Finnhub caps ~240 articles per call without chunking):
+python scripts/collect_news.py --start-date 2026-05-01 --end-date 2026-05-27 --fill-gaps
+```
 
 This runs: collect → labels → split → train all models → ensemble → evaluate, and appends **live** LSTM rows automatically at the end of `train_lstm.py`.
 
@@ -122,7 +136,7 @@ If you already have trained models and only need to advance dates:
 
 ```bash
 python scripts/collect_prices.py --days 14
-python scripts/collect_news.py --days 14
+python scripts/collect_news.py --days 14 --fill-gaps
 python scripts/generate_labels.py
 python scripts/score_models.py          # appends live LSTM rows
 python scripts/build_eval_dataset.py
@@ -185,7 +199,19 @@ Open http://localhost:3000 — Markets, `/t/AAPL`, `/status`.
 
 ---
 
-## Scripts reference
+## News collection (Finnhub)
+
+Finnhub returns **at most ~240 articles per API call**. A single wide date range keeps only the newest articles — older days in the month are dropped silently.
+
+| Mode | Command |
+|------|---------|
+| Daily / pipeline | `collect_news.py --days N --fill-gaps` (7-day chunks + per-day gap fill) |
+| Backfill history | `--days 365 --backfill --fill-gaps --chunk-days 7` |
+| Repair one month | `--start-date YYYY-MM-01 --end-date YYYY-MM-DD --fill-gaps` |
+
+Always use `--fill-gaps` for production collection. Without it, you can get clusters on recent days (e.g. 36 headlines on May 26, zero on May 4–20) even when Finnhub has data for those days.
+
+---
 
 | Script | When to use |
 |--------|-------------|
@@ -219,17 +245,26 @@ Labels in the UI: **Low** (&lt;25%), **Moderate** (25–45%), **Strong** (≥45%
 
 ### Why this call tab
 
-The ensemble meta-model is **HistGradientBoosting** (non-linear). The UI uses counterfactual explanation (`src/ml/ensemble_explain.py`):
+**Layperson view (`Why this call`):** direction, confidence, combiner route (news-tuned vs price-only), plain summary, and three input pills. On days without headlines, Keywords and FinBERT show “No headlines” instead of a fake 50% score.
 
-1. Final call + confidence (one card)
-2. Short summary (1–2 lines) — model split + simple avg vs ensemble
-3. Three vote pills — Price / Keywords / Meaning raw scores
-4. **What moved the final score** — counterfactual bars per factor
+**Advanced tab:** per-model probabilities, all 13 ensemble inputs, LSTM context snapshot, counterfactual driver bars, rolling accuracy.
 
-**Headline rows show “No impact”** when neutralizing that feature barely changes the ensemble (common when validation permutation importance for news features is ~0). News models still run and appear in the vote pills; the combiner simply did not rely on them for this call.
+The ensemble uses counterfactual explanation (`src/ml/ensemble_explain.py`). With `--conditional`, rows with headlines use a separate meta-model; the Advanced tab notes which route applied.
 
-Client-side fallback (`web/lib/ensembleExplainClient.ts`) fills in votes when Flask is stale; restart Flask for full driver bars:
+Restart Flask after retraining so driver bars load (client fallback shows votes only):
 
 ```bash
 python app/server.py --port 8000
 ```
+
+### Evaluation subsets
+
+`evaluate_predictions.py` reports three test slices:
+
+| Subset | Meaning |
+|--------|---------|
+| `all` | Every test row |
+| `has_news` | Days with at least one headline |
+| `high_conf` | Ensemble confidence ≥ 0.25 |
+
+Check `/status` in the UI or `data/processed/evaluation_summary.txt`.

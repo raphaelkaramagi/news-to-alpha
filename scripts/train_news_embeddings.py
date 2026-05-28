@@ -3,15 +3,24 @@
 
 Pipeline per ticker-day row:
 1. Load the raw headline list (one string per headline).
-2. Encode each headline individually with sentence-transformers (MiniLM).
-3. Mean-pool across headlines -> one 384-d vector per row (single-headline
+2. Encode each headline individually with a sentence-transformer model.
+   Default: all-MiniLM-L6-v2 (384-d, fast).
+   With --encoder-model finbert: ProsusAI/finbert (768-d, domain-tuned).
+3. Mean-pool across headlines -> one N-d vector per row (single-headline
    semantics is preserved, no concatenation artefacts).
 4. Optionally concatenate 12 FinBERT sentiment aggregates + a 16-d
-   publisher one-hot vector.
+   publisher one-hot vector (--use-finbert flag for sentiment aggregates).
 5. Calibrated logistic regression on the concatenated features.
 
 Uses `src.models.news_pipeline.build_dataset` so train / eval rows are
 cutoff-aligned and exactly the same as the TF-IDF baseline.
+
+Encoder model options
+---------------------
+  all-MiniLM-L6-v2    : 384-d, general English, fast. Good baseline.
+  ProsusAI/finbert    : 768-d, domain-tuned on financial text. Better for
+                        financial headlines. Use with --encoder-model finbert.
+  Any HuggingFace sentence-transformers model can be passed directly.
 
 Outputs
 -------
@@ -66,7 +75,16 @@ MODEL_NAME = "news_embeddings"
 MODEL_VERSION = datetime.now().strftime("%Y%m%dT%H%M%S")
 MODEL_FILE = "news_embeddings.joblib"
 DEFAULT_SENTENCE_MODEL = "all-MiniLM-L6-v2"
+FINBERT_MODEL = "ProsusAI/finbert"  # 768-d, financial domain
 CSV_NAME = "news_embeddings_predictions.csv"
+
+# Shorthand aliases for --encoder-model argument
+_ENCODER_ALIASES: dict[str, str] = {
+    "minilm": DEFAULT_SENTENCE_MODEL,
+    "miniLm": DEFAULT_SENTENCE_MODEL,
+    "finbert": FINBERT_MODEL,
+    "FinBERT": FINBERT_MODEL,
+}
 
 
 def _ensure_hf_home() -> None:
@@ -117,6 +135,10 @@ class NewsEmbeddingClassifier:
     def _get_encoder(self) -> Any:
         if self._encoder is None:
             from sentence_transformers import SentenceTransformer
+            # SentenceTransformer can load any HuggingFace model, including
+            # ProsusAI/finbert. For FinBERT we use mean-pooling over token
+            # embeddings (768-d), which gives richer per-headline representations
+            # than the 12-d aggregate sentiments used by --use-finbert.
             self._encoder = SentenceTransformer(self.sentence_model_name)
         return self._encoder
 
@@ -371,10 +393,19 @@ def main() -> None:
     parser.add_argument("--db", default=str(DATABASE_PATH))
     parser.add_argument("--train-ratio", type=float, default=0.70)
     parser.add_argument("--val-ratio", type=float, default=0.15)
-    parser.add_argument("--sentence-model", default=DEFAULT_SENTENCE_MODEL)
+    parser.add_argument("--sentence-model", default=DEFAULT_SENTENCE_MODEL,
+                        help="sentence-transformers model name (overridden by --encoder-model).")
+    parser.add_argument(
+        "--encoder-model", default=None,
+        help=(
+            "Primary headline encoder. Shortcuts: 'finbert' -> ProsusAI/finbert (768-d), "
+            "'minilm' -> all-MiniLM-L6-v2 (384-d). Any HuggingFace model name also works. "
+            "When set, overrides --sentence-model."
+        ),
+    )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--use-finbert", action="store_true",
-                        help="Concat FinBERT sentiment aggregates to the features")
+                        help="Concat 12-d FinBERT sentiment aggregates to the feature vector.")
     parser.add_argument("--horizon", type=int, default=1, choices=[1, 3],
                         help="Prediction horizon in trading days (default: 1)")
     parser.add_argument("--min-move-pct", type=float, default=0.0,
@@ -391,20 +422,28 @@ def main() -> None:
         format="%(asctime)s  %(name)s  %(levelname)s  %(message)s",
     )
 
+    # Resolve encoder model: --encoder-model shortcut overrides --sentence-model
+    if args.encoder_model is not None:
+        sentence_model = _ENCODER_ALIASES.get(args.encoder_model, args.encoder_model)
+    else:
+        sentence_model = args.sentence_model
+
     db_path = Path(args.db)
     csv_path = Path(args.output) if args.output else (PROCESSED_DATA_DIR / CSV_NAME)
     model_path = MODELS_DIR / MODEL_FILE
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+    is_finbert_encoder = sentence_model == FINBERT_MODEL
     print("=" * 70)
     print("NEWS EMBEDDINGS MODEL (per-headline mean-pool + publisher 1-hot"
-          + (", +FinBERT" if args.use_finbert else "") + ")")
+          + (f", encoder=FinBERT" if is_finbert_encoder else "")
+          + (", +FinBERT-sentiment" if args.use_finbert else "") + ")")
     print("=" * 70)
     print(f"DB               : {db_path}")
-    print(f"Sentence model   : {args.sentence_model}")
+    print(f"Encoder model    : {sentence_model}")
     print(f"Model output     : {model_path}")
     print(f"CSV output       : {csv_path}")
-    print(f"FinBERT features : {'yes' if args.use_finbert else 'no'}")
+    print(f"FinBERT sentiment: {'yes' if args.use_finbert else 'no'}")
     print()
 
     print("Step 1/4  Loading data ...")
@@ -424,7 +463,7 @@ def main() -> None:
 
     finbert_cache = (PROCESSED_DATA_DIR / "finbert_cache.db") if args.use_finbert else None
     model = NewsEmbeddingClassifier(
-        sentence_model_name=args.sentence_model,
+        sentence_model_name=sentence_model,
         batch_size=args.batch_size,
         use_finbert=args.use_finbert,
         finbert_cache_db=finbert_cache,
@@ -450,6 +489,7 @@ def main() -> None:
         "batch_size": model.batch_size,
         "model_name": MODEL_NAME,
         "model_version": MODEL_VERSION,
+        "encoder_model": sentence_model,
         "dataset": "src.models.news_pipeline.build_dataset",
     }
     joblib.dump(payload, model_path)
