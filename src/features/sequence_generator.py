@@ -206,6 +206,24 @@ class SequenceGenerator:
             X_list.append(values[i - self.seq_len : i])
             date_list.append(label_date.strftime("%Y-%m-%d"))
 
+        # Forward session: after the last price close, forecast the next trading day
+        # using the final complete window (available before that session's close).
+        if len(indicator_df) >= self.seq_len:
+            from datetime import date as date_type
+            from src.utils.trading_calendar import next_trading_session
+
+            last_price_date = dates_index[-1]
+            lp = (
+                last_price_date.date()
+                if hasattr(last_price_date, "date")
+                else date_type.fromisoformat(str(last_price_date)[:10])
+            )
+            next_str = next_trading_session(lp).strftime("%Y-%m-%d")
+            if next_str not in date_list:
+                X_fwd = values[len(indicator_df) - self.seq_len : len(indicator_df)]
+                X_list.append(X_fwd)
+                date_list.append(next_str)
+
         if not X_list:
             return np.array([]), []
 

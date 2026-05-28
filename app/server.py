@@ -66,6 +66,38 @@ MODEL_PROBA_COL = {
     "embeddings": "news_embeddings_pred_proba",
 }
 
+_LSTM_THRESHOLD_CACHE: float | None = None
+
+
+def _lstm_decision_threshold() -> float:
+    global _LSTM_THRESHOLD_CACHE
+    if _LSTM_THRESHOLD_CACHE is not None:
+        return _LSTM_THRESHOLD_CACHE
+    path = MODELS_DIR / "lstm_model.pt"
+    if not path.exists():
+        _LSTM_THRESHOLD_CACHE = 0.5
+        return 0.5
+    try:
+        import torch
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        _LSTM_THRESHOLD_CACHE = float(ckpt.get("decision_threshold", 0.5))
+    except Exception:
+        _LSTM_THRESHOLD_CACHE = 0.5
+    return _LSTM_THRESHOLD_CACHE
+
+
+def _model_pred_binary(df: pd.DataFrame, model: str) -> pd.Series:
+    """Binary predictions for a model head (uses LSTM tuned threshold when applicable)."""
+    model = model.lower()
+    proba_col = MODEL_PROBA_COL.get(model, "ensemble_pred_proba")
+    if proba_col not in df.columns:
+        return pd.Series(0, index=df.index)
+    proba = df[proba_col].fillna(0.5).astype(float)
+    if model == "ensemble" and "ensemble_pred_binary" in df.columns:
+        return df["ensemble_pred_binary"].fillna((proba >= 0.5).astype(int)).astype(int)
+    threshold = _lstm_decision_threshold() if model == "lstm" else 0.5
+    return (proba >= threshold).astype(int)
+
 # What `reset` wipes for each model.
 MODEL_ARTIFACTS: dict[str, list[Path]] = {
     "lstm": [
@@ -457,11 +489,63 @@ def api_data_status():
     except Exception:
         pass
 
+    # Resolved outcomes: most recent date where >= half the tickers have actual_binary filled
+    latest_resolved = None
+    try:
+        if df is not None and not df.empty and "actual_binary" in df.columns:
+            resolved_df = df.dropna(subset=["actual_binary"])
+            if not resolved_df.empty:
+                resolved_counts = resolved_df.groupby("prediction_date")["ticker"].count()
+                total_counts = df.groupby("prediction_date")["ticker"].count()
+                majority = resolved_counts[resolved_counts >= (total_counts / 2)]
+                if not majority.empty:
+                    latest_resolved = str(majority.index.max())
+    except Exception:
+        pass
+
+    # Market status based on current ET time vs 4 PM cutoff
+    from datetime import datetime as _datetime, timezone as _tz
+    import pytz as _pytz
+    _ET = _pytz.timezone("US/Eastern")
+    _now_et = _datetime.now(_tz.utc).astimezone(_ET)
+    _today_et = _now_et.date()
+    from src.utils.trading_calendar import _get_nyse  # reuse internal helper
+    _nyse = _get_nyse()
+    _today_is_trading = False
+    try:
+        if _nyse is not None:
+            import pandas as _pd
+            _today_is_trading = bool(_nyse.is_session(_pd.Timestamp(_today_et)))
+        else:
+            _today_is_trading = _today_et.weekday() < 5
+    except Exception:
+        _today_is_trading = _today_et.weekday() < 5
+
+    if not _today_is_trading:
+        market_status = "closed"
+    elif _now_et.hour < 9 or (_now_et.hour == 9 and _now_et.minute < 30):
+        market_status = "pre_market"
+    elif _now_et.hour < 16:
+        market_status = "open"
+    else:
+        market_status = "closed"
+
+    # pending_reason for the latest forecast date
+    pending_reason = "resolved"
+    if latest_pred and (not latest_resolved or latest_pred > latest_resolved):
+        if market_status == "open" or market_status == "pre_market":
+            pending_reason = "awaiting_next_close"
+        elif behind == 0:
+            pending_reason = "awaiting_data_refresh"
+        else:
+            pending_reason = "awaiting_data_refresh"
+
     return _jsonify_safe({
         "today": today,
         "latest_prediction_date": latest_pred,
         "latest_price_date": latest_price,
         "latest_news_date": latest_news,
+        "latest_resolved_prediction_date": latest_resolved,
         "prediction_rows": rows,
         "price_rows": price_count,
         "news_rows": news_count,
@@ -469,6 +553,8 @@ def api_data_status():
         "expected_latest_prediction_date": expected_latest,
         "trading_sessions_behind": behind,
         "is_current": is_current,
+        "market_status": market_status,
+        "pending_reason": pending_reason,
         "horizon": horizon,
         "last_published_at": last_published,
         "deploy_mode": "inference_only" if _INFERENCE_ONLY else "full",
@@ -539,12 +625,15 @@ def api_last_resolved():
     Powers the 'Yesterday vs Actual' card and the 7-dot history strip.
     """
     ticker = (request.args.get("ticker") or "").upper()
+    model = (request.args.get("model") or "ensemble").lower()
     try:
         n = max(1, min(60, int(request.args.get("n") or "7")))
     except ValueError:
         n = 7
     if ticker not in TICKERS:
         return jsonify({"error": f"Unknown ticker: {ticker}"}), 404
+    if model not in ALLOWED_MODELS:
+        return jsonify({"error": f"Unknown model: {model}"}), 400
 
     df = _load_predictions()
     if df is None:
@@ -556,6 +645,7 @@ def api_last_resolved():
         return jsonify({"ticker": ticker, "rows": []})
 
     sub = sub.tail(n)
+    pred_binary = _model_pred_binary(sub, model)
 
     # Pull realized returns from labels table (keyed on ticker, date == prediction_date)
     returns_by_date: dict[str, float] = {}
@@ -574,13 +664,12 @@ def api_last_resolved():
         conn.close()
 
     out: list[dict] = []
-    for _, row in sub.iterrows():
-        proba = float(row["ensemble_pred_proba"]) if pd.notna(row.get("ensemble_pred_proba")) else None
-        pred_bin = int(row["ensemble_pred_binary"]) if pd.notna(row.get("ensemble_pred_binary")) else None
+    for idx, (_, row) in enumerate(sub.iterrows()):
+        proba_col = MODEL_PROBA_COL.get(model, "ensemble_pred_proba")
+        proba = float(row[proba_col]) if proba_col in row and pd.notna(row.get(proba_col)) else None
+        pred_bin = int(pred_binary.iloc[idx])
         actual = int(row["actual_binary"]) if pd.notna(row.get("actual_binary")) else None
-        hit = None
-        if pred_bin is not None and actual is not None:
-            hit = int(pred_bin == actual)
+        hit = int(pred_bin == actual) if actual is not None else None
         date_str = str(row["prediction_date"])
         out.append({
             "date": date_str,
@@ -990,7 +1079,7 @@ _FEATURE_HINTS: dict[str, str] = {
     "news_tfidf_pred_proba": "TF-IDF headline model.",
     "news_embeddings_pred_proba": "FinBERT headline model.",
     "spy_return_5d": "Broad market regime — SPY 5-day % change.",
-    "has_news": "1 when at least one headline before 4 PM ET.",
+    "has_news": "1 when cutoff-aligned headlines exist before 4 PM ET.",
     "n_headlines": "Headlines counted for that session.",
     "all_agree": "1 when price, keywords, and FinBERT agree on direction.",
     "news_tfidf_x_has_news": "Keyword score gated by headline presence.",
@@ -1184,28 +1273,32 @@ def api_rationale():
 @app.route("/api/accuracy-trace")
 def api_accuracy_trace():
     ticker = (request.args.get("ticker") or "").upper()
+    model = (request.args.get("model") or "ensemble").lower()
     try:
         window = max(5, int(request.args.get("window") or "30"))
     except ValueError:
         window = 30
+    if model not in ALLOWED_MODELS:
+        return jsonify({"error": f"Unknown model: {model}"}), 400
 
     df = _load_predictions()
     if df is None:
-        return jsonify({"ticker": ticker, "window": window, "series": []})
+        return jsonify({"ticker": ticker, "model": model, "window": window, "series": []})
 
     sub = df[df["ticker"] == ticker].copy() if ticker else df.copy()
     sub = sub[sub["actual_binary"].notna()].sort_values("prediction_date")
     if sub.empty:
-        return jsonify({"ticker": ticker, "window": window, "series": []})
+        return jsonify({"ticker": ticker, "model": model, "window": window, "series": []})
 
-    sub["correct"] = (sub["ensemble_pred_binary"] == sub["actual_binary"]).astype(int)
+    pred_binary = _model_pred_binary(sub, model)
+    sub["correct"] = (pred_binary == sub["actual_binary"].astype(int)).astype(int)
     sub["rolling_acc"] = sub["correct"].rolling(window=window, min_periods=5).mean()
 
     series = [
         {"date": d, "accuracy": (float(a) if pd.notna(a) else None)}
         for d, a in zip(sub["prediction_date"], sub["rolling_acc"])
     ]
-    return _jsonify_safe({"ticker": ticker, "window": window, "series": series})
+    return _jsonify_safe({"ticker": ticker, "model": model, "window": window, "series": series})
 
 
 def _markets_price_index(window: int) -> list[dict[str, Any]]:
@@ -1318,7 +1411,10 @@ def api_accuracy_summary():
         rows: [{date, ticker, pred_binary, actual_binary, hit, return}, ...] }
     """
     ticker = (request.args.get("ticker") or "ALL").upper()
+    model = (request.args.get("model") or "ensemble").lower()
     window_raw = (request.args.get("window") or "30").lower()
+    if model not in ALLOWED_MODELS:
+        return jsonify({"error": f"Unknown model: {model}"}), 400
     df = _load_predictions()
     if df is None:
         return jsonify({"scope": ticker, "window": window_raw, "n": 0, "rows": []})
@@ -1345,9 +1441,9 @@ def api_accuracy_summary():
             window_trim = sub.tail(n)
 
     window_trim = window_trim.copy()
-    window_trim["hit"] = (
-        window_trim["ensemble_pred_binary"] == window_trim["actual_binary"]
-    ).astype(int)
+    pred_binary = _model_pred_binary(window_trim, model)
+    window_trim["hit"] = (pred_binary == window_trim["actual_binary"].astype(int)).astype(int)
+    proba_col = MODEL_PROBA_COL.get(model, "ensemble_pred_proba")
 
     # Pull realized returns from labels table if available
     conn = _get_db()
@@ -1363,15 +1459,15 @@ def api_accuracy_summary():
             label_map[(lr["ticker"], str(lr["date"]))] = float(lr["label_return"])
 
     rows = []
-    for _, r in window_trim.iterrows():
+    for i, (_, r) in enumerate(window_trim.iterrows()):
         key = (r["ticker"], str(r["prediction_date"]))
         rows.append({
             "date": str(r["prediction_date"]),
             "ticker": r["ticker"],
-            "pred_binary": int(r["ensemble_pred_binary"]) if pd.notna(r["ensemble_pred_binary"]) else None,
+            "pred_binary": int(pred_binary.iloc[i]),
             "actual_binary": int(r["actual_binary"]) if pd.notna(r["actual_binary"]) else None,
-            "hit": int(r["hit"]),
-            "proba": float(r["ensemble_pred_proba"]) if pd.notna(r.get("ensemble_pred_proba")) else None,
+            "hit": int(window_trim["hit"].iloc[i]),
+            "proba": float(r[proba_col]) if proba_col in r.index and pd.notna(r.get(proba_col)) else None,
             "return": label_map.get(key),
         })
 

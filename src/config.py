@@ -81,10 +81,11 @@ LSTM_CONFIG: dict = {
     "dropout": 0.4,
     "weight_decay": 1e-4,
     "ticker_embed_dim": 4,
-    "use_focal_loss": True,
+    "use_focal_loss": False,
     "focal_gamma": 2.0,
     "focal_alpha": 0.5,
     "patience": 20,
+    "early_stop_metric": "auc",
     "seeds": [42, 1337, 2024],
 }
 

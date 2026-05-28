@@ -7,6 +7,7 @@ import { AccuracyPanel } from "@/components/ticker/AccuracyPanel";
 import { ResolvedStrip } from "@/components/ticker/ResolvedStrip";
 import type { ChartWindow } from "@/lib/chartWindow";
 import type { ModelId } from "@/lib/tickers";
+import { MODEL_CHART_CONFIG, MODEL_DISPLAY_LABELS } from "@/lib/models";
 
 interface Props {
   ticker: string;
@@ -16,21 +17,23 @@ interface Props {
 
 export function PriceAccuracySection({ ticker, selectedDate, model = "ensemble" }: Props) {
   const [window, setWindow] = useState<ChartWindow>("30");
+  const chartCfg = MODEL_CHART_CONFIG[model];
 
   return (
     <section className="space-y-6 border rounded-lg p-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-medium">Price & accuracy</h2>
+        <h2 className="text-sm font-medium">
+          Price & accuracy · {MODEL_DISPLAY_LABELS[model]}
+        </h2>
         <ChartWindowPicker value={window} onChange={setWindow} />
       </div>
 
       <div>
         <p className="text-xs font-medium text-muted-foreground mb-1">Share price & forecast</p>
         <p className="text-[10px] text-muted-foreground mb-2">
-          Black = close · green = model&apos;s UP probability (right axis)
+          {chartCfg.probaLegend}
         </p>
         <PricePredictionChart
-          key={`${ticker}-${model}`}
           ticker={ticker}
           selectedDate={selectedDate}
           model={model}
@@ -41,20 +44,21 @@ export function PriceAccuracySection({ ticker, selectedDate, model = "ensemble" 
       <div>
         <p className="text-xs font-medium text-muted-foreground mb-1">Rolling hit rate</p>
         <p className="text-[10px] text-muted-foreground mb-2">
-          % of recent sessions the ensemble got right · dashed = 50% (coin flip)
+          {chartCfg.accuracyLegend}
         </p>
         <AccuracyTraceChart
           ticker={ticker}
           window={window}
           selectedDate={selectedDate}
+          model={model}
         />
       </div>
 
-      <ResolvedStrip ticker={ticker} window={window} />
+      <ResolvedStrip ticker={ticker} window={window} model={model} />
 
       <div>
         <p className="text-sm font-medium mb-3">Accuracy ({window}d window)</p>
-        <AccuracyPanel ticker={ticker} window={window} />
+        <AccuracyPanel ticker={ticker} window={window} model={model} />
       </div>
     </section>
   );

@@ -140,10 +140,27 @@ def main() -> None:
     df = price.merge(tfidf, on=["ticker", "prediction_date"], how="left")
     df = df.merge(embeddings, on=["ticker", "prediction_date"], how="left")
 
-    # has_news = at least one news model produced a probability
-    tfidf_present = df.get("news_tfidf_pred_proba", pd.Series(dtype=float)).notna()
-    emb_present = df.get("news_embeddings_pred_proba", pd.Series(dtype=float)).notna()
-    df["has_news"] = (tfidf_present | emb_present).astype(int)
+    # has_news is derived from DB headline count (authoritative).
+    import sqlite3
+    from src.models.news_pipeline import _load_news_aligned  # noqa: E402
+    from src.config import DATABASE_PATH  # noqa: E402
+
+    head_df = pd.DataFrame(columns=["ticker", "prediction_date", "n_headlines"])
+    if DATABASE_PATH.exists():
+        conn = sqlite3.connect(str(DATABASE_PATH))
+        try:
+            news = _load_news_aligned(conn)
+        finally:
+            conn.close()
+        if not news.empty:
+            head_df = (
+                news.rename(columns={"label_date": "prediction_date"})
+                [["ticker", "prediction_date", "n_headlines"]]
+            )
+    if not head_df.empty:
+        df = df.merge(head_df, on=["ticker", "prediction_date"], how="left")
+    df["n_headlines"] = df.get("n_headlines", pd.Series(0, index=df.index)).fillna(0).astype(int)
+    df["has_news"] = (df["n_headlines"] > 0).astype(int)
 
     # Fill missing news probas with neutral 0.5 and zero confidence
     for col, neutral in [

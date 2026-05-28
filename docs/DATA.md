@@ -55,7 +55,27 @@ Used by: collection scripts, headlines API, chart price line, resolved-call badg
 
 Labels need the **next trading day's close**. After Memorial Day 2025-style gaps, the last *labeled* date can be earlier than the last *price* date.
 
-**Live inference** (`src/ml/lstm_live_export.py`) scores dates after the last label using saved LSTM weights — e.g. prices through **2026-05-26** get predictions even before that day's move is known.
+**Live inference** scores dates after the last label using saved model weights:
+
+| Module | What it does |
+|--------|----------------|
+| `src/ml/lstm_live_export.py` | LSTM rows for unlabeled price dates |
+| `src/ml/news_live_export.py` | TF-IDF + FinBERT for live dates with headlines |
+| `score_models.py` → `backfill_outcomes()` | Fills `actual_binary` on live rows once labels exist |
+
+After each close, the pipeline also emits a **forward session** forecast (e.g. on May 28 morning you see a May 28 forecast using data through May 27 close).
+
+### When outcomes resolve (important)
+
+A forecast for **date T** predicts the move from **close(T) → close(T+1)**.
+
+| You are viewing | Needs in DB | UI shows |
+|-----------------|-------------|----------|
+| May 26 | May 27 close | ✓ / ✗ once labels + backfill run |
+| May 27 | May 28 close | Pending until May 28 close + `daily_update` |
+| May 28 (today) | May 28 close not yet | Forward forecast; pending until May 29 close |
+
+`has_news` is derived from **cutoff-aligned headline count** in SQLite (`n_headlines > 0`), not from whether a news-model CSV row existed at train time.
 
 ### Why dates skip (e.g. 5/22 → 5/26)
 
@@ -101,7 +121,15 @@ Other presets:
 | **`max`** | **All tickers, next-day — current production deploy preset** |
 | **`max_v2`** | **Accuracy experiment: FinBERT, conditional ensemble, 0.3% min-move filter, VIX features, 150 LSTM epochs** |
 
-`max_v2` is the recommended local retrain after the accuracy roadmap. Production still uses `max` until you publish a new bundle.
+`max_v2` LSTM changes (May 2026): weighted BCE (not focal loss), val **AUC** early-stop, sigmoid calibration when raw proba variance is low. Retrain LSTM only:
+
+```bash
+python scripts/run_pipeline.py --preset max_v2 \
+  --skip-collect --skip-news --skip-nlp --skip-emb --skip-ensemble --skip-evaluate
+python scripts/build_eval_dataset.py
+python scripts/build_ensemble.py --conditional
+python scripts/evaluate_predictions.py --horizon 1
+```
 
 ```bash
 # Full retrain with all accuracy improvements (skips price re-download if already current)
@@ -122,12 +150,38 @@ This runs: collect → labels → split → train all models → ensemble → ev
 python scripts/daily_update.py
 ```
 
-Steps: collect prices/news → labels → `score_models.py` (live LSTM) → rebuild ensemble → evaluate.
+Steps: collect prices/news → labels → `score_models.py` (live LSTM + live news + outcome backfill) → rebuild ensemble → evaluate.
 
 Dry-run first:
 
 ```bash
 python scripts/daily_update.py --dry-run
+```
+
+### Mac auto-update (launchd)
+
+`scripts/local_cron.sh` runs `daily_update.py` then publishes to Railway. Schedule: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT).
+
+**One-time setup (macOS Ventura+):**
+
+```bash
+cp docs/local_cron.plist.example ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
+# Edit WorkingDirectory + script path if needed
+plutil -lint ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
+launchctl bootout gui/$(id -u)/com.news-to-alpha.daily 2>/dev/null || true
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
+launchctl enable gui/$(id -u)/com.news-to-alpha.daily
+launchctl print gui/$(id -u)/com.news-to-alpha.daily
+```
+
+Logs: `tail -f ~/Library/Logs/news-to-alpha/daily_update.log`
+
+**Requirements:** Mac awake at scheduled time, `.venv` + `.env` in project root, `railway` CLI logged in. Missed runs: `bash scripts/local_cron.sh`.
+
+Dry-run:
+
+```bash
+bash scripts/local_cron.sh --dry-run
 ```
 
 ### Quick catch-up (collect + live score only)
@@ -138,20 +192,21 @@ If you already have trained models and only need to advance dates:
 python scripts/collect_prices.py --days 14
 python scripts/collect_news.py --days 14 --fill-gaps
 python scripts/generate_labels.py
-python scripts/score_models.py          # appends live LSTM rows
+python scripts/score_models.py          # live LSTM + live news + backfill outcomes
 python scripts/build_eval_dataset.py
-python scripts/build_ensemble.py
+python scripts/build_ensemble.py --conditional
 python scripts/evaluate_predictions.py --horizon 1
 ```
 
 Verify:
 
 ```bash
-python -c "import pandas as pd; print(pd.read_csv('data/processed/final_ensemble_predictions.csv')['prediction_date'].max())"
+python scripts/audit_data_coverage.py
+python -c "import pandas as pd; df=pd.read_csv('data/processed/final_ensemble_predictions.csv'); print('max', df['prediction_date'].max()); print('has_news mismatches', ((df['has_news']==0)&(df['n_headlines']>0)).sum())"
 curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool
 ```
 
-Expected: `latest_prediction_date` matches `latest_price_date` (e.g. `2026-05-26`).
+Expected: `latest_prediction_date` ≥ latest price date; forward session (e.g. today) may appear before today's close. `latest_resolved_prediction_date` lags by one session until T+1 price exists.
 
 ### Publish to Railway
 
@@ -191,11 +246,16 @@ Open http://localhost:3000 — Markets, `/t/AAPL`, `/status`.
 
 | Field | Meaning |
 |-------|---------|
-| `latest_prediction_date` | Newest row in ensemble CSV |
+| `latest_prediction_date` | Newest row in ensemble CSV (includes forward session) |
+| `latest_resolved_prediction_date` | Newest date where most tickers have `actual_binary` filled |
 | `latest_price_date` | Newest price in SQLite |
 | `expected_latest_prediction_date` | Same as latest price — where preds should reach |
 | `trading_sessions_behind` | Sessions between pred max and price max |
 | `is_current` | `true` when predictions cover through latest price |
+| `market_status` | `open` / `closed` / `pre_market` (4 PM ET cutoff) |
+| `pending_reason` | `awaiting_next_close` / `awaiting_data_refresh` / `resolved` |
+
+UI: Markets banner uses `pending_reason` per selected date. Freshness badge shows forecasts vs resolved-through dates.
 
 ---
 
@@ -215,9 +275,10 @@ Always use `--fill-gaps` for production collection. Without it, you can get clus
 
 | Script | When to use |
 |--------|-------------|
-| `run_pipeline.py` | Full retrain (`--preset max` for deploy) |
+| `run_pipeline.py` | Full retrain (`--preset max` or `max_v2`) |
 | `daily_update.py` | Weekday refresh without retrain |
-| `score_models.py` | Live LSTM scoring only |
+| `score_models.py` | Live LSTM + news scoring + outcome backfill |
+| `audit_data_coverage.py` | Price/news/label/live-row consistency report |
 | `publish_deploy_bundle.py` | Trim + upload to Railway |
 | `collect_prices.py` / `collect_news.py` | Manual data pull |
 | `generate_labels.py` | Rebuild labels after new prices |

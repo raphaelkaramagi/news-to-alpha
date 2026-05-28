@@ -186,20 +186,20 @@ def _load_spy_5d_return(db_path: Path) -> pd.DataFrame:
 
 
 def _load_n_headlines(db_path: Path) -> pd.DataFrame:
-    """Per (ticker, prediction_date) headline count, cutoff-aligned."""
+    """Per (ticker, prediction_date) headline count and top_headlines, cutoff-aligned."""
     from src.models.news_pipeline import _load_news_aligned  # local import to avoid cycles
     if not db_path.exists():
-        return pd.DataFrame(columns=["ticker", "prediction_date", "n_headlines"])
+        return pd.DataFrame(columns=["ticker", "prediction_date", "n_headlines", "top_headlines"])
     conn = sqlite3.connect(str(db_path))
     try:
         df = _load_news_aligned(conn)
     finally:
         conn.close()
     if df.empty:
-        return pd.DataFrame(columns=["ticker", "prediction_date", "n_headlines"])
+        return pd.DataFrame(columns=["ticker", "prediction_date", "n_headlines", "top_headlines"])
     return (
         df.rename(columns={"label_date": "prediction_date"})
-          [["ticker", "prediction_date", "n_headlines"]]
+          [["ticker", "prediction_date", "n_headlines", "top_headlines"]]
     )
 
 
@@ -224,12 +224,23 @@ def _augment(df: pd.DataFrame, db_path: Path) -> pd.DataFrame:
     df["tfidf_confidence"] = df["news_tfidf_confidence"].astype(float)
     df["emb_confidence"] = df["news_embeddings_confidence"].astype(float)
 
-    if "n_headlines" not in df.columns:
-        head_df = _load_n_headlines(db_path)
-        if not head_df.empty:
-            df = df.merge(head_df, on=["ticker", "prediction_date"], how="left")
-        df["n_headlines"] = df.get("n_headlines", pd.Series(0, index=df.index))
+    head_df = _load_n_headlines(db_path)
+    if not head_df.empty:
+        # Drop existing n_headlines so the DB value is authoritative
+        df = df.drop(columns=["n_headlines"], errors="ignore")
+        # Preserve any top_headlines already in df before the merge
+        existing_top = df.pop("top_headlines") if "top_headlines" in df.columns else None
+        db_cols = ["ticker", "prediction_date", "n_headlines", "top_headlines"]
+        df = df.merge(head_df[db_cols], on=["ticker", "prediction_date"], how="left")
+        # Prefer CSV top_headlines (populated by news models) when non-empty;
+        # fall back to DB-aggregated value when CSV produced "[]".
+        if existing_top is not None:
+            existing_top = existing_top.fillna("[]").astype(str)
+            db_hl = df["top_headlines"].fillna("[]").astype(str)
+            df["top_headlines"] = existing_top.where(existing_top.str.strip() != "[]", db_hl)
     df["n_headlines"] = df["n_headlines"].fillna(0).astype(int)
+    # has_news is derived from actual DB headline count, not news model CSV presence
+    df["has_news"] = (df["n_headlines"] > 0).astype(int)
 
     if "spy_return_5d" not in df.columns:
         spy = _load_spy_5d_return(db_path)

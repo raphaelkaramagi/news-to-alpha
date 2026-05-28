@@ -54,7 +54,7 @@ from sklearn.metrics import (
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.config import DATABASE_PATH, PROCESSED_DATA_DIR  # noqa: E402
+from src.config import DATABASE_PATH, MODELS_DIR, PROCESSED_DATA_DIR  # noqa: E402
 
 
 MODELS = [
@@ -136,6 +136,19 @@ def _baseline_previous_day_direction(
     return y_pred, y_proba
 
 
+def _load_lstm_decision_threshold() -> float:
+    """Read the tuned cutoff saved by train_lstm.py (defaults to 0.5)."""
+    path = MODELS_DIR / "lstm_model.pt"
+    if not path.exists():
+        return 0.5
+    try:
+        import torch
+        ckpt = torch.load(path, map_location="cpu", weights_only=False)
+        return float(ckpt.get("decision_threshold", 0.5))
+    except Exception:
+        return 0.5
+
+
 def evaluate_all(
     predictions_path: Path,
     labels_path: Optional[Path] = None,
@@ -163,6 +176,7 @@ def evaluate_all(
         high_conf_mask = (conf >= 0.3).to_numpy()
 
     y_true = df["actual_binary"].to_numpy()
+    lstm_threshold = _load_lstm_decision_threshold()
     overall_rows: list[dict] = []
     by_ticker_rows: list[dict] = []
 
@@ -206,7 +220,8 @@ def evaluate_all(
             print(f"  [skip] {name}: column {col!r} not in predictions")
             continue
         proba = df[col].astype(float).to_numpy()
-        pred = (proba >= 0.5).astype(int)
+        threshold = lstm_threshold if name == "lstm_price" else 0.5
+        pred = (proba >= threshold).astype(int)
         _add(name, pred, proba)
 
     # Baselines
@@ -250,11 +265,15 @@ def _lstm_diagnostics(processed_dir: Path) -> str:
         return "  [skip] no test rows or missing column"
 
     proba = test["financial_pred_proba"].astype(float)
-    pred = (proba >= 0.5).astype(int)
+    threshold = _load_lstm_decision_threshold()
+    pred = (proba >= threshold).astype(int)
+    y_true = test["actual_binary"].dropna().astype(int) if "actual_binary" in test.columns else None
     n = len(proba)
     n_up = int((pred == 1).sum())
+    up_pct = n_up / max(n, 1)
     lines = [
-        f"  n_test={n}   UP_predictions={n_up} ({n_up/max(n,1):.0%})  "
+        f"  n_test={n}   threshold={threshold:.3f}   "
+        f"UP_predictions={n_up} ({up_pct:.0%})  "
         f"DOWN_predictions={n - n_up} ({(n-n_up)/max(n,1):.0%})",
         f"  proba  min={proba.min():.4f}  max={proba.max():.4f}  "
         f"mean={proba.mean():.4f}  std={proba.std():.4f}",
@@ -263,6 +282,17 @@ def _lstm_diagnostics(processed_dir: Path) -> str:
         lines.append("  *** COLLAPSED: std < 0.01 — model is essentially constant ***")
     if n_up == n:
         lines.append("  *** DEGENERATE: 100% UP predictions — balanced accuracy = 50% ***")
+    if y_true is not None and len(y_true) == n and len(np.unique(y_true)) == 2:
+        try:
+            auc = float(roc_auc_score(y_true, proba))
+            lines.append(f"  test AUC={auc:.3f}")
+            if up_pct > 0.90 and auc < 0.52:
+                lines.append(
+                    "  *** COLLAPSE WARNING: UP%>90% and AUC<0.52 — "
+                    "ensemble will downweight LSTM ***"
+                )
+        except ValueError:
+            pass
     return "\n".join(lines)
 
 

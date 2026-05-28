@@ -56,10 +56,11 @@ After market close, advance dates without retraining:
 
 ```bash
 python scripts/daily_update.py
+python scripts/audit_data_coverage.py   # optional sanity check
 python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
-Full docs: **[docs/DATA.md](docs/DATA.md)** (artifacts, scripts, freshness).
+**Test locally before deploy:** run Flask + `cd web && npm run dev`, verify Markets and ticker pages. See [docs/DATA.md](docs/DATA.md).
 
 Doc index: **[docs/README.md](docs/README.md)**.
 
@@ -85,6 +86,7 @@ web/                    Next.js UI — npm commands run here
 scripts/
   run_pipeline.py       Full train orchestrator
   daily_update.py       Collect + infer + ensemble (no retrain)
+  audit_data_coverage.py   Price/news/label/live-row coverage report
   publish_deploy_bundle.py   Trim + SSH upload to Railway
 src/                    ML pipeline modules
 data/                   Local only (gitignored)

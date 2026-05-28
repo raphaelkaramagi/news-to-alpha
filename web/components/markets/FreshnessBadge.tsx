@@ -8,6 +8,7 @@ interface Props {
 export function FreshnessBadge({ status }: Props) {
   const behind = status.trading_sessions_behind ?? -1;
   const latest = status.latest_prediction_date;
+  const resolved = status.latest_resolved_prediction_date;
   const expected = status.expected_latest_prediction_date ?? status.latest_price_date;
   const isCurrent =
     status.is_current ??
@@ -17,11 +18,21 @@ export function FreshnessBadge({ status }: Props) {
     return <span className="text-xs text-muted-foreground">No data yet</span>;
   }
 
+  // Outcomes are behind forecasts — show amber indicator
+  const outcomesBehind = resolved && latest && resolved < latest;
+
   if (behind === 0 || isCurrent) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs">
         <span className="size-1.5 rounded-full bg-up" />
-        <span className="text-muted-foreground">Through {latest}</span>
+        <span className="text-muted-foreground">
+          Forecasts through {latest}
+          {outcomesBehind && (
+            <span className="ml-1 text-yellow-600 dark:text-yellow-400">
+              · results through {resolved}
+            </span>
+          )}
+        </span>
       </span>
     );
   }

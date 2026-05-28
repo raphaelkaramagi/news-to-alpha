@@ -241,7 +241,8 @@ def fit_predictor_calibration(
         target.decision_threshold = LSTMTrainer.tune_decision_threshold(y_val, raw)
         return target.decision_threshold, target.calibration_method
 
-    if len(raw) >= CAL_ISOTONIC_MIN_ROWS:
+    # Force sigmoid when variance is low — isotonic collapses into plateaus.
+    if len(raw) >= CAL_ISOTONIC_MIN_ROWS and raw_std >= 0.05:
         from sklearn.isotonic import IsotonicRegression
         cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
         cal.fit(raw, y_val.astype(float))

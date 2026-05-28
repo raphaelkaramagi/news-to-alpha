@@ -192,24 +192,29 @@ class LSTMTrainer:
         train_loader = self._make_loader(X_train, y_train, tidx_train, shuffle=True)
         val_loader = self._make_loader(X_val, y_val, tidx_val, shuffle=False)
 
-        # Use balanced accuracy (avg of UP and DOWN recall) to prevent the model
-        # collapsing to "predict all UP always" — raw accuracy does not penalise this.
+        # Use validation AUC for early stopping — better ranking signal than balanced acc.
         best_val_metric, best_state, wait = 0.0, None, 0
         epochs = self.config["epochs"]
+        early_stop_metric = self.config.get("early_stop_metric", "auc")
 
         for epoch in range(epochs):
             train_loss, train_acc = self._train_epoch(train_loader)
-            val_bal_acc = self._eval_balanced_accuracy(val_loader)
+            if early_stop_metric == "auc":
+                val_metric = self._eval_auc(val_loader)
+                metric_label = "Val AUC"
+            else:
+                val_metric = self._eval_balanced_accuracy(val_loader)
+                metric_label = "Val BalAcc"
 
             self.history["train_loss"].append(train_loss)
             self.history["train_acc"].append(train_acc)
-            self.history["val_acc"].append(val_bal_acc)
+            self.history["val_acc"].append(val_metric)
 
-            self.scheduler.step(val_bal_acc)
+            self.scheduler.step(val_metric)
 
-            improved = val_bal_acc > best_val_metric
+            improved = val_metric > best_val_metric
             if improved:
-                best_val_metric = val_bal_acc
+                best_val_metric = val_metric
                 best_state = copy.deepcopy(self.model.state_dict())
                 wait = 0
             else:
@@ -220,7 +225,7 @@ class LSTMTrainer:
                 print(f"  Epoch {epoch + 1:3d}/{epochs}  "
                       f"Loss: {train_loss:.4f}  "
                       f"Train Acc: {train_acc:.4f}  "
-                      f"Val BalAcc: {val_bal_acc:.4f}{marker}")
+                      f"{metric_label}: {val_metric:.4f}{marker}")
 
             if wait >= patience:
                 print(f"  Early stopping at epoch {epoch + 1} "
@@ -229,7 +234,7 @@ class LSTMTrainer:
 
         if best_state is not None:
             self.model.load_state_dict(best_state)
-        print(f"\n  Best validation balanced accuracy: {best_val_metric:.4f}")
+        print(f"\n  Best validation {metric_label.lower()}: {best_val_metric:.4f}")
         return self.history
 
     def evaluate(self, X: np.ndarray, y: np.ndarray,
@@ -306,20 +311,20 @@ class LSTMTrainer:
         logger.info("LSTM pre-calibration raw proba: min=%.4f max=%.4f std=%.4f",
                     float(raw.min()), float(raw.max()), raw_std)
 
-        # If the model outputs a near-constant probability, calibration cannot
-        # recover variance — it will only collapse outputs further into plateaus.
+        # If the model outputs near-constant probabilities, skip isotonic (step
+        # function) and use sigmoid instead; skip entirely only when degenerate.
         DEGENERATE_STD_THRESH = 0.005
+        SIGMOID_ONLY_STD_THRESH = 0.05
         if raw_std < DEGENERATE_STD_THRESH:
             logger.warning(
-                "Skipping calibration: raw proba std=%.4f < %.3f (degenerate — "
-                "model collapse likely). Run with balanced accuracy objective to fix.",
+                "Skipping calibration: raw proba std=%.4f < %.3f (degenerate).",
                 raw_std, DEGENERATE_STD_THRESH,
             )
             self.calibrator = None
             self.calibration_method = "none_degenerate"
             return
 
-        if len(raw) >= CAL_ISOTONIC_MIN_ROWS:
+        if len(raw) >= CAL_ISOTONIC_MIN_ROWS and raw_std >= SIGMOID_ONLY_STD_THRESH:
             from sklearn.isotonic import IsotonicRegression
             cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
             cal.fit(raw, y_val.astype(float))
@@ -364,8 +369,8 @@ class LSTMTrainer:
             "calibrator": self.calibrator,
             "calibration_method": self.calibration_method,
             "decision_threshold": self.decision_threshold,
-            # Diagnostic: val balanced-accuracy history (helps track collapse)
-            "early_stop_metric": "balanced_accuracy",
+            # Diagnostic: val metric history (AUC or balanced accuracy)
+            "early_stop_metric": self.config.get("early_stop_metric", "auc"),
         }, path)
         logger.info("Model saved to %s", path)
 
@@ -462,6 +467,30 @@ class LSTMTrainer:
         recall_up = tp_up / max(tot_up, 1)
         recall_down = tp_down / max(tot_down, 1)
         return (recall_up + recall_down) / 2.0
+
+    def _eval_auc(self, loader: DataLoader) -> float:
+        """Validation ROC-AUC on raw logits (ranking quality)."""
+        from sklearn.metrics import roc_auc_score
+
+        self.model.eval()
+        probs: list[float] = []
+        labels: list[int] = []
+        with torch.no_grad():
+            for batch in loader:
+                X_batch, y_batch, *tidx_batch = batch
+                X_batch = X_batch.to(self.device)
+                y_batch = y_batch.to(self.device)
+                tidx_t = tidx_batch[0].to(self.device) if tidx_batch else None
+                logits = self.model(X_batch, tidx_t)
+                p = torch.sigmoid(logits).cpu().numpy()
+                probs.extend(p.tolist())
+                labels.extend(y_batch.cpu().numpy().astype(int).tolist())
+        if len(set(labels)) < 2:
+            return 0.5
+        try:
+            return float(roc_auc_score(labels, probs))
+        except ValueError:
+            return 0.5
 
     def _make_loader(self, X: np.ndarray, y: np.ndarray,
                      ticker_idx: np.ndarray | None,

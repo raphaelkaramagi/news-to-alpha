@@ -8,6 +8,33 @@ export const MODEL_DISPLAY_LABELS: Record<ModelId, string> = {
   embeddings: "FinBERT",
 };
 
+/** Chart styling + legend copy per model tab. */
+export const MODEL_CHART_CONFIG: Record<
+  ModelId,
+  { color: string; probaLegend: string; accuracyLegend: string }
+> = {
+  ensemble: {
+    color: "hsl(var(--up))",
+    probaLegend: "Black = close · green = Ensemble P(UP) (right axis)",
+    accuracyLegend: "Ensemble rolling hit rate · dashed = 50%",
+  },
+  lstm: {
+    color: "hsl(217 91% 60%)",
+    probaLegend: "Black = close · blue = Price (LSTM) P(UP) (right axis)",
+    accuracyLegend: "Price (LSTM) rolling hit rate · dashed = 50%",
+  },
+  tfidf: {
+    color: "hsl(25 95% 53%)",
+    probaLegend: "Black = close · orange = Keywords (TF-IDF) P(UP) (right axis)",
+    accuracyLegend: "Keywords (TF-IDF) rolling hit rate · dashed = 50%",
+  },
+  embeddings: {
+    color: "hsl(271 81% 56%)",
+    probaLegend: "Black = close · purple = FinBERT P(UP) (right axis)",
+    accuracyLegend: "FinBERT rolling hit rate · dashed = 50%",
+  },
+};
+
 export const MODEL_DESCRIPTIONS: Record<
   ModelId,
   { title: string; body: string }

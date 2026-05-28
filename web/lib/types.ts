@@ -27,6 +27,7 @@ export type DataStatus = {
   latest_prediction_date: string | null;
   latest_price_date: string | null;
   latest_news_date: string | null;
+  latest_resolved_prediction_date: string | null;
   prediction_rows: number;
   price_rows: number;
   news_rows: number;
@@ -34,6 +35,8 @@ export type DataStatus = {
   expected_latest_prediction_date: string | null;
   trading_sessions_behind: number;
   is_current: boolean;
+  market_status: "open" | "closed" | "pre_market" | null;
+  pending_reason: "awaiting_next_close" | "awaiting_data_refresh" | "resolved" | null;
   last_published_at: string | null;
   deploy_mode: "inference_only" | "full";
   horizon?: number;
