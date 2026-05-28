@@ -73,15 +73,19 @@ The pipeline also emits a **forward session** forecast after the latest price ba
 
 ### Outcome resolution
 
-Forecast for date **T** = move from close(T) → close(T+1).
+Forecast for date **T** = move from close(T) → close(T+1). The UI shows both closes and the realized move when resolved (`price_context` on `/api/ticker`).
 
 | Viewing date T | Requires | UI state |
 |----------------|----------|----------|
-| T (resolved) | Close T+1 in DB + backfill | ✓ / ✗ outcome dot |
-| T (latest price day) | Close T+1 not yet available | Pending ring dot |
+| T (resolved) | Close T+1 in DB + backfill | ✓ / ✗ outcome mark |
+| T (latest price day) | Close T+1 not yet available | Pending (open ring) |
 | T (forward session) | Close T not yet available | Forecast only, pending |
 
 `has_news` is derived from cutoff-aligned headline count in SQLite (`n_headlines > 0`).
+
+### Price collection (yfinance)
+
+`PriceCollector` uses yfinance’s **`end` date as exclusive**. The collector adds one calendar day to `end_date` so the same-day session bar is included after market close. Without this, weekday `daily_update` runs could ingest prices through yesterday only and leave the latest forecast stuck **pending** even after 4 PM ET.
 
 ### Non-trading days
 
@@ -129,12 +133,17 @@ python scripts/evaluate_predictions.py --horizon 1
 python scripts/daily_update.py
 ```
 
-Steps: collect prices/news → labels → `score_models.py` (live scoring + backfill) → rebuild ensemble → evaluate.
+**Incremental by default:** queries SQLite for the latest price date per ticker, then collects only `(gap + buffer)` calendar days (minimum 7, maximum `--lookback-days` default 60). Avoids re-fetching 60 days of news when data is current.
 
 ```bash
-python scripts/daily_update.py --dry-run
-python scripts/daily_update.py --lookback-days 90   # after long downtime
+python scripts/daily_update.py --dry-run          # preview computed window
+python scripts/daily_update.py --full-lookback    # fixed 60-day window (legacy)
+python scripts/daily_update.py --lookback-days 90 # after long downtime
 ```
+
+Steps: collect prices/news → labels → `score_models.py` (live scoring + backfill) → rebuild ensemble → evaluate.
+
+Run metadata saved to `data/processed/pipeline_config.json` → `last_daily_update`.
 
 ### Scheduled updates (launchd)
 
@@ -159,8 +168,8 @@ Logs: `~/Library/Logs/news-to-alpha/daily_update.log`
 |----------|----------|
 | Host asleep at cron fire time | **Job skipped** — launchd does not queue missed runs |
 | Host wakes later | **No automatic catch-up** until next schedule or manual run |
-| Manual catch-up after missed days | **One run suffices** — default 60-day lookback + label backfill covers all gaps |
-| Downtime > 60 calendar days | Increase `--lookback-days` before publish |
+| Manual catch-up after missed days | **One run suffices** — incremental mode expands the window from SQLite gaps (up to `--lookback-days`, default 60) + label backfill |
+| Downtime > 60 calendar days | Run once with `--lookback-days 90` (or `--full-lookback`) before publish |
 
 ```bash
 bash scripts/local_cron.sh
@@ -204,7 +213,11 @@ Requires `railway login`, `railway link`, SSH key registration (`railway ssh key
 
 ---
 
-## Local development
+## Local development and testing
+
+Full guide: **[LOCAL_TESTING.md](LOCAL_TESTING.md)**. Summary below.
+
+### Start servers
 
 **Terminal 1 — API**
 
@@ -222,6 +235,33 @@ npm install && npm run dev
 ```
 
 Open http://localhost:3000
+
+### Refresh data before testing
+
+```bash
+python scripts/daily_update.py --dry-run   # preview incremental window
+python scripts/daily_update.py
+python scripts/audit_data_coverage.py
+```
+
+### Quick API check
+
+```bash
+curl -s http://127.0.0.1:8000/healthz
+curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool
+```
+
+Restart Flask after retraining or API code changes.
+
+### Ticker API fields (`/api/ticker`)
+
+| Field | Meaning |
+|-------|---------|
+| `price_context.start_close` / `end_close` | Closes for session T and T+1 when available |
+| `price_context.validation_basis` | Always `close_to_close` for next-day horizon |
+| `forecast_date` | Session the call applies to (same as selected date) |
+
+Resolved history strip and accuracy panels use **`/api/accuracy-summary?ticker=&window=7|30|90`** so counts match the chart window.
 
 ---
 

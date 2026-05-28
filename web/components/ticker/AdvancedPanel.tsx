@@ -13,6 +13,7 @@ import type { ModelId } from "@/lib/tickers";
 import { MODEL_DISPLAY_LABELS } from "@/lib/models";
 import type { PerModelEntry, RationaleResponse, TickerApiResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { formatPrice, formatReturnPct, shortDate } from "@/lib/forecastHorizon";
 import { buildClientExplanation } from "@/lib/ensembleExplainClient";
 import { routeNote } from "@/lib/ensembleSummary";
 import { ExplanationDrivers } from "@/components/ticker/ExplanationDrivers";
@@ -203,8 +204,27 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
                 "font-mono tabular-nums",
                 tickerData.realized_return >= 0 ? "text-up" : "text-down"
               )}>
-                {tickerData.realized_return >= 0 ? "+" : ""}
-                {tickerData.realized_return.toFixed(2)}%
+                {formatReturnPct(tickerData.realized_return)}
+              </dd>
+            </div>
+          )}
+          {tickerData.price_context?.start_close != null && (
+            <div>
+              <dt className="text-muted-foreground">
+                Start close ({shortDate(tickerData.price_context.start_close_date)})
+              </dt>
+              <dd className="font-mono tabular-nums">
+                {formatPrice(tickerData.price_context.start_close)}
+              </dd>
+            </div>
+          )}
+          {tickerData.price_context?.end_close != null && tickerData.price_context.end_close_date && (
+            <div>
+              <dt className="text-muted-foreground">
+                End close ({shortDate(tickerData.price_context.end_close_date)})
+              </dt>
+              <dd className="font-mono tabular-nums">
+                {formatPrice(tickerData.price_context.end_close)}
               </dd>
             </div>
           )}

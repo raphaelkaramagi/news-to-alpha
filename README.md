@@ -70,6 +70,8 @@ cd web && cp .env.example .env.local && npm install && npm run dev
 
 Open http://localhost:3000
 
+**Full local testing checklist:** [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md)
+
 ---
 
 ## Documentation
@@ -77,10 +79,11 @@ Open http://localhost:3000
 | Read first | Doc | For |
 |------------|-----|-----|
 | 1 | [docs/README.md](docs/README.md) | Index and reading order |
-| 2 | [docs/DATA.md](docs/DATA.md) | Pipeline, artifacts, daily refresh, publish |
-| 3 | [docs/RESULTS.md](docs/RESULTS.md) | Evaluation metrics and findings |
-| 4 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Architecture and design decisions |
-| 5 | [web/README.md](web/README.md) | Frontend development |
+| 2 | [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md) | **Run API + UI, smoke tests, verify before deploy** |
+| 3 | [docs/DATA.md](docs/DATA.md) | Pipeline, artifacts, daily refresh, publish |
+| 4 | [docs/RESULTS.md](docs/RESULTS.md) | Evaluation metrics and findings |
+| 5 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Architecture and design decisions |
+| 6 | [web/README.md](web/README.md) | Frontend development |
 
 After market close, refresh predictions without retraining:
 
@@ -95,8 +98,8 @@ python scripts/publish_deploy_bundle.py --target railway --service web
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets grid, outcome dots, overview chart |
-| `/t/[symbol]` | Call, headlines, Why this call, Advanced, charts |
+| `/` | Markets grid, ✓/✗ resolved calls, overview chart |
+| `/t/[symbol]` | Close-to-close hero, headlines, Why this call (gauge + drivers), charts |
 | `/status` | Data freshness and evaluation summary |
 
 A global date picker syncs all pages.
@@ -138,3 +141,5 @@ pytest tests/unit -q
 cd web && npm run build
 python scripts/publish_deploy_bundle.py --dry-run
 ```
+
+Step-by-step local verification (API, UI, smoke curls, checklist): **[docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md)**.

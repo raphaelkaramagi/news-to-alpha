@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
   Area,
+  Dot,
 } from "recharts";
 import type { HistoryResponse } from "@/lib/types";
 import type { ChartWindow } from "@/lib/chartWindow";
@@ -19,10 +20,12 @@ import type { ModelId } from "@/lib/tickers";
 import { MODEL_CHART_CONFIG } from "@/lib/models";
 import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
 import { CHART_CLICK_HINT, dateFromChartClick } from "@/lib/chartClick";
+import { formatPrice, shortDate } from "@/lib/forecastHorizon";
 
 interface Props {
   ticker: string;
   selectedDate: string;
+  targetDate?: string | null;
   model?: ModelId;
   window: ChartWindow;
 }
@@ -49,7 +52,6 @@ function probaDomain(values: number[]): [number, number] {
   const min = Math.min(...values);
   const max = Math.max(...values);
   const span = max - min;
-  // Zoom axis when model outputs cluster (news models often ~0.45–0.55)
   if (span < 0.15) {
     const pad = Math.max(0.05, span * 0.5);
     return [Math.max(0, min - pad), Math.min(1, max + pad)];
@@ -57,9 +59,59 @@ function probaDomain(values: number[]): [number, number] {
   return [0, 1];
 }
 
+type ChartRow = {
+  date: string;
+  open: number | null;
+  close: number | null;
+  proba: number | null;
+  isSession: boolean;
+  isTarget: boolean;
+};
+
+function ChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: ChartRow }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div
+      className="rounded-md border bg-card px-3 py-2 text-xs shadow-sm"
+      style={{ fontSize: 12 }}
+    >
+      <p className="font-medium mb-1">{row.date}</p>
+      {row.close != null && (
+        <p className="font-mono tabular-nums">
+          Close {formatPrice(row.close)}
+          {row.open != null && (
+            <span className="text-muted-foreground ml-2 text-[10px]">
+              (open {formatPrice(row.open)}, not used for scoring)
+            </span>
+          )}
+        </p>
+      )}
+      {row.proba != null && (
+        <p className="text-muted-foreground mt-0.5">
+          P(UP) {(row.proba * 100).toFixed(1)}%
+        </p>
+      )}
+      {row.isSession && (
+        <p className="text-[10px] text-muted-foreground mt-1">Start close (day T)</p>
+      )}
+      {row.isTarget && (
+        <p className="text-[10px] text-muted-foreground mt-1">End close (day T+1, outcome)</p>
+      )}
+    </div>
+  );
+}
+
 export function PricePredictionChart({
   ticker,
   selectedDate,
+  targetDate,
   model = "ensemble",
   window,
 }: Props) {
@@ -75,8 +127,8 @@ export function PricePredictionChart({
   });
 
   const chartData = useMemo(() => {
-    if (!data) return [];
-    const priceMap = new Map(data.prices.map((p) => [p.date, p.close]));
+    if (!data) return [] as ChartRow[];
+    const priceMap = new Map(data.prices.map((p) => [p.date, p]));
     const predMap = new Map(data.predictions.map((p) => [p.prediction_date, p]));
     const allDates = Array.from(
       new Set([
@@ -86,18 +138,22 @@ export function PricePredictionChart({
     ).sort();
     return allDates
       .map((date) => {
+        const price = priceMap.get(date);
         const pred = predMap.get(date);
         const raw = pred
           ? (pred as unknown as Record<string, number | null>)[probaCol]
           : null;
         return {
           date,
-          close: priceMap.get(date) ?? null,
+          open: price?.open ?? null,
+          close: price?.close ?? null,
           proba: raw != null && !Number.isNaN(raw) ? raw : null,
+          isSession: date === selectedDate,
+          isTarget: !!targetDate && date === targetDate,
         };
       })
       .slice(-days);
-  }, [data, days, probaCol]);
+  }, [data, days, probaCol, selectedDate, targetDate]);
 
   if (isLoading) {
     return <div className="h-60 w-full rounded-lg bg-muted animate-pulse" />;
@@ -128,8 +184,27 @@ export function PricePredictionChart({
   const hasProba = probaVals.length > 0;
   const [probaMin, probaMax] = probaDomain(probaVals);
 
+  const sessionMarker = selectedDate && chartData.some((d) => d.date === selectedDate);
+  const targetMarker = targetDate && chartData.some((d) => d.date === targetDate);
+
   return (
     <div className="w-full h-60 min-h-[240px]">
+      {(sessionMarker || targetMarker) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground mb-2 px-1">
+          {sessionMarker && (
+            <span>
+              <span className="inline-block w-3 border-t-2 border-dashed border-foreground/50 align-middle mr-1" />
+              {shortDate(selectedDate)} close (start)
+            </span>
+          )}
+          {targetMarker && (
+            <span>
+              <span className="inline-block w-3 border-t-2 border-dashed border-up/60 align-middle mr-1" />
+              {shortDate(targetDate!)} close (end / outcome)
+            </span>
+          )}
+        </div>
+      )}
       <ResponsiveContainer width="100%" height={240}>
         <ComposedChart
           data={chartData}
@@ -166,27 +241,23 @@ export function PricePredictionChart({
               width={36}
             />
           )}
-          <Tooltip
-            contentStyle={{
-              background: "hsl(var(--card))",
-              border: "1px solid hsl(var(--border))",
-              borderRadius: "6px",
-              fontSize: 12,
-            }}
-            formatter={(val: unknown, name: unknown): [string, string] => {
-              const n = typeof val === "number" ? val : 0;
-              return String(name) === "close"
-                ? [`$${n.toFixed(2)}`, "Close"]
-                : [`${(n * 100).toFixed(1)}%`, "P(UP)"];
-            }}
-          />
-          {selectedDate && chartData.some((d) => d.date === selectedDate) && (
+          <Tooltip content={<ChartTooltip />} />
+          {sessionMarker && (
             <ReferenceLine
               x={selectedDate}
               yAxisId={hasPrices ? "price" : "proba"}
               stroke="hsl(var(--foreground))"
               strokeDasharray="4 4"
-              strokeOpacity={0.4}
+              strokeOpacity={0.45}
+            />
+          )}
+          {targetMarker && (
+            <ReferenceLine
+              x={targetDate!}
+              yAxisId={hasPrices ? "price" : "proba"}
+              stroke="hsl(var(--chart-up, 142 71% 45%))"
+              strokeDasharray="2 3"
+              strokeOpacity={0.55}
             />
           )}
           {hasPrices && (
@@ -196,7 +267,40 @@ export function PricePredictionChart({
               dataKey="close"
               stroke="hsl(var(--foreground))"
               strokeWidth={1.5}
-              dot={false}
+              dot={(props) => {
+                const { cx, cy, payload } = props as {
+                  cx?: number;
+                  cy?: number;
+                  payload?: ChartRow;
+                };
+                if (cx == null || cy == null || !payload) return null;
+                if (payload.isSession) {
+                  return (
+                    <Dot
+                      cx={cx}
+                      cy={cy}
+                      r={4}
+                      fill="hsl(var(--foreground))"
+                      stroke="hsl(var(--background))"
+                      strokeWidth={2}
+                    />
+                  );
+                }
+                if (payload.isTarget) {
+                  return (
+                    <Dot
+                      cx={cx}
+                      cy={cy}
+                      r={4}
+                      fill="hsl(var(--chart-up, 142 71% 45%))"
+                      stroke="hsl(var(--background))"
+                      strokeWidth={2}
+                    />
+                  );
+                }
+                return null;
+              }}
+              activeDot={{ r: 4 }}
               connectNulls
             />
           )}

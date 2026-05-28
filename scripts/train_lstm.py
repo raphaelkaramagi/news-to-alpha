@@ -559,6 +559,9 @@ def main() -> None:
     print(f"  Calibration methods: {cal_methods}")
     print(f"  Decision threshold : {getattr(predictor, 'decision_threshold', 0.5):.3f}")
 
+    for t in trainers:
+        t.feature_columns = list(FEATURE_COLUMNS)
+
     # Save primary model (seed 0) as lstm_model.pt; additional seeds next to it.
     primary.save(model_path)
     print(f"\n  Primary model saved: {model_path}")

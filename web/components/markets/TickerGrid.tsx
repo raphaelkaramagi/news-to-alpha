@@ -4,6 +4,7 @@ import Link from "next/link";
 import { TICKERS, TICKER_TO_COMPANY } from "@/lib/tickers";
 import type { TickerApiResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { formatReturnPct } from "@/lib/forecastHorizon";
 import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
 import { MarketsOverview } from "@/components/markets/MarketsOverview";
 import { DayAccuracyBanner } from "@/components/markets/DayAccuracyBanner";
@@ -26,34 +27,53 @@ function TickerCard({ symbol, date }: { symbol: string; date: string | null }) {
 
   const company = TICKER_TO_COMPANY[symbol] ?? symbol;
   const href = date ? `/t/${symbol}?date=${date}` : `/t/${symbol}`;
+  const resolved = data?.actual_binary !== null;
+  const movePct = data?.realized_return ?? data?.price_context?.return_pct;
 
   return (
     <Link
       href={href}
-      className="group flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent transition-colors"
+      className="group flex items-center justify-between gap-3 p-3 rounded-lg border bg-card hover:bg-accent transition-colors min-h-[3.25rem]"
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <OutcomeDot data={isLoading ? undefined : data} size={10} />
-        <div className="min-w-0">
-          <p className="font-medium text-sm leading-none">{symbol}</p>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">{company}</p>
+      <div className="flex items-center gap-2.5 min-w-0">
+        <OutcomeDot data={isLoading ? undefined : data} size="md" />
+        <div className="min-w-0 leading-tight">
+          <p className="font-medium text-sm">{symbol}</p>
+          <p className="text-[11px] text-muted-foreground truncate">{company}</p>
         </div>
       </div>
-      {isLoading ? (
-        <span className="text-xs text-muted-foreground/50">—</span>
-      ) : data ? (
-        <span className={cn(
-          "text-xs font-medium tabular-nums",
-          data.binary === 1 ? "text-up" : "text-down"
-        )}>
-          {data.binary === 1 ? "UP" : "DOWN"}
-          <span className="text-muted-foreground font-normal ml-1">
-            {(data.confidence * 100).toFixed(0)}%
-          </span>
-        </span>
-      ) : (
-        <span className="text-xs text-muted-foreground">—</span>
-      )}
+
+      <div className="text-right shrink-0 leading-tight">
+        {isLoading ? (
+          <span className="text-xs text-muted-foreground/50">—</span>
+        ) : data ? (
+          <>
+            <p
+              className={cn(
+                "text-sm font-semibold tabular-nums",
+                data.binary === 1 ? "text-up" : "text-down"
+              )}
+            >
+              {data.binary === 1 ? "UP" : "DOWN"}
+              <span className="text-muted-foreground font-normal text-xs ml-1">
+                {(data.confidence * 100).toFixed(0)}%
+              </span>
+            </p>
+            {resolved && movePct != null && (
+              <p
+                className={cn(
+                  "text-[11px] font-mono tabular-nums mt-0.5",
+                  movePct >= 0 ? "text-up/80" : "text-down/80"
+                )}
+              >
+                {formatReturnPct(movePct)} actual
+              </p>
+            )}
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        )}
+      </div>
     </Link>
   );
 }

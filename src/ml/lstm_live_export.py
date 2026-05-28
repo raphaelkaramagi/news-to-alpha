@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -32,7 +33,10 @@ def _load_predictor(model_path: Path):
     from scripts.train_lstm import SeedEnsemble  # noqa: E402
 
     trainer = LSTMTrainer.load(model_path)
-    seed_files = sorted(model_path.parent.glob("lstm_model_seed*.pt"))
+    seed_files = sorted(
+        p for p in model_path.parent.glob("lstm_model_seed*.pt")
+        if re.fullmatch(r"lstm_model_seed\d+\.pt", p.name)
+    )
     if seed_files:
         extra = [LSTMTrainer.load(p) for p in seed_files]
         ens = SeedEnsemble([trainer] + extra)
@@ -56,6 +60,7 @@ def append_live_lstm_predictions(
     Returns number of new rows appended.
     """
     from src.features.sequence_generator import SequenceGenerator
+    from src.ml.lstm_features import feature_columns_for_model
 
     model_path = model_path or (Path(__file__).resolve().parent.parent.parent / "data" / "models" / "lstm_model.pt")
     csv_path = csv_path or (PROCESSED_DATA_DIR / CSV_NAME)
@@ -70,13 +75,15 @@ def append_live_lstm_predictions(
     elif ticker_to_idx is None:
         ticker_to_idx = getattr(predictor, "ticker_to_idx", {}) or {}
 
+    feature_cols = feature_columns_for_model(model_path, predictor)
+
     scaler_state = None
     if hasattr(predictor, "trainers"):
         scaler_state = predictor.trainers[0].scaler_state
     else:
         scaler_state = getattr(predictor, "scaler_state", None)
 
-    gen = SequenceGenerator(horizon=horizon)
+    gen = SequenceGenerator(horizon=horizon, feature_columns=feature_cols)
     frames: list[pd.DataFrame] = []
 
     for ticker in tickers:

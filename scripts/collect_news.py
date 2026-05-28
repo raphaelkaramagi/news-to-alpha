@@ -169,7 +169,23 @@ def main() -> None:
     )
     parser.add_argument(
         "--days", type=int, default=21,
-        help="Days of news to collect counting back from today (default: 21).",
+        help="Max lookback days when using --incremental, or fixed lookback otherwise (default: 21).",
+    )
+    parser.add_argument(
+        "--since", default=None,
+        help="ISO start date (YYYY-MM-DD). Overrides --days.",
+    )
+    parser.add_argument(
+        "--incremental", action="store_true",
+        help="Start from DB coverage with buffer instead of a fixed --days window.",
+    )
+    parser.add_argument(
+        "--buffer-days", type=int, default=5,
+        help="Overlap days when using --incremental (default: 5).",
+    )
+    parser.add_argument(
+        "--min-days", type=int, default=7,
+        help="Minimum calendar lookback when using --incremental (default: 7).",
     )
     parser.add_argument(
         "--start-date", default=None,
@@ -209,18 +225,36 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    tickers = args.tickers or TICKERS
+
     end_dt = (
         datetime.strptime(args.end_date, "%Y-%m-%d") if args.end_date
         else datetime.now()
     )
-    if args.start_date:
+    if args.since:
+        start_dt = datetime.strptime(args.since, "%Y-%m-%d")
+        window_mode = "explicit"
+    elif args.incremental:
+        from src.utils.collection_window import compute_collection_window  # noqa: E402
+        start_s, end_s, win = compute_collection_window(
+            tickers,
+            buffer_days=args.buffer_days,
+            min_days=args.min_days,
+            max_days=args.days,
+            end=end_dt.date(),
+        )
+        start_dt = datetime.strptime(start_s, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_s, "%Y-%m-%d")
+        window_mode = win["mode"]
+    elif args.start_date:
         start_dt = datetime.strptime(args.start_date, "%Y-%m-%d")
+        window_mode = "explicit"
     else:
         start_dt = end_dt - timedelta(days=args.days)
+        window_mode = "fixed_days"
 
     end_date = end_dt.strftime("%Y-%m-%d")
     start_date = start_dt.strftime("%Y-%m-%d")
-    tickers = args.tickers or TICKERS
 
     # Ensure tables exist
     DatabaseSchema().create_all_tables()
@@ -230,6 +264,7 @@ def main() -> None:
     print("=" * 60)
     print("NEWS ARTICLE COLLECTION")
     print("=" * 60)
+    print(f"Mode    : {window_mode}")
     print(f"Range   : {start_date}  ->  {end_date}")
     print(f"Tickers : {', '.join(tickers)}  ({len(tickers)} total)")
     if args.backfill:

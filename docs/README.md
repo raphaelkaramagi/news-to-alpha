@@ -3,10 +3,11 @@
 Reading order:
 
 1. **[../README.md](../README.md)** — project summary, quick start, results snapshot  
-2. **[DATA.md](DATA.md)** — data flow, training presets, daily refresh, publishing  
-3. **[RESULTS.md](RESULTS.md)** — evaluation metrics, model comparison, known limitations  
-4. **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** — architecture, modules, design decisions  
-5. **[../web/README.md](../web/README.md)** — frontend setup and Vercel deployment  
+2. **[LOCAL_TESTING.md](LOCAL_TESTING.md)** — run API + UI locally, smoke tests, pre-deploy checklist  
+3. **[DATA.md](DATA.md)** — data flow, training presets, daily refresh, publishing  
+4. **[RESULTS.md](RESULTS.md)** — evaluation metrics, model comparison, known limitations  
+5. **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** — architecture, modules, design decisions  
+6. **[../web/README.md](../web/README.md)** — frontend setup and Vercel deployment  
 
 ---
 
@@ -14,6 +15,7 @@ Reading order:
 
 | Doc | Contents |
 |-----|----------|
+| [LOCAL_TESTING.md](LOCAL_TESTING.md) | Local API/UI setup, daily_update checks, smoke tests |
 | [DATA.md](DATA.md) | Artifacts, pipeline operations, scheduled updates, Railway publish |
 | [RESULTS.md](RESULTS.md) | Test-set accuracy, AUC, subsets, key findings |
 | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | System architecture and module reference (summary level) |
@@ -36,6 +38,7 @@ These files are excluded from the public repository (see `.gitignore`). They con
 
 | Task | Where |
 |------|-------|
+| **Test locally (API + UI)** | [LOCAL_TESTING.md](LOCAL_TESTING.md) |
 | First-time train | [DATA.md § Full retrain](DATA.md) |
 | Daily prediction refresh | [DATA.md § Daily refresh](DATA.md) |
 | Publish to production API | [DATA.md § Publish](DATA.md) |

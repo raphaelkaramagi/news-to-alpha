@@ -161,7 +161,7 @@ See [web/README.md](../web/README.md).
 
 | File | Role |
 |------|------|
-| `server.py` | Flask routes: ticker, history, headlines, rationale, metrics, data-status |
+| `server.py` | Flask routes: ticker (+ `price_context`), history, accuracy-summary, headlines, rationale, metrics, data-status |
 | `jobs.py` | Background job queue (disabled when `INFERENCE_ONLY=true`) |
 
 ---

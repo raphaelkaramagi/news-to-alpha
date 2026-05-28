@@ -189,6 +189,7 @@ docs/local_cron.plist.example
 docs/CONTEXT_FOR_NEW_CHAT.md
 docs/session*.md
 docs/ROADMAP.md
+docs/LOCAL_TESTING.md
 
 # Local cron wrapper (often contains machine-specific paths)
 scripts/local_cron.sh

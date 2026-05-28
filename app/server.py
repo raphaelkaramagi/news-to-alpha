@@ -213,6 +213,85 @@ def _parse_window(value: str) -> Optional[int]:
         return None
 
 
+def _price_context(ticker: str, session_date: str) -> dict[str, Any]:
+    """OHLC context for a forecast keyed on session T (close T → close T+1)."""
+    from datetime import date as _date
+
+    from src.utils.trading_calendar import next_trading_session
+
+    try:
+        session = _date.fromisoformat(session_date)
+    except ValueError:
+        return {"session_date": session_date, "target_date": None}
+
+    target_str = next_trading_session(session).isoformat()
+    conn = _get_db()
+    try:
+        price_rows = conn.execute(
+            """SELECT date, open, close FROM prices
+               WHERE ticker = ? AND date IN (?, ?)""",
+            (ticker, session_date, target_str),
+        ).fetchall()
+        label_row = conn.execute(
+            """SELECT close_t, close_t_plus_1, label_return, label_binary
+               FROM labels WHERE ticker = ? AND date = ?""",
+            (ticker, session_date),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    by_date = {str(r["date"]): dict(r) for r in price_rows}
+    sess = by_date.get(session_date, {})
+    targ = by_date.get(target_str, {})
+
+    session_close = sess.get("close")
+    if session_close is None and label_row and label_row["close_t"] is not None:
+        session_close = float(label_row["close_t"])
+    target_close = targ.get("close")
+    if target_close is None and label_row and label_row["close_t_plus_1"] is not None:
+        target_close = float(label_row["close_t_plus_1"])
+
+    label_return = None
+    if label_row and label_row["label_return"] is not None:
+        label_return = float(label_row["label_return"])
+    elif session_close is not None and target_close is not None and session_close:
+        label_return = (target_close / session_close - 1.0) * 100.0
+
+    resolved = target_close is not None
+    actual_direction: Optional[str] = None
+    if label_row and label_row["label_binary"] is not None:
+        actual_direction = "up" if int(label_row["label_binary"]) == 1 else "down"
+
+    def _num(v: Any) -> Optional[float]:
+        if v is None:
+            return None
+        try:
+            f = float(v)
+            return None if math.isnan(f) else f
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "session_date": session_date,
+        "target_date": target_str,
+        # Primary fields used for scoring (close T → close T+1)
+        "start_close_date": session_date,
+        "start_close": _num(session_close),
+        "end_close_date": target_str,
+        "end_close": _num(target_close),
+        # Aliases kept for backward compatibility
+        "session_open": _num(sess.get("open")),
+        "session_close": _num(session_close),
+        "target_open": _num(targ.get("open")),
+        "target_close": _num(target_close),
+        "return_pct": _num(label_return),
+        "resolved": resolved,
+        "actual_direction": actual_direction,
+        "validation_basis": "close_to_close",
+        "horizon_label": f"close {session_date} → close {target_str}",
+    }
+
+
 # ----------------------------------------------------------------------------
 # View helpers
 # ----------------------------------------------------------------------------
@@ -497,7 +576,9 @@ def api_data_status():
             if not resolved_df.empty:
                 resolved_counts = resolved_df.groupby("prediction_date")["ticker"].count()
                 total_counts = df.groupby("prediction_date")["ticker"].count()
-                majority = resolved_counts[resolved_counts >= (total_counts / 2)]
+                # Align indices — not every forecast date has resolved rows yet
+                resolved_aligned = resolved_counts.reindex(total_counts.index, fill_value=0)
+                majority = resolved_aligned[resolved_aligned >= (total_counts / 2)]
                 if not majority.empty:
                     latest_resolved = str(majority.index.max())
     except Exception:
@@ -602,10 +683,13 @@ def api_ticker():
         finally:
             conn.close()
 
+    price_ctx = _price_context(pred.ticker, pred.prediction_date)
+
     return jsonify({
         "ticker": pred.ticker,
         "company": TICKER_TO_COMPANY.get(pred.ticker, pred.ticker),
         "prediction_date": pred.prediction_date,
+        "forecast_date": price_ctx.get("end_close_date") or price_ctx.get("target_date"),
         "model": pred.model,
         "proba": pred.proba,
         "binary": pred.binary,
@@ -615,6 +699,7 @@ def api_ticker():
         "realized_return": realized_return,
         "top_headlines": pred.top_headlines,
         "per_model": pred.per_model,
+        "price_context": price_ctx,
     })
 
 
@@ -627,7 +712,7 @@ def api_last_resolved():
     ticker = (request.args.get("ticker") or "").upper()
     model = (request.args.get("model") or "ensemble").lower()
     try:
-        n = max(1, min(60, int(request.args.get("n") or "7")))
+        n = max(1, min(120, int(request.args.get("n") or "7")))
     except ValueError:
         n = 7
     if ticker not in TICKERS:
@@ -647,22 +732,6 @@ def api_last_resolved():
     sub = sub.tail(n)
     pred_binary = _model_pred_binary(sub, model)
 
-    # Pull realized returns from labels table (keyed on ticker, date == prediction_date)
-    returns_by_date: dict[str, float] = {}
-    conn = _get_db()
-    try:
-        placeholders = ",".join(["?"] * len(sub))
-        rows = conn.execute(
-            f"SELECT date, label_return FROM labels "
-            f"WHERE ticker = ? AND date IN ({placeholders})",
-            (ticker, *sub["prediction_date"].tolist()),
-        ).fetchall()
-        for r in rows:
-            if r["label_return"] is not None:
-                returns_by_date[str(r["date"])] = float(r["label_return"])
-    finally:
-        conn.close()
-
     out: list[dict] = []
     for idx, (_, row) in enumerate(sub.iterrows()):
         proba_col = MODEL_PROBA_COL.get(model, "ensemble_pred_proba")
@@ -671,13 +740,17 @@ def api_last_resolved():
         actual = int(row["actual_binary"]) if pd.notna(row.get("actual_binary")) else None
         hit = int(pred_bin == actual) if actual is not None else None
         date_str = str(row["prediction_date"])
+        ctx = _price_context(ticker, date_str)
         out.append({
             "date": date_str,
             "proba": proba,
             "pred_binary": pred_bin,
             "actual_binary": actual,
             "hit": hit,
-            "return": returns_by_date.get(date_str),
+            "return": ctx.get("return_pct"),
+            "session_close": ctx.get("session_close"),
+            "target_close": ctx.get("target_close"),
+            "target_date": ctx.get("target_date"),
         })
     return jsonify({"ticker": ticker, "rows": out})
 

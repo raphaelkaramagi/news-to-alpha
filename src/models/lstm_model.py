@@ -183,6 +183,7 @@ class LSTMTrainer:
         self.calibrator = None
         self.calibration_method: str | None = None
         self.decision_threshold: float = 0.5
+        self.feature_columns: list[str] | None = None
 
     def train(self, X_train: np.ndarray, y_train: np.ndarray,
               X_val: np.ndarray, y_val: np.ndarray,
@@ -364,6 +365,7 @@ class LSTMTrainer:
             "num_tickers": self.model.num_tickers,
             "ticker_embed_dim": self.model.ticker_embed_dim,
             "input_size": self.model.lstm1.input_size - self.model.ticker_embed_dim,
+            "feature_columns": getattr(self, "feature_columns", None),
             "scaler_state": self.scaler_state,
             "pos_weight": self.pos_weight,
             "calibrator": self.calibrator,
@@ -400,6 +402,7 @@ class LSTMTrainer:
         trainer.calibrator = checkpoint.get("calibrator")
         trainer.calibration_method = checkpoint.get("calibration_method")
         trainer.decision_threshold = float(checkpoint.get("decision_threshold", 0.5))
+        trainer.feature_columns = checkpoint.get("feature_columns")
         return trainer
 
     def _train_epoch(self, loader: DataLoader) -> tuple[float, float]:

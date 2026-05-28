@@ -1,14 +1,17 @@
 """Helpers to avoid stale artifacts when re-running the training pipeline."""
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
 
 def clear_stale_lstm_seed_models(models_dir: Path) -> int:
-    """Remove lstm_model_seed*.pt so an old seed ensemble is not loaded after retrain."""
+    """Remove lstm_model_seed{N}.pt files (ignores macOS duplicate names)."""
     removed = 0
     for path in models_dir.glob("lstm_model_seed*.pt"):
+        if not re.fullmatch(r"lstm_model_seed\d+\.pt", path.name):
+            continue
         path.unlink(missing_ok=True)
         removed += 1
     return removed
