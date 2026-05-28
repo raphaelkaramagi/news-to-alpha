@@ -158,9 +158,9 @@ Dry-run first:
 python scripts/daily_update.py --dry-run
 ```
 
-### Mac auto-update (launchd)
+### Scheduled updates (Mac launchd)
 
-`scripts/local_cron.sh` runs `daily_update.py` then publishes to Railway. Schedule: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT).
+`scripts/local_cron.sh` runs `daily_update.py` then `publish_deploy_bundle.py --target railway`. Default schedule: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT). See `docs/local_cron.plist.example`.
 
 **One-time setup (macOS Ventura+):**
 
@@ -176,13 +176,29 @@ launchctl print gui/$(id -u)/com.news-to-alpha.daily
 
 Logs: `tail -f ~/Library/Logs/news-to-alpha/daily_update.log`
 
-**Requirements:** Mac awake at scheduled time, `.venv` + `.env` in project root, `railway` CLI logged in. Missed runs: `bash scripts/local_cron.sh`.
+Dry-run: `bash scripts/local_cron.sh --dry-run`
 
-Dry-run:
+#### Mac closed or asleep — what happens?
+
+| Question | Answer |
+|----------|--------|
+| Mac lid closed at 22:00 UTC? | **Job is skipped.** launchd does not queue missed runs. |
+| Opens Mac later — auto-run? | **No.** Nothing runs until the next scheduled weekday or you run manually. |
+| Missed several days — one manual run enough? | **Yes.** One `daily_update.py` (or `local_cron.sh`) catches up **all** missed trading days in a single pass. |
+| Why one run is enough | Default `--lookback-days 60` re-pulls prices/news; `generate_labels` fills every gap; `score_models` + `backfill_outcomes` resolve all pending rows once T+1 closes exist. |
+| Away >60 calendar days | Use `python scripts/daily_update.py --lookback-days 90` before publish. |
+
+**Manual catch-up** (same as cron, anytime):
 
 ```bash
-bash scripts/local_cron.sh --dry-run
+bash scripts/local_cron.sh
+# or without Railway publish:
+python scripts/daily_update.py && python scripts/publish_deploy_bundle.py --target railway --service web
 ```
+
+**Requirements:** `.venv`, `.env` with `NEWS_API_KEY`, `railway` CLI logged in for publish. Mac must be **awake and logged in** at the scheduled time — sleep/lid-closed = skip.
+
+**Alternative if Mac is often off:** Railway cron + `ENABLE_CLOUD_INFER=true` (see [DEPLOY.md](DEPLOY.md) § Optional cloud infer).
 
 ### Quick catch-up (collect + live score only)
 

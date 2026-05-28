@@ -52,17 +52,14 @@ Open http://localhost:3000
 
 ## Updating predictions
 
-After market close, advance dates without retraining:
+After market close:
 
 ```bash
 python scripts/daily_update.py
-python scripts/audit_data_coverage.py   # optional sanity check
 python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
-**Test locally before deploy:** run Flask + `cd web && npm run dev`, verify Markets and ticker pages. See [docs/DATA.md](docs/DATA.md).
-
-Doc index: **[docs/README.md](docs/README.md)**.
+Mac asleep at cron time? One manual run catches up — see [docs/DATA.md § Scheduled updates](docs/DATA.md). Full reference: **[docs/README.md](docs/README.md)**.
 
 ---
 

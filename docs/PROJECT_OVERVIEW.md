@@ -11,63 +11,23 @@ Predicts whether a stock goes **up or down** the next trading day by combining t
 
 End goal (shipped): a **Next.js UI** (`web/`) on Vercel plus a **Flask JSON API** (`app/server.py`) on Railway. Browse 20 tickers, switch Ensemble / LSTM / TF-IDF / Embeddings, see price + P(UP) charts, headlines (top 3 + expand), **Why this call** (counterfactual explanation), outcome dots on Markets, and accuracy. Training runs locally via CLI — not from the web UI.
 
-**Docs:** [README.md](README.md) (index), [DATA.md](DATA.md), [DEPLOY_UI.md](DEPLOY_UI.md).
+**Docs:** [README.md](README.md) (index), [DATA.md](DATA.md) (pipeline + daily ops), [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) (this file).
 
 ---
 
-## How to Run
+## How to run
+
+All commands, presets, daily refresh, cron, and publish steps are in **[DATA.md](DATA.md)** — not duplicated here.
+
+Quick entry points:
 
 ```bash
-source .venv/bin/activate
+python scripts/run_pipeline.py --preset max      # full retrain
+python scripts/daily_update.py                   # weekday refresh (no retrain)
+python scripts/audit_data_coverage.py            # sanity check
 ```
 
-### Full pipeline (recommended)
-
-```bash
-python scripts/run_pipeline.py --preset balanced
-```
-
-Quick test:
-
-```bash
-python scripts/run_pipeline.py --preset quick
-```
-
-### Daily refresh (no retrain)
-
-```bash
-python scripts/daily_update.py
-```
-
-See [DATA.md](DATA.md) for manual catch-up commands.
-
-### Step by step (more control)
-
-```bash
-# Data
-python scripts/setup_database.py                     # create tables (once)
-python scripts/collect_prices.py                     # all tickers, 365 days
-python scripts/collect_news.py                       # latest headlines (run weekly to accumulate)
-
-# Labels + split
-python scripts/generate_labels.py                    # up/down label per (ticker, date)
-python scripts/split_dataset.py                      # chronological 70/15/15 split
-
-# Training (or use run_pipeline.py to run all steps)
-python scripts/train_lstm.py                         # price-based LSTM
-python scripts/train_nlp.py                          # news TF-IDF baseline
-python scripts/train_news_embeddings.py              # MiniLM embeddings
-
-# Checks
-python scripts/validate_data.py                      # data quality report
-pytest tests/ -v                                     # unit tests
-
-# Reset
-python scripts/reset_data.py                         # clear features + models (keeps database)
-python scripts/reset_data.py --full                  # clear everything
-```
-
-All scripts accept `--help`.
+For step-by-step manual control (collect → train → evaluate), see DATA.md or run any script with `--help`.
 
 ---
 

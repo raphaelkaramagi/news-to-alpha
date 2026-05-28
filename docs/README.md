@@ -1,12 +1,24 @@
 # Documentation
 
-Public docs in this repo:
+| Doc | Audience | Contents |
+|-----|----------|----------|
+| [../README.md](../README.md) | Everyone | Quick start, architecture, presets |
+| [DATA.md](DATA.md) | Everyone | **Data pipeline** — artifacts, daily update, cron, publish to Railway |
+| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Contributors | Module-by-module architecture (no runbooks) |
+| [../web/README.md](../web/README.md) | Frontend | Next.js local dev + Vercel deploy |
+
+**Local-only** (gitignored — machine-specific or private):
 
 | Doc | Contents |
 |-----|----------|
-| [../README.md](../README.md) | Quick start, architecture, live site |
-| [DATA.md](DATA.md) | Artifacts, training presets, daily update, Mac cron, Railway upload |
-| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Module-by-module architecture reference |
-| [../web/README.md](../web/README.md) | Next.js local dev + deploy |
+| [DEPLOY.md](DEPLOY.md) | One-time Railway + Vercel setup (generic URLs) |
+| [DEPLOY_UI.md](DEPLOY_UI.md) | Your live URLs + smoke-test shortcuts |
+| [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) | UI quirks, experiment notes, known issues |
+| [local_cron.plist.example](local_cron.plist.example) | macOS launchd template |
 
-**Local-only** (gitignored): `DEPLOY_UI.md`, `PERSONAL_FULL_GUIDE.md`, `local_cron.plist.example`.
+**Where to look:**
+
+- Update predictions → [DATA.md § Daily refresh](DATA.md)
+- Mac asleep / missed cron → [DATA.md § Scheduled updates](DATA.md)
+- First deploy → [DEPLOY.md](DEPLOY.md) (local) or ask for [DEPLOY_UI.md](DEPLOY_UI.md) cheat sheet
+- How a module works → [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)
