@@ -1,12 +1,45 @@
 # Documentation
 
-Public docs in this repo:
+Reading order:
+
+1. **[../README.md](../README.md)** — project summary, quick start, results snapshot  
+2. **[DATA.md](DATA.md)** — data flow, training presets, daily refresh, publishing  
+3. **[RESULTS.md](RESULTS.md)** — evaluation metrics, model comparison, known limitations  
+4. **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** — architecture, modules, design decisions  
+5. **[../web/README.md](../web/README.md)** — frontend setup and Vercel deployment  
+
+---
+
+## Public docs
 
 | Doc | Contents |
 |-----|----------|
-| [../README.md](../README.md) | Quick start, architecture, live site |
-| [DATA.md](DATA.md) | Artifacts, training presets, daily update, Mac cron, Railway upload |
-| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Module-by-module architecture reference |
-| [../web/README.md](../web/README.md) | Next.js local dev + deploy |
+| [DATA.md](DATA.md) | Artifacts, pipeline operations, scheduled updates, Railway publish |
+| [RESULTS.md](RESULTS.md) | Test-set accuracy, AUC, subsets, key findings |
+| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | System architecture and module reference (summary level) |
 
-**Local-only** (gitignored): `DEPLOY_UI.md`, `PERSONAL_FULL_GUIDE.md`, `local_cron.plist.example`.
+---
+
+## Operator docs (gitignored)
+
+These files are excluded from the public repository (see `.gitignore`). They contain deployment URLs, host-specific paths, and a complete file-by-file codebase map.
+
+| Doc | Contents |
+|-----|----------|
+| [DEPLOY.md](DEPLOY.md) | Production deployment (Railway + Vercel), live URLs, costs |
+| [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) | Full codebase inventory, operator runbook, troubleshooting |
+| [local_cron.plist.example](local_cron.plist.example) | launchd template for scheduled daily updates |
+
+---
+
+## Common tasks
+
+| Task | Where |
+|------|-------|
+| First-time train | [DATA.md § Full retrain](DATA.md) |
+| Daily prediction refresh | [DATA.md § Daily refresh](DATA.md) |
+| Publish to production API | [DATA.md § Publish](DATA.md) |
+| Scheduled weekday updates | [DATA.md § Scheduled updates](DATA.md) |
+| Deploy UI + API | [DEPLOY.md](DEPLOY.md) (local) |
+| Understand a module | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) or [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) |
+| Interpret accuracy numbers | [RESULTS.md](RESULTS.md) |
