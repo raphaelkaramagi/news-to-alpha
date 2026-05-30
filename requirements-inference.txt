@@ -9,6 +9,7 @@ numpy
 # ── API keys / env ──────────────────────────────────────────────────────────
 python-dotenv
 requests
+yfinance              # daily_update price collection on Railway
 
 # ── ML inference (CPU torch) ─────────────────────────────────────────────
 # torch CPU wheel is resolved from --index-url at install time (see Dockerfile.inference)

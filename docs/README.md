@@ -42,7 +42,8 @@ These files are excluded from the public repository (see `.gitignore`). They con
 | First-time train | [DATA.md § Full retrain](DATA.md) |
 | Daily prediction refresh | [DATA.md § Daily refresh](DATA.md) |
 | Publish to production API | [DATA.md § Publish](DATA.md) |
-| Scheduled weekday updates | [DATA.md § Scheduled updates](DATA.md) |
+| **Automated weekday updates (GitHub Actions)** | **[AUTOMATION.md](AUTOMATION.md)** |
+| Scheduled weekday updates (Mac launchd) | [DATA.md § Scheduled updates](DATA.md) |
 | Deploy UI + API | [DEPLOY.md](DEPLOY.md) (local) |
 | Understand a module | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) or [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) |
 | Interpret accuracy numbers | [RESULTS.md](RESULTS.md) |

@@ -89,8 +89,10 @@ After market close, refresh predictions without retraining:
 
 ```bash
 python scripts/daily_update.py
-python scripts/publish_deploy_bundle.py --target railway --service web
+python scripts/publish_deploy_bundle.py --target railway --service web   # local → Railway upload
 ```
+
+**Automated (no laptop):** [docs/AUTOMATION.md](docs/AUTOMATION.md) — GitHub Actions runs `daily_update.py` on Railway Mon–Fri ~6 PM ET.
 
 ---
 

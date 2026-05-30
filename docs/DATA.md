@@ -144,9 +144,13 @@ Steps: collect prices/news → labels → `score_models.py` (live scoring + back
 
 Run metadata saved to `data/processed/pipeline_config.json` → `last_daily_update`.
 
-### Scheduled updates (launchd)
+### Scheduled updates (recommended: GitHub Actions)
 
-`scripts/local_cron.sh` runs `daily_update.py` then publishes to Railway. Template: `docs/local_cron.plist.example`. Default: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT).
+**[AUTOMATION.md](AUTOMATION.md)** — weekday `daily_update.py` via GitHub Actions + `railway ssh` into the `web` service (no laptop, no bundle upload).
+
+### Scheduled updates (optional: launchd on Mac)
+
+`scripts/local_cron.sh` runs `daily_update.py` then publishes to Railway. Template: `docs/local_cron.plist.example`. Default: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT). Skipped if the Mac is asleep.
 
 Setup (macOS Ventura+):
 

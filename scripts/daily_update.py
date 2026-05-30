@@ -32,6 +32,7 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
+from src.config import DATABASE_PATH  # noqa: E402
 from src.utils.collection_window import compute_collection_window, universe_tickers  # noqa: E402
 from src.utils.pipeline_config import load_or_default, save as _save_cfg  # noqa: E402
 
@@ -170,7 +171,10 @@ def run(
     print("Check:")
     print("  python scripts/audit_data_coverage.py")
     print("  curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool")
-    print("Next: python scripts/publish_deploy_bundle.py --target railway --service web")
+    if str(DATABASE_PATH).startswith("/data"):
+        print("Data written to Railway /data volume — no publish step needed.")
+    else:
+        print("Next: python scripts/publish_deploy_bundle.py --target railway --service web")
 
 
 def main() -> None:

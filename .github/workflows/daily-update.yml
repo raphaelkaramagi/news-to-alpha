@@ -1,0 +1,64 @@
+# Weekday inference refresh on Railway (/data volume — no bundle upload).
+# Setup: docs/AUTOMATION.md
+name: Daily update (Railway)
+
+on:
+  schedule:
+    # Mon–Fri 22:00 UTC ≈ 6:00 PM ET (EDT). Adjust to 23 for EST/winter.
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-update-railway
+  cancel-in-progress: false
+
+jobs:
+  daily-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@latest
+
+      - name: Configure SSH for Railway
+        env:
+          RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$RAILWAY_SSH_PRIVATE_KEY" ]; then
+            echo "Missing secret RAILWAY_SSH_PRIVATE_KEY — see docs/AUTOMATION.md"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$RAILWAY_SSH_PRIVATE_KEY" > ~/.ssh/railway_actions
+          chmod 600 ~/.ssh/railway_actions
+          ssh-keyscan -H ssh.railway.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Run daily update in Railway container
+        env:
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+        run: |
+          for var in RAILWAY_PROJECT_ID RAILWAY_SERVICE RAILWAY_ENVIRONMENT; do
+            if [ -z "${!var}" ]; then
+              echo "Missing secret $var — see docs/AUTOMATION.md"
+              exit 1
+            fi
+          done
+          railway ssh \
+            -p "$RAILWAY_PROJECT_ID" \
+            -s "$RAILWAY_SERVICE" \
+            -e "$RAILWAY_ENVIRONMENT" \
+            -i ~/.ssh/railway_actions \
+            -- sh -c 'cd /app && python scripts/daily_update.py && PUBLISH_SOURCE=github_actions python scripts/stamp_published.py'
+
+      - name: Smoke check /api/data-status
+        env:
+          RAILWAY_API_URL: ${{ secrets.RAILWAY_API_URL }}
+        run: |
+          if [ -z "$RAILWAY_API_URL" ]; then
+            echo "RAILWAY_API_URL not set — skipping smoke check"
+            exit 0
+          fi
+          curl -sf "${RAILWAY_API_URL%/}/api/data-status" | python3 -m json.tool
