@@ -65,7 +65,7 @@ def _score_lstm(horizon: int, dry_run: bool) -> bool:
 # TF-IDF NLP inference
 # ---------------------------------------------------------------------------
 
-def _score_tfidf(horizon: int, dry_run: bool) -> bool:
+def _score_tfidf(horizon: int, dry_run: bool, incremental: bool = False) -> bool:
     model_path = MODELS_DIR / "nlp_baseline.joblib"
     out_csv = PROCESSED_DATA_DIR / "news_tfidf_predictions.csv"
 
@@ -75,8 +75,17 @@ def _score_tfidf(horizon: int, dry_run: bool) -> bool:
 
     print(f"[score_tfidf] Loading model from {model_path}")
     if dry_run:
-        print("[score_tfidf] DRY-RUN – would score all news-bearing days")
+        mode = "live rows only" if incremental and out_csv.exists() else "all news-bearing days"
+        print(f"[score_tfidf] DRY-RUN – would score {mode}")
         return True
+
+    from src.ml.news_live_export import append_live_tfidf_predictions  # noqa: E402
+
+    if incremental and out_csv.exists():
+        print("[score_tfidf] Incremental – skipping full historical rescore")
+        n_live = append_live_tfidf_predictions(model_path=model_path, out_csv=out_csv)
+        print(f"[score_tfidf] Appended {n_live} live rows → {out_csv}")
+        return n_live > 0 or out_csv.exists()
 
     from src.models.news_pipeline import build_dataset  # noqa: E402
     from scripts.train_nlp import export_predictions, load_tfidf_model  # noqa: E402
@@ -97,8 +106,6 @@ def _score_tfidf(horizon: int, dry_run: bool) -> bool:
     out_df[col_order].to_csv(out_csv, index=False)
     print(f"[score_tfidf] Saved {len(out_df)} rows → {out_csv}")
 
-    # Append live-day predictions (no labels yet) via news_live_export
-    from src.ml.news_live_export import append_live_tfidf_predictions  # noqa: E402
     n_live = append_live_tfidf_predictions(model_path=model_path, out_csv=out_csv)
     if n_live:
         print(f"[score_tfidf] Appended {n_live} live rows → {out_csv}")
@@ -109,7 +116,7 @@ def _score_tfidf(horizon: int, dry_run: bool) -> bool:
 # Embeddings inference
 # ---------------------------------------------------------------------------
 
-def _score_embeddings(horizon: int, dry_run: bool) -> bool:
+def _score_embeddings(horizon: int, dry_run: bool, incremental: bool = False) -> bool:
     model_path = MODELS_DIR / "news_embeddings.joblib"
     out_csv = PROCESSED_DATA_DIR / "news_embeddings_predictions.csv"
 
@@ -119,8 +126,17 @@ def _score_embeddings(horizon: int, dry_run: bool) -> bool:
 
     print(f"[score_embeddings] Loading model from {model_path}")
     if dry_run:
-        print("[score_embeddings] DRY-RUN – would score all news-bearing days")
+        mode = "live rows only" if incremental and out_csv.exists() else "all news-bearing days"
+        print(f"[score_embeddings] DRY-RUN – would score {mode}")
         return True
+
+    from src.ml.news_live_export import append_live_embedding_predictions  # noqa: E402
+
+    if incremental and out_csv.exists():
+        print("[score_embeddings] Incremental – skipping full FinBERT historical rescore")
+        n_live = append_live_embedding_predictions(model_path=model_path, out_csv=out_csv)
+        print(f"[score_embeddings] Appended {n_live} live rows → {out_csv}")
+        return n_live > 0 or out_csv.exists()
 
     from src.models.news_pipeline import build_dataset  # noqa: E402
     from scripts.train_news_embeddings import (  # noqa: E402
@@ -134,6 +150,7 @@ def _score_embeddings(horizon: int, dry_run: bool) -> bool:
         print("[score_embeddings] No news-bearing rows – skipping.")
         return False
 
+    print(f"[score_embeddings] Full rescore of {len(df)} news rows (slow on CPU — use --incremental for daily runs)")
     out_df = export_predictions(model, "daily", df)
     col_order = [
         "ticker", "prediction_date", "split", "model_name",
@@ -144,8 +161,6 @@ def _score_embeddings(horizon: int, dry_run: bool) -> bool:
     out_df[col_order].to_csv(out_csv, index=False)
     print(f"[score_embeddings] Saved {len(out_df)} rows → {out_csv}")
 
-    # Append live-day predictions (no labels yet) via news_live_export
-    from src.ml.news_live_export import append_live_embedding_predictions  # noqa: E402
     n_live = append_live_embedding_predictions(model_path=model_path, out_csv=out_csv)
     if n_live:
         print(f"[score_embeddings] Appended {n_live} live rows → {out_csv}")
@@ -240,20 +255,25 @@ def main() -> None:
     parser.add_argument("--skip-embeddings", action="store_true")
     parser.add_argument("--skip-backfill", action="store_true",
                         help="Skip backfilling actual_binary on live rows.")
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Daily mode: score only new live rows for NLP/embeddings (skip full FinBERT rescore).",
+    )
     parser.add_argument("--dry-run", action="store_true",
                         help="Report what would run without executing.")
     args = parser.parse_args()
 
     cfg = load_or_default()
     horizon = args.horizon or int(cfg.get("horizon", 1))
-    print(f"[score_models] horizon={horizon}  dry_run={args.dry_run}")
+    print(f"[score_models] horizon={horizon}  incremental={args.incremental}  dry_run={args.dry_run}")
 
     if not args.skip_lstm:
         _score_lstm(horizon, args.dry_run)
     if not args.skip_tfidf:
-        _score_tfidf(horizon, args.dry_run)
+        _score_tfidf(horizon, args.dry_run, incremental=args.incremental)
     if not args.skip_embeddings:
-        _score_embeddings(horizon, args.dry_run)
+        _score_embeddings(horizon, args.dry_run, incremental=args.incremental)
     if not args.skip_backfill:
         n = backfill_outcomes(dry_run=args.dry_run)
         print(f"[score_models] backfill_outcomes: {n} rows updated")

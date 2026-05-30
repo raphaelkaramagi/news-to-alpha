@@ -139,7 +139,7 @@ def run(
         "generate_labels",
     )
 
-    score_args = [*horizon_args]
+    score_args = [*horizon_args, "--incremental"]
     if skip_lstm:
         score_args.append("--skip-lstm")
     if skip_tfidf:

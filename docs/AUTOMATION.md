@@ -105,7 +105,15 @@ GitHub Actions (22:00 UTC Mon–Fri)
     → python scripts/stamp_published.py
 ```
 
-Steps inside `daily_update.py`: collect prices/news → labels → score models → ensemble → evaluate.
+Steps inside `daily_update.py`: collect prices/news → labels → score models (**incremental** — live rows only) → ensemble → evaluate.
+
+**Typical runtime:** 3–10 minutes after the incremental scoring fix. The first run (or a full rescore without `--incremental`) can take **30–90+ minutes** on Railway CPU because FinBERT re-encodes every historical headline.
+
+### Cost notes
+
+Railway bills **per minute of RAM + vCPU used**. A daily FinBERT burst (~3 GB RAM, high CPU for 30–60 min) costs roughly **$0.05–0.15 per run** — not hundreds of dollars. The **$166 estimated bill** in the dashboard extrapolates a short spike as if it ran 24/7 all month; ignore it unless usage stays elevated continuously.
+
+With incremental scoring, weekday runs should stay well within the Hobby **$5 included usage**.
 
 ---
 
@@ -137,7 +145,8 @@ launchctl bootout gui/$(id -u)/com.news-to-alpha.daily 2>/dev/null || true
 | `Unauthorized. Please login with railway login` | Add **`RAILWAY_API_TOKEN`** (account token, **No workspace**). Do not use a project token here |
 | `ModuleNotFoundError: yfinance` | Railway image not rebuilt — trigger redeploy on `main` |
 | `NEWS_API_KEY` missing | Add variable on Railway `web` service |
-| Job times out at 45 min | Rare; re-run; check Finnhub rate limits in logs |
+| Job times out at 45 min | First run may full-rescore FinBERT — wait for deploy with `--incremental`, then re-run |
+| Run stuck at `Loading weights` / FinBERT | Usually **not stuck** — full historical embedding rescore with no progress bar; can take 30–90 min |
 | `is_current: false` after success | Prices may not have today’s bar yet — run after ~4:15 PM ET |
 
 ---
