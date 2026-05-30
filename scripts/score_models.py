@@ -73,20 +73,27 @@ def _score_tfidf(horizon: int, dry_run: bool, incremental: bool = False) -> bool
         print(f"[score_tfidf] SKIP – model not found: {model_path}")
         return False
 
-    print(f"[score_tfidf] Loading model from {model_path}")
     if dry_run:
-        mode = "live rows only" if incremental and out_csv.exists() else "all news-bearing days"
+        mode = "live rows only" if incremental else "all news-bearing days"
         print(f"[score_tfidf] DRY-RUN – would score {mode}")
         return True
 
     from src.ml.news_live_export import append_live_tfidf_predictions  # noqa: E402
 
-    if incremental and out_csv.exists():
-        print("[score_tfidf] Incremental – skipping full historical rescore")
+    if incremental:
+        if not out_csv.exists():
+            print(
+                "[score_tfidf] Incremental – no historical CSV yet; "
+                "scoring live rows only (publish bundle to seed history)"
+            )
+        else:
+            print("[score_tfidf] Incremental – skipping full historical rescore")
+        print(f"[score_tfidf] Loading model from {model_path}")
         n_live = append_live_tfidf_predictions(model_path=model_path, out_csv=out_csv)
         print(f"[score_tfidf] Appended {n_live} live rows → {out_csv}")
-        return n_live > 0 or out_csv.exists()
+        return True
 
+    print(f"[score_tfidf] Loading model from {model_path}")
     from src.models.news_pipeline import build_dataset  # noqa: E402
     from scripts.train_nlp import export_predictions, load_tfidf_model  # noqa: E402
 
@@ -124,19 +131,25 @@ def _score_embeddings(horizon: int, dry_run: bool, incremental: bool = False) ->
         print(f"[score_embeddings] SKIP – model not found: {model_path}")
         return False
 
-    print(f"[score_embeddings] Loading model from {model_path}")
     if dry_run:
-        mode = "live rows only" if incremental and out_csv.exists() else "all news-bearing days"
+        mode = "live rows only" if incremental else "all news-bearing days"
         print(f"[score_embeddings] DRY-RUN – would score {mode}")
         return True
 
     from src.ml.news_live_export import append_live_embedding_predictions  # noqa: E402
 
-    if incremental and out_csv.exists():
-        print("[score_embeddings] Incremental – skipping full FinBERT historical rescore")
+    if incremental:
+        if not out_csv.exists():
+            print(
+                "[score_embeddings] Incremental – no historical CSV yet; "
+                "scoring live rows only (publish bundle to seed history)"
+            )
+        else:
+            print("[score_embeddings] Incremental – skipping full FinBERT historical rescore")
+        print(f"[score_embeddings] Loading model from {model_path}")
         n_live = append_live_embedding_predictions(model_path=model_path, out_csv=out_csv)
         print(f"[score_embeddings] Appended {n_live} live rows → {out_csv}")
-        return n_live > 0 or out_csv.exists()
+        return True
 
     from src.models.news_pipeline import build_dataset  # noqa: E402
     from scripts.train_news_embeddings import (  # noqa: E402

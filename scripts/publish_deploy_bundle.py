@@ -42,6 +42,10 @@ from src.config import (  # noqa: E402
 BUNDLE_FILES = [
     # Predictions & evaluation CSVs
     ("processed/final_ensemble_predictions.csv", True),   # (rel_path, required)
+    # Base model CSVs — needed for daily_update build_eval_dataset on Railway
+    ("processed/price_predictions.csv",          False),
+    ("processed/news_tfidf_predictions.csv",     False),
+    ("processed/news_embeddings_predictions.csv", False),
     ("processed/evaluation_overall.csv",         False),
     ("processed/evaluation_by_ticker.csv",       False),
     ("processed/evaluation_by_confidence.csv",   False),
