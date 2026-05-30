@@ -36,16 +36,25 @@ jobs:
 
       - name: Run daily update in Railway container
         env:
+          # Account token (NOT project token). Create at Railway → Account → Tokens,
+          # select "No workspace". See docs/AUTOMATION.md
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
           RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
         run: |
+          if [ -z "$RAILWAY_API_TOKEN" ]; then
+            echo "Missing RAILWAY_API_TOKEN — see docs/AUTOMATION.md step 6"
+            exit 1
+          fi
           for var in RAILWAY_PROJECT_ID RAILWAY_SERVICE RAILWAY_ENVIRONMENT; do
             if [ -z "${!var}" ]; then
               echo "Missing secret $var — see docs/AUTOMATION.md"
               exit 1
             fi
           done
+          # Project tokens (RAILWAY_TOKEN) do not authenticate railway ssh in CI
+          unset RAILWAY_TOKEN || true
           railway ssh \
             -p "$RAILWAY_PROJECT_ID" \
             -s "$RAILWAY_SERVICE" \

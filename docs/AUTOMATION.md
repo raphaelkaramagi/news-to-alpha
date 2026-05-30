@@ -2,7 +2,7 @@
 
 Run `daily_update.py` on the Railway `/data` volume **without** your laptop. No `publish_deploy_bundle.py` step — the job writes CSVs and SQLite where the API already reads them.
 
-**Schedule:** Mon–Fri **22:00 UTC** (~6:00 PM ET in EDT).  
+**Schedule:** Mon–Fri **22:00 UTC** (~6:00 PM ET in EDT, ~5 PM in EST). Configured in [`.github/workflows/daily-update.yml`](../.github/workflows/daily-update.yml) under `on.schedule.cron`. In EST/winter, change to `0 23 * * 1-5`.  
 **Cost:** Uses a few minutes of CPU/RAM on your existing `web` service; typically stays within the Hobby **$5** included usage.
 
 ---
@@ -70,11 +70,14 @@ Repo → **Settings** → **Secrets and variables** → **Actions** → **New re
 
 | Secret | Value |
 |--------|--------|
+| **`RAILWAY_API_TOKEN`** | **Required for CI.** Railway → click your avatar → **Account Settings** → **Tokens** → **Create Token** → choose **No workspace** (not a specific workspace). Copy once. |
 | `RAILWAY_SSH_PRIVATE_KEY` | Full contents of `~/.ssh/railway_github_actions` (private key) |
 | `RAILWAY_PROJECT_ID` | Project UUID from step 5 |
 | `RAILWAY_SERVICE` | `web` |
 | `RAILWAY_ENVIRONMENT` | `production` (or your env name) |
 | `RAILWAY_API_URL` | Optional — `https://<your-railway-domain>` for post-run smoke check |
+
+> **Why `RAILWAY_API_TOKEN`?** `railway ssh` in GitHub Actions needs an **account** token (`RAILWAY_API_TOKEN`). Project tokens (`RAILWAY_TOKEN`) and SSH keys alone are not enough — that causes `Unauthorized. Please login with railway login`.
 
 ### 7. Enable Actions and test
 
@@ -131,6 +134,7 @@ launchctl bootout gui/$(id -u)/com.news-to-alpha.daily 2>/dev/null || true
 | Symptom | Fix |
 |---------|-----|
 | SSH permission denied in Actions | Re-run step 4; verify `RAILWAY_SSH_PRIVATE_KEY` includes the full private key (with newlines) |
+| `Unauthorized. Please login with railway login` | Add **`RAILWAY_API_TOKEN`** (account token, **No workspace**). Do not use a project token here |
 | `ModuleNotFoundError: yfinance` | Railway image not rebuilt — trigger redeploy on `main` |
 | `NEWS_API_KEY` missing | Add variable on Railway `web` service |
 | Job times out at 45 min | Rare; re-run; check Finnhub rate limits in logs |
