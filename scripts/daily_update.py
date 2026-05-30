@@ -32,9 +32,25 @@ from pathlib import Path
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.config import DATABASE_PATH  # noqa: E402
+from src.config import DATABASE_PATH, TICKERS  # noqa: E402
 from src.utils.collection_window import compute_collection_window, universe_tickers  # noqa: E402
 from src.utils.pipeline_config import load_or_default, save as _save_cfg  # noqa: E402
+
+
+def _daily_tickers(cfg: dict) -> list[str]:
+    """Always use the canonical 20-ticker universe for daily refresh."""
+    saved = cfg.get("tickers") or []
+    if len(saved) != len(TICKERS):
+        print(f"  note          : daily uses {len(TICKERS)} tickers (pipeline_config had {len(saved)})")
+    return list(TICKERS)
+
+
+def _daily_horizon(cfg: dict) -> int:
+    """Daily UI is next-session (horizon=1); ignore legacy horizon=3 configs."""
+    saved = int(cfg.get("horizon", 1))
+    if saved != 1:
+        print(f"  note          : pipeline_config horizon={saved} ignored; daily uses 1")
+    return 1
 
 
 def _py() -> str:
@@ -87,8 +103,8 @@ def run(
 ) -> None:
     """Run the daily update pipeline (infer-only)."""
     cfg = load_or_default()
-    horizon = int(cfg.get("horizon", 1))
-    tickers: list[str] = cfg.get("tickers") or []
+    horizon = _daily_horizon(cfg)
+    tickers = _daily_tickers(cfg)
     all_tickers = universe_tickers(tickers)
 
     ticker_args = ["--tickers", *tickers] if tickers else []
@@ -157,6 +173,8 @@ def run(
     _run([_py(), "scripts/evaluate_predictions.py", *horizon_args], "evaluate_predictions")
 
     payload = dict(cfg)
+    payload["tickers"] = tickers
+    payload["horizon"] = horizon
     payload["last_daily_update"] = {
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "incremental": incremental,

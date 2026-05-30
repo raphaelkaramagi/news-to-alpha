@@ -94,7 +94,35 @@ curl -s https://<your-railway-domain>/api/data-status | python3 -m json.tool
 
 ---
 
-## What runs each weekday
+## What happened if a run fails after ~30–40 minutes?
+
+The old path **re-scored all ~2,400 FinBERT rows** on Railway CPU (~3 GB RAM). That often ends with **exit code 1** and no Python traceback — usually **OOM (out of memory)** or SSH disconnect, not a logic bug.
+
+**Your site is fine** if you already published recently: the failed run stopped before `build_ensemble` / `final_ensemble_predictions.csv`. Partial TF-IDF/LSTM writes on `/data` do not affect the live CSV the API serves until ensemble completes.
+
+**Do not re-run the old workflow** until Railway has redeployed from `main` (includes `--incremental` scoring). Then manual runs take **~5–15 minutes** for all 20 tickers.
+
+---
+
+## After a failed run — checklist
+
+1. **Cancel** the workflow if still running (GitHub → Actions → Cancel).
+2. **Confirm Railway redeployed** from latest `main` (Dashboard → web → Deployments → success).
+3. **Optional but recommended once:** from your laptop, sync full artifacts to Railway:
+   ```bash
+   python scripts/daily_update.py
+   python scripts/publish_deploy_bundle.py --target railway --service web
+   ```
+   This refreshes `pipeline_config.json` (20 tickers, horizon 1) and prediction CSVs on `/data`.
+4. **Re-run** Actions → Daily update (Railway) → Run workflow manually.
+5. Expect logs like:
+   ```text
+   tickers       : [all 20 …]
+   horizon       : 1
+   [score_embeddings] Incremental – skipping full FinBERT historical rescore
+   ```
+
+---
 
 Workflow: [`.github/workflows/daily-update.yml`](../.github/workflows/daily-update.yml)
 

@@ -173,8 +173,9 @@ def append_live_embedding_predictions(
 
     from scripts.train_news_embeddings import load_embedding_model
 
+    print(f"[score_embeddings live] Scoring {len(df)} live rows …")
     model = load_embedding_model(model_path)
-    proba = model.predict_proba_positive(df)
+    proba = model.predict_proba_positive(df, show_progress=len(df) > 3)
     binary = (proba >= 0.5).astype(int)
     conf = np.abs(proba - 0.5) * 2.0
 

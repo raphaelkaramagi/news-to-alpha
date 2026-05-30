@@ -43,15 +43,19 @@ def load(path: Optional[Path] = None) -> Optional[dict]:
 
 
 def load_or_default(path: Optional[Path] = None) -> dict:
-    """Return saved config, or balanced preset defaults as a fallback."""
+    """Return saved config, or canonical project defaults as a fallback."""
+    from src.config import TICKERS
+
     cfg = load(path)
     if cfg:
         return cfg
     return {
-        "tickers": ["AAPL", "NVDA", "TSLA", "META", "JPM"],
+        "tickers": list(TICKERS),
         "lookback_days": 730,
-        "horizon": 3,
+        "horizon": 1,
         "min_move_pct": 0.5,
         "seeds": [42, 1337, 2024],
-        "use_finbert": False,
+        "use_finbert": True,
+        "encoder_model": "finbert",
+        "conditional_ensemble": True,
     }
