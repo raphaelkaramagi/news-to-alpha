@@ -2,9 +2,9 @@
 
 Binary classifier for **next-session stock direction** (UP/DOWN). Combines price history (LSTM), news text (TF-IDF + FinBERT embeddings), and a learned ensemble meta-model.
 
-**Tickers:** 20 US equities — AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR, GOOGL, MSFT, MU, AMD, AMZN
+**Universe:** 20 US equities — AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR, GOOGL, MSFT, MU, AMD, AMZN
 
-**Demo:** [stock.raphaelkaramagi.com](https://stock.raphaelkaramagi.com) (example deployment: Next.js on Vercel → Flask API on Railway)
+**Live demo:** [stock.raphaelkaramagi.com](https://stock.raphaelkaramagi.com) (Next.js on Vercel, Flask API on Railway)
 
 ---
 
@@ -21,14 +21,14 @@ Held-out **test split**, `max_v2` preset (chronological 70/15/15, next-day horiz
 | LSTM (price) | 49.7% | 0.495 | Near random; known collapse on test |
 | Previous-day direction | 50.9% | 0.509 | Simple baseline |
 
-**Takeaway:** News-driven models carry most usable signal; the ensemble learns to weight them on headline days. The LSTM price head remains a weak contributor and is an active improvement area.
+News-driven models carry most usable signal; the ensemble learns to weight them on headline days. The LSTM price head remains a weak contributor.
 
 ---
 
 ## Architecture
 
 ```
-Training host (local)  →  collect, train, daily inference
+Training host          →  collect, train, daily inference
          ↓ publish_deploy_bundle.py (SSH)
 Railway /data volume   ←  Flask API (read-only, Dockerfile.inference)
          ↑
@@ -39,9 +39,9 @@ Vercel (web/)          ←  Next.js dashboard proxies /api/*
 |-------|-------|------|
 | **UI** | Next.js 16 (`web/`) | Markets grid, ticker detail, status |
 | **API** | Flask (`app/server.py`) | Serves CSVs + SQLite from `/data` |
-| **ML** | PyTorch + scikit-learn | Trained offline; artifacts uploaded to API host |
+| **ML** | PyTorch + scikit-learn | Trained offline; artifacts uploaded to the API host |
 
-Training and raw data stay on the operator machine. Production serves precomputed predictions only.
+Training and raw data stay on the operator host. Production serves precomputed predictions only.
 
 ---
 
@@ -70,29 +70,29 @@ cd web && cp .env.example .env.local && npm install && npm run dev
 
 Open http://localhost:3000
 
-**Full local testing checklist:** [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md)
+Full setup and smoke tests: **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
 
 ---
 
 ## Documentation
 
-| Read first | Doc | For |
-|------------|-----|-----|
-| 1 | [docs/README.md](docs/README.md) | Index and reading order |
-| 2 | [docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md) | **Run API + UI, smoke tests, verify before deploy** |
-| 3 | [docs/DATA.md](docs/DATA.md) | Pipeline, artifacts, daily refresh, publish |
-| 4 | [docs/RESULTS.md](docs/RESULTS.md) | Evaluation metrics and findings |
-| 5 | [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Architecture and design decisions |
-| 6 | [web/README.md](web/README.md) | Frontend development |
+| Doc | Purpose |
+|-----|---------|
+| [docs/README.md](docs/README.md) | Index and reading order |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local setup, API/UI, tests |
+| [docs/DATA.md](docs/DATA.md) | Pipeline, artifacts, daily refresh, publish |
+| [docs/RESULTS.md](docs/RESULTS.md) | Evaluation metrics |
+| [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Architecture and modules |
+| [web/README.md](web/README.md) | Frontend |
 
 After market close, refresh predictions without retraining:
 
 ```bash
 python scripts/daily_update.py
-python scripts/publish_deploy_bundle.py --target railway --service web   # local → Railway upload
+python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
-**Automated (no laptop):** [docs/AUTOMATION.md](docs/AUTOMATION.md) — GitHub Actions runs `daily_update.py` on Railway Mon–Fri ~6 PM ET.
+Weekday automation is available via `.github/workflows/daily-update.yml` (see [DATA.md § Scheduled updates](DATA.md)).
 
 ---
 
@@ -100,8 +100,8 @@ python scripts/publish_deploy_bundle.py --target railway --service web   # local
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets grid, ✓/✗ resolved calls, overview chart |
-| `/t/[symbol]` | Close-to-close hero, headlines, Why this call (gauge + drivers), charts |
+| `/` | Markets grid, resolved calls, overview chart |
+| `/t/[symbol]` | Close-to-close hero, headlines, Why tab, charts |
 | `/status` | Data freshness and evaluation summary |
 
 A global date picker syncs all pages.
@@ -116,7 +116,7 @@ web/           Next.js UI
 scripts/       CLI pipeline (train, collect, publish)
 src/           ML modules (features, models, data collection)
 tests/unit/    pytest suite
-docs/          Public reference documentation
+docs/          Reference documentation
 data/          Artifacts (gitignored — created by pipeline)
 ```
 
@@ -128,8 +128,8 @@ data/          Artifacts (gitignored — created by pipeline)
 python scripts/run_pipeline.py --preset quick      # 2 tickers, smoke test
 python scripts/run_pipeline.py --preset balanced   # 5 tickers, 3-day horizon
 python scripts/run_pipeline.py --preset advanced   # all tickers, 3-day + FinBERT
-python scripts/run_pipeline.py --preset max        # all tickers, next-day (legacy prod)
-python scripts/run_pipeline.py --preset max_v2     # recommended: FinBERT + conditional ensemble
+python scripts/run_pipeline.py --preset max        # all tickers, next-day (legacy)
+python scripts/run_pipeline.py --preset max_v2     # recommended
 ```
 
 All scripts accept `--help`.
@@ -144,4 +144,4 @@ cd web && npm run build
 python scripts/publish_deploy_bundle.py --dry-run
 ```
 
-Step-by-step local verification (API, UI, smoke curls, checklist): **[docs/LOCAL_TESTING.md](docs/LOCAL_TESTING.md)**.
+See **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** for the full verification checklist.

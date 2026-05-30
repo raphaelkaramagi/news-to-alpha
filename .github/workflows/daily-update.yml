@@ -1,5 +1,5 @@
 # Weekday inference refresh on Railway (/data volume — no bundle upload).
-# Setup: docs/AUTOMATION.md
+# Configure repository secrets per your deployment environment.
 name: Daily update (Railway)
 
 on:
@@ -26,7 +26,7 @@ jobs:
           RAILWAY_SSH_PRIVATE_KEY: ${{ secrets.RAILWAY_SSH_PRIVATE_KEY }}
         run: |
           if [ -z "$RAILWAY_SSH_PRIVATE_KEY" ]; then
-            echo "Missing secret RAILWAY_SSH_PRIVATE_KEY — see docs/AUTOMATION.md"
+            echo "Missing secret RAILWAY_SSH_PRIVATE_KEY"
             exit 1
           fi
           mkdir -p ~/.ssh
@@ -37,14 +37,14 @@ jobs:
       - name: Run daily update in Railway container
         env:
           # Account token (NOT project token). Create at Railway → Account → Tokens,
-          # select "No workspace". See docs/AUTOMATION.md
+          # select "No workspace".
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
           RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
         run: |
           if [ -z "$RAILWAY_API_TOKEN" ]; then
-            echo "Missing RAILWAY_API_TOKEN — see docs/AUTOMATION.md step 6"
+            echo "Missing RAILWAY_API_TOKEN"
             exit 1
           fi
           for var in RAILWAY_PROJECT_ID RAILWAY_SERVICE RAILWAY_ENVIRONMENT; do

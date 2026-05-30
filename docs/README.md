@@ -1,36 +1,24 @@
 # Documentation
 
-Reading order:
+Reading order for contributors:
 
-1. **[../README.md](../README.md)** — project summary, quick start, results snapshot  
-2. **[LOCAL_TESTING.md](LOCAL_TESTING.md)** — run API + UI locally, smoke tests, pre-deploy checklist  
-3. **[DATA.md](DATA.md)** — data flow, training presets, daily refresh, publishing  
-4. **[RESULTS.md](RESULTS.md)** — evaluation metrics, model comparison, known limitations  
-5. **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** — architecture, modules, design decisions  
-6. **[../web/README.md](../web/README.md)** — frontend setup and Vercel deployment  
-
----
-
-## Public docs
-
-| Doc | Contents |
-|-----|----------|
-| [LOCAL_TESTING.md](LOCAL_TESTING.md) | Local API/UI setup, daily_update checks, smoke tests |
-| [DATA.md](DATA.md) | Artifacts, pipeline operations, scheduled updates, Railway publish |
-| [RESULTS.md](RESULTS.md) | Test-set accuracy, AUC, subsets, key findings |
-| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | System architecture and module reference (summary level) |
+1. **[../README.md](../README.md)** — overview, quick start, results snapshot  
+2. **[DEVELOPMENT.md](DEVELOPMENT.md)** — local setup, API/UI, smoke tests  
+3. **[DATA.md](DATA.md)** — pipeline, artifacts, daily refresh, publishing  
+4. **[RESULTS.md](RESULTS.md)** — evaluation metrics and model comparison  
+5. **[PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md)** — architecture and design decisions  
+6. **[../web/README.md](../web/README.md)** — frontend structure and deployment  
 
 ---
 
-## Operator docs (gitignored)
-
-These files are excluded from the public repository (see `.gitignore`). They contain deployment URLs, host-specific paths, and a complete file-by-file codebase map.
+## Reference
 
 | Doc | Contents |
 |-----|----------|
-| [DEPLOY.md](DEPLOY.md) | Production deployment (Railway + Vercel), live URLs, costs |
-| [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) | Full codebase inventory, operator runbook, troubleshooting |
-| [local_cron.plist.example](local_cron.plist.example) | launchd template for scheduled daily updates |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Environment setup, run locally, tests |
+| [DATA.md](DATA.md) | Training presets, daily inference, artifact layout |
+| [RESULTS.md](RESULTS.md) | Held-out test metrics, subsets, findings |
+| [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) | Modules, data flow, API surface |
 
 ---
 
@@ -38,12 +26,9 @@ These files are excluded from the public repository (see `.gitignore`). They con
 
 | Task | Where |
 |------|-------|
-| **Test locally (API + UI)** | [LOCAL_TESTING.md](LOCAL_TESTING.md) |
 | First-time train | [DATA.md § Full retrain](DATA.md) |
 | Daily prediction refresh | [DATA.md § Daily refresh](DATA.md) |
-| Publish to production API | [DATA.md § Publish](DATA.md) |
-| **Automated weekday updates (GitHub Actions)** | **[AUTOMATION.md](AUTOMATION.md)** |
-| Scheduled weekday updates (Mac launchd) | [DATA.md § Scheduled updates](DATA.md) |
-| Deploy UI + API | [DEPLOY.md](DEPLOY.md) (local) |
-| Understand a module | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) or [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) |
+| Publish inference bundle | [DATA.md § Publish](DATA.md) |
+| Run API + UI locally | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | Interpret accuracy numbers | [RESULTS.md](RESULTS.md) |
+| Understand a module | [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) |

@@ -144,43 +144,17 @@ Steps: collect prices/news → labels → `score_models.py` (live scoring + back
 
 Run metadata saved to `data/processed/pipeline_config.json` → `last_daily_update`.
 
-### Scheduled updates (recommended: GitHub Actions)
+Daily runs use all **20 canonical tickers** and **horizon 1**, regardless of older values stored in `pipeline_config.json`. NLP scoring uses **`--incremental`** by default (live rows only) to avoid full FinBERT rescoring on constrained hosts.
 
-**[AUTOMATION.md](AUTOMATION.md)** — weekday `daily_update.py` via GitHub Actions + `railway ssh` into the `web` service (no laptop, no bundle upload).
+### Scheduled updates
 
-### Scheduled updates (optional: launchd on Mac)
+| Approach | Description |
+|----------|-------------|
+| **GitHub Actions** | [`.github/workflows/daily-update.yml`](../.github/workflows/daily-update.yml) runs `daily_update.py` on the production host via `railway ssh` (Mon–Fri 22:00 UTC). Requires repository secrets (`RAILWAY_API_TOKEN`, SSH key, project/service IDs). |
+| **Manual / CI** | `python scripts/daily_update.py` on any host with access to `/data`, or publish from a training host via `publish_deploy_bundle.py`. |
+| **Host cron** | Wrap `daily_update.py` (+ optional publish) in cron or systemd on a machine that stays online after market close. |
 
-`scripts/local_cron.sh` runs `daily_update.py` then publishes to Railway. Template: `docs/local_cron.plist.example`. Default: **Mon–Fri 22:00 UTC** (~6 PM ET in EDT). Skipped if the Mac is asleep.
-
-Setup (macOS Ventura+):
-
-```bash
-cp docs/local_cron.plist.example ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
-# Edit WorkingDirectory and script paths
-plutil -lint ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
-launchctl bootout gui/$(id -u)/com.news-to-alpha.daily 2>/dev/null || true
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.news-to-alpha.daily.plist
-launchctl enable gui/$(id -u)/com.news-to-alpha.daily
-```
-
-Logs: `~/Library/Logs/news-to-alpha/daily_update.log`
-
-#### Host asleep at scheduled time
-
-| Scenario | Behavior |
-|----------|----------|
-| Host asleep at cron fire time | **Job skipped** — launchd does not queue missed runs |
-| Host wakes later | **No automatic catch-up** until next schedule or manual run |
-| Manual catch-up after missed days | **One run suffices** — incremental mode expands the window from SQLite gaps (up to `--lookback-days`, default 60) + label backfill |
-| Downtime > 60 calendar days | Run once with `--lookback-days 90` (or `--full-lookback`) before publish |
-
-```bash
-bash scripts/local_cron.sh
-# or:
-python scripts/daily_update.py && python scripts/publish_deploy_bundle.py --target railway --service web
-```
-
-Alternative for hosts that are frequently offline: optional cloud cron (see [DEPLOY.md](DEPLOY.md)).
+When the job runs **inside** the Railway container on `/data`, no separate publish step is needed — outputs are written where the API reads them.
 
 ### Manual catch-up (step-by-step)
 
@@ -216,47 +190,7 @@ Requires `railway login`, `railway link`, SSH key registration (`railway ssh key
 
 ---
 
-## Local development and testing
-
-Full guide: **[LOCAL_TESTING.md](LOCAL_TESTING.md)**. Summary below.
-
-### Start servers
-
-**Terminal 1 — API**
-
-```bash
-source .venv/bin/activate
-python app/server.py --port 8000
-```
-
-**Terminal 2 — UI**
-
-```bash
-cd web
-cp .env.example .env.local   # API_BASE_URL=http://127.0.0.1:8000
-npm install && npm run dev
-```
-
-Open http://localhost:3000
-
-### Refresh data before testing
-
-```bash
-python scripts/daily_update.py --dry-run   # preview incremental window
-python scripts/daily_update.py
-python scripts/audit_data_coverage.py
-```
-
-### Quick API check
-
-```bash
-curl -s http://127.0.0.1:8000/healthz
-curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool
-```
-
-Restart Flask after retraining or API code changes.
-
-### Ticker API fields (`/api/ticker`)
+## Ticker API fields (`/api/ticker`)
 
 | Field | Meaning |
 |-------|---------|
@@ -326,6 +260,6 @@ Evaluation subsets: `all`, `has_news`, `high_conf` — see [RESULTS.md](RESULTS.
 
 ## Further reading
 
+- [DEVELOPMENT.md](DEVELOPMENT.md) — local setup and verification  
 - [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) — architecture and design decisions  
-- [RESULTS.md](RESULTS.md) — model accuracy and findings  
-- [DEPLOY.md](DEPLOY.md) — production deployment (operator doc)
+- [RESULTS.md](RESULTS.md) — model accuracy and findings

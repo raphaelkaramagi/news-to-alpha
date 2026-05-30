@@ -33,8 +33,6 @@ docs/                Documentation
 data/                Artifacts (gitignored)
 ```
 
-Complete file-by-file inventory: [PERSONAL_FULL_GUIDE.md](PERSONAL_FULL_GUIDE.md) (operator doc).
-
 ---
 
 ## Data flow
