@@ -53,6 +53,8 @@ OUTPUT_COLS = [
     "has_news",
     "top_headlines",
     "actual_binary",
+    "expected_move_pct",
+    "actual_abs_return_pct",
 ]
 
 
@@ -137,9 +139,20 @@ def main() -> None:
     embeddings = load_news_embeddings(embeddings_path)
     print(f"  {len(embeddings):,} rows")
 
+    vol_path = PROCESSED_DATA_DIR / "volatility_predictions.csv"
+    vol = pd.DataFrame(columns=["ticker", "prediction_date", "expected_move_pct", "actual_abs_return_pct"])
+    if vol_path.exists():
+        vol = pd.read_csv(vol_path)[
+            ["ticker", "prediction_date", "expected_move_pct", "actual_abs_return_pct"]
+        ]
+        print(f"Loading volatility predictions ...")
+        print(f"  {len(vol):,} rows")
+
     print("\nLeft-joining on (ticker, prediction_date) anchored on LSTM ...")
     df = price.merge(tfidf, on=["ticker", "prediction_date"], how="left")
     df = df.merge(embeddings, on=["ticker", "prediction_date"], how="left")
+    if not vol.empty:
+        df = df.merge(vol, on=["ticker", "prediction_date"], how="left")
 
     # has_news is derived from DB headline count (authoritative).
     import sqlite3

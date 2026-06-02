@@ -52,6 +52,7 @@ class PipelineConfig:
     skip_lstm: bool = False
     skip_nlp: bool = False
     skip_emb: bool = False
+    skip_vol: bool = False
     skip_ensemble: bool = False
     skip_evaluate: bool = False
     temperature_scale: bool = True
@@ -137,6 +138,24 @@ def _join_tickers(tickers: Iterable[str]) -> list[str]:
     return out
 
 
+def _append_live_news_scores(cfg: PipelineConfig) -> None:
+    """Score live headline days for TF-IDF and embeddings after full retrain."""
+    from src.ml.news_live_export import (  # noqa: E402
+        append_live_embedding_predictions,
+        append_live_tfidf_predictions,
+    )
+
+    n_tfidf = n_emb = 0
+    if not cfg.skip_nlp:
+        n_tfidf = append_live_tfidf_predictions()
+        print(f"\n>> [live_news_tfidf] Appended {n_tfidf} live rows")
+    if not cfg.skip_emb:
+        n_emb = append_live_embedding_predictions()
+        print(f"\n>> [live_news_embeddings] Appended {n_emb} live rows")
+    if n_tfidf == 0 and n_emb == 0:
+        print("\n>> [live_news] No live news rows appended (no headlines or no price live rows)")
+
+
 def run(cfg: PipelineConfig) -> None:
     """Run the full pipeline according to `cfg`. Raises on any step failure."""
     from src.utils.pipeline_config import save as _save_cfg  # noqa: E402
@@ -186,6 +205,16 @@ def run(cfg: PipelineConfig) -> None:
             [_py(), "scripts/train_news_embeddings.py", *emb_args],
             "train_news_embeddings",
         )
+
+    # News trainers only score labeled rows; append live rows for the latest session
+    # (mirrors LSTM live export in train_lstm.py / score_models.py).
+    if not (cfg.skip_nlp and cfg.skip_emb):
+        _append_live_news_scores(cfg)
+
+    if not cfg.skip_vol:
+        vol_args = [*horizon_args]
+        _run([_py(), "scripts/train_volatility.py", *vol_args], "train_volatility")
+
     if not cfg.skip_ensemble:
         _run([_py(), "scripts/build_eval_dataset.py"], "build_eval_dataset")
         ens_args = []
@@ -237,6 +266,7 @@ def _build_config_from_args(args: argparse.Namespace) -> PipelineConfig:
         skip_lstm=args.skip_lstm,
         skip_nlp=args.skip_nlp,
         skip_emb=args.skip_emb,
+        skip_vol=args.skip_vol,
         skip_ensemble=args.skip_ensemble,
         skip_evaluate=args.skip_evaluate,
         temperature_scale=not args.no_temperature_scale,
@@ -281,6 +311,7 @@ def main() -> None:
     parser.add_argument("--skip-lstm", action="store_true")
     parser.add_argument("--skip-nlp", action="store_true")
     parser.add_argument("--skip-emb", action="store_true")
+    parser.add_argument("--skip-vol", action="store_true")
     parser.add_argument("--skip-ensemble", action="store_true")
     parser.add_argument("--skip-evaluate", action="store_true")
 

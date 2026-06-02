@@ -53,6 +53,9 @@ export function CallHero({ data, date, horizon = 1 }: Props) {
     fresh?.forecast_date;
   const returnPct = data.realized_return ?? ctx?.return_pct;
   const hasPrices = (ctx?.start_close ?? ctx?.session_close) != null;
+  const expectedMove = data.expected_move_pct ?? fresh?.expected_move_pct;
+  const forecastLow = data.forecast_low ?? fresh?.forecast_low;
+  const forecastHigh = data.forecast_high ?? fresh?.forecast_high;
 
   return (
     <div className="flex flex-col lg:flex-row lg:items-start gap-4 lg:gap-6">
@@ -75,7 +78,13 @@ export function CallHero({ data, date, horizon = 1 }: Props) {
           )}
         >
           {hasPrices && ctx ? (
-            <CloseMoveVisual ctx={ctx} showReturn={resolved} />
+            <CloseMoveVisual
+              ctx={ctx}
+              showReturn={resolved}
+              expectedMovePct={expectedMove}
+              forecastLow={forecastLow}
+              forecastHigh={forecastHigh}
+            />
           ) : (
             <div className="text-center text-xs text-muted-foreground font-mono tabular-nums py-1">
               — → —
@@ -100,6 +109,11 @@ export function CallHero({ data, date, horizon = 1 }: Props) {
             <span className="text-[10px] text-muted-foreground mt-1 text-center">
               {confLabel} · {confidence}%
             </span>
+            {expectedMove != null && (
+              <span className="text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+                ±{expectedMove.toFixed(1)}% expected move
+              </span>
+            )}
           </div>
 
           {resolved && (

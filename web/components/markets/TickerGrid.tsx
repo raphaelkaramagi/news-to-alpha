@@ -59,6 +59,11 @@ function TickerCard({ symbol, date }: { symbol: string; date: string | null }) {
                 {(data.confidence * 100).toFixed(0)}%
               </span>
             </p>
+            {data.expected_move_pct != null && (
+              <p className="text-[11px] text-muted-foreground tabular-nums mt-0.5">
+                ±{data.expected_move_pct.toFixed(1)}% move
+              </p>
+            )}
             {resolved && movePct != null && (
               <p
                 className={cn(

@@ -46,6 +46,7 @@ BUNDLE_FILES = [
     ("processed/price_predictions.csv",          False),
     ("processed/news_tfidf_predictions.csv",     False),
     ("processed/news_embeddings_predictions.csv", False),
+    ("processed/volatility_predictions.csv",       False),
     ("processed/evaluation_overall.csv",         False),
     ("processed/evaluation_by_ticker.csv",       False),
     ("processed/evaluation_by_confidence.csv",   False),
@@ -57,6 +58,7 @@ BUNDLE_FILES = [
     ("models/news_tfidf.joblib",                 False),
     ("models/tfidf_lr.joblib",                   False),
     ("models/news_embeddings.joblib",            False),
+    ("models/volatility_model.joblib",           False),
 ]
 
 TRIM_DAYS = 180  # keep last N calendar days in the DB per ticker

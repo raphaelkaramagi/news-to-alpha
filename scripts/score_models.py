@@ -10,6 +10,7 @@ Outputs (same paths as training)
   data/processed/price_predictions.csv
   data/processed/news_tfidf_predictions.csv
   data/processed/news_embeddings_predictions.csv
+  data/processed/volatility_predictions.csv
 
 Usage
 -----
@@ -181,6 +182,31 @@ def _score_embeddings(horizon: int, dry_run: bool, incremental: bool = False) ->
 
 
 # ---------------------------------------------------------------------------
+# Volatility inference
+# ---------------------------------------------------------------------------
+
+def _score_volatility(horizon: int, dry_run: bool) -> bool:
+    model_path = MODELS_DIR / "volatility_model.joblib"
+    out_csv = PROCESSED_DATA_DIR / "volatility_predictions.csv"
+
+    if not model_path.exists():
+        print(f"[score_volatility] SKIP – model not found: {model_path}")
+        return False
+
+    if dry_run:
+        print(f"[score_volatility] DRY-RUN – would append live rows, horizon={horizon}")
+        return True
+
+    from src.ml.volatility_live_export import append_live_volatility_predictions  # noqa: E402
+
+    cfg = load_or_default()
+    tickers = cfg.get("tickers") or list(TICKERS)
+    n = append_live_volatility_predictions(tickers=tickers, horizon=horizon)
+    print(f"[score_volatility] Appended {n} live rows → {out_csv}")
+    return n > 0
+
+
+# ---------------------------------------------------------------------------
 # Backfill actual_binary from labels onto live prediction rows
 # ---------------------------------------------------------------------------
 
@@ -213,6 +239,7 @@ def backfill_outcomes(dry_run: bool = False) -> int:
         PROCESSED_DATA_DIR / "price_predictions.csv",
         PROCESSED_DATA_DIR / "news_tfidf_predictions.csv",
         PROCESSED_DATA_DIR / "news_embeddings_predictions.csv",
+        PROCESSED_DATA_DIR / "volatility_predictions.csv",
         PROCESSED_DATA_DIR / "final_ensemble_predictions.csv",
     ]
     for csv_path in csv_paths:
@@ -266,6 +293,7 @@ def main() -> None:
     parser.add_argument("--skip-lstm", action="store_true")
     parser.add_argument("--skip-tfidf", action="store_true")
     parser.add_argument("--skip-embeddings", action="store_true")
+    parser.add_argument("--skip-volatility", action="store_true")
     parser.add_argument("--skip-backfill", action="store_true",
                         help="Skip backfilling actual_binary on live rows.")
     parser.add_argument(
@@ -287,6 +315,8 @@ def main() -> None:
         _score_tfidf(horizon, args.dry_run, incremental=args.incremental)
     if not args.skip_embeddings:
         _score_embeddings(horizon, args.dry_run, incremental=args.incremental)
+    if not args.skip_volatility:
+        _score_volatility(horizon, args.dry_run)
     if not args.skip_backfill:
         n = backfill_outcomes(dry_run=args.dry_run)
         print(f"[score_models] backfill_outcomes: {n} rows updated")

@@ -162,6 +162,14 @@ def _load_predictions() -> Optional[pd.DataFrame]:
         return None
     df = pd.read_csv(PREDICTIONS_CSV)
     df["prediction_date"] = pd.to_datetime(df["prediction_date"]).dt.strftime("%Y-%m-%d")
+    if "expected_move_pct" not in df.columns:
+        vol_path = PROCESSED_DATA_DIR / "volatility_predictions.csv"
+        if vol_path.exists():
+            vol = pd.read_csv(vol_path)[
+                ["ticker", "prediction_date", "expected_move_pct", "actual_abs_return_pct"]
+            ]
+            vol["prediction_date"] = pd.to_datetime(vol["prediction_date"]).dt.strftime("%Y-%m-%d")
+            df = df.merge(vol, on=["ticker", "prediction_date"], how="left")
     return df
 
 
@@ -723,6 +731,21 @@ def api_ticker():
             conn.close()
 
     price_ctx = _price_context(pred.ticker, pred.prediction_date)
+    row = df[(df["ticker"] == ticker) & (df["prediction_date"] == pred.prediction_date)]
+    expected_move = None
+    actual_abs_move = None
+    forecast_low = None
+    forecast_high = None
+    if not row.empty:
+        if "expected_move_pct" in row.columns and pd.notna(row.iloc[-1]["expected_move_pct"]):
+            expected_move = float(row.iloc[-1]["expected_move_pct"])
+        if "actual_abs_return_pct" in row.columns and pd.notna(row.iloc[-1]["actual_abs_return_pct"]):
+            actual_abs_move = float(row.iloc[-1]["actual_abs_return_pct"])
+    start_close = price_ctx.get("start_close") or price_ctx.get("session_close")
+    if expected_move is not None and start_close is not None:
+        band = expected_move / 100.0
+        forecast_low = float(start_close) * (1.0 - band)
+        forecast_high = float(start_close) * (1.0 + band)
 
     return jsonify({
         "ticker": pred.ticker,
@@ -739,6 +762,10 @@ def api_ticker():
         "top_headlines": pred.top_headlines,
         "per_model": pred.per_model,
         "price_context": price_ctx,
+        "expected_move_pct": expected_move,
+        "actual_abs_return_pct": actual_abs_move,
+        "forecast_low": forecast_low,
+        "forecast_high": forecast_high,
     })
 
 

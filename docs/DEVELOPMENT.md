@@ -76,6 +76,8 @@ curl -s "http://127.0.0.1:8000/api/ticker?ticker=AAPL&model=ensemble" | python3 
 curl -s "http://127.0.0.1:8000/api/rationale?ticker=AAPL&date=2026-06-01" | python3 -m json.tool
 ```
 
+Verify `/api/ticker` includes non-null `expected_move_pct`, `forecast_low`, `forecast_high` for live rows. Live news probas in `per_model` should not be exactly 0.5 when headlines exist.
+
 After retrain, regenerate metrics (report **`news_scored`** for honest news/ensemble numbers):
 
 ```bash

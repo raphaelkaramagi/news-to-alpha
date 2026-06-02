@@ -237,6 +237,13 @@ def evaluate_all(
             _add_subset(name, y_pred, y_proba, subset="news_oos", mask=news_oos_mask)
         if high_conf_mask is not None:
             _add_subset(name, y_pred, y_proba, subset="high_conf", mask=high_conf_mask)
+        if "high_vol" in df.columns:
+            low_vol = (df["high_vol"].fillna(0).astype(float) == 0).to_numpy()
+            high_vol = (df["high_vol"].fillna(0).astype(float) == 1).to_numpy()
+            if low_vol.any():
+                _add_subset(name, y_pred, y_proba, subset="low_vol", mask=low_vol)
+            if high_vol.any():
+                _add_subset(name, y_pred, y_proba, subset="high_vol", mask=high_vol)
 
         # Per-ticker (all rows)
         for ticker, sub in df.groupby("ticker"):
@@ -334,6 +341,31 @@ def _lstm_diagnostics(processed_dir: Path) -> str:
     return "\n".join(lines)
 
 
+def _volatility_diagnostics(processed_dir: Path) -> str:
+    """Report expected-move model skill on the test split."""
+    csv = processed_dir / "volatility_predictions.csv"
+    if not csv.exists():
+        return "  [skip] volatility_predictions.csv not found"
+    df = pd.read_csv(csv)
+    test = df[(df["split"] == "test") & df["actual_abs_return_pct"].notna()]
+    if test.empty:
+        return "  [skip] no labeled volatility test rows"
+    pred = test["expected_move_pct"].astype(float)
+    actual = test["actual_abs_return_pct"].astype(float)
+    from sklearn.metrics import mean_absolute_error
+    mae = mean_absolute_error(actual, pred)
+    med = float(actual.median())
+    y_high = (actual > med).astype(int)
+    try:
+        auc = float(roc_auc_score(y_high, pred))
+    except ValueError:
+        auc = float("nan")
+    return (
+        f"  n_test={len(test)}  MAE={mae:.3f}%  high-move AUC={auc:.3f}  "
+        f"(median |return|={med:.3f}%)"
+    )
+
+
 def _data_coverage_report(db_path: Path) -> str:
     """Print news vs price date range per ticker to quantify news sparsity."""
     if not db_path.exists():
@@ -422,7 +454,7 @@ def _evaluate_by_confidence(
 
 
 def _format_summary(overall: pd.DataFrame, split: str) -> str:
-    subsets = ["all", "has_news", "news_scored", "news_oos", "high_conf"] if "subset" in overall.columns else ["all"]
+    subsets = ["all", "has_news", "news_scored", "news_oos", "high_conf", "low_vol", "high_vol"] if "subset" in overall.columns else ["all"]
     lines = []
     for subset in subsets:
         sub = overall[overall["subset"] == subset] if "subset" in overall.columns else overall
@@ -510,6 +542,9 @@ def main() -> None:
 
     print("\n--- LSTM Probability Diagnostics ---")
     print(_lstm_diagnostics(output_dir))
+
+    print("\n--- Volatility / Expected-Move Diagnostics ---")
+    print(_volatility_diagnostics(output_dir))
 
     print("\n--- Data Coverage Report ---")
     print(_data_coverage_report(DATABASE_PATH))

@@ -183,16 +183,8 @@ Thumbs.db
 # ── Personal / operator-only docs (not in public repo) ───────
 # Public docs: README.md, docs/{README,DEVELOPMENT,DATA,RESULTS,PROJECT_OVERVIEW}.md, web/README.md
 # If a file here was committed before being ignored: git rm --cached <path>
-docs/AUTOMATION.md
-docs/DEPLOY.md
 docs/PERSONAL*.md
-docs/LOCAL_TESTING.md
-docs/local_cron.plist.example
-docs/CONTEXT_FOR_NEW_CHAT.md
 docs/session*.md
-docs/ROADMAP.md
-docs/OPERATOR*.md
-
 # Local cron wrapper (often contains machine-specific paths)
 scripts/local_cron.sh
 

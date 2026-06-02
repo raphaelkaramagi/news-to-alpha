@@ -140,6 +140,53 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
       )}
 
       <div>
+        <p className="text-sm font-medium mb-1">Expected move (volatility model)</p>
+        <p className="text-xs text-muted-foreground mb-3">
+          Next-session |return| forecast — the stronger, measurable signal (~0.65 test AUC for high vs low move).
+        </p>
+        <div className="rounded-lg border px-4 py-3 text-sm space-y-2">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            <div>
+              <dt className="text-muted-foreground">Predicted |move|</dt>
+              <dd className="font-mono tabular-nums">
+                {tickerData.expected_move_pct != null
+                  ? `±${tickerData.expected_move_pct.toFixed(2)}%`
+                  : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Price band</dt>
+              <dd className="font-mono tabular-nums text-[11px]">
+                {tickerData.forecast_low != null && tickerData.forecast_high != null
+                  ? `${formatPrice(tickerData.forecast_low)} – ${formatPrice(tickerData.forecast_high)}`
+                  : "—"}
+              </dd>
+            </div>
+            {tickerData.actual_abs_return_pct != null && (
+              <>
+                <div>
+                  <dt className="text-muted-foreground">Realized |move|</dt>
+                  <dd className="font-mono tabular-nums">
+                    {tickerData.actual_abs_return_pct.toFixed(2)}%
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Calibration error</dt>
+                  <dd className="font-mono tabular-nums">
+                    {tickerData.expected_move_pct != null
+                      ? `${Math.abs(
+                          tickerData.actual_abs_return_pct - tickerData.expected_move_pct
+                        ).toFixed(2)}%`
+                      : "—"}
+                  </dd>
+                </div>
+              </>
+            )}
+          </dl>
+        </div>
+      </div>
+
+      <div>
         <p className="text-sm font-medium mb-1">Rolling accuracy (30-day window)</p>
         <p className="text-xs text-muted-foreground mb-3">
           Share of correct ensemble calls over the prior 30 resolved sessions.

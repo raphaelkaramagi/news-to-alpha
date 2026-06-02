@@ -9,7 +9,7 @@ Steps
   1. collect_prices.py    (incremental by default)
   2. collect_news.py      (incremental by default, if include_news)
   3. generate_labels.py
-  4. score_models.py      (LSTM + TF-IDF + embeddings inference, no train)
+  4. score_models.py      (LSTM + TF-IDF + embeddings + volatility inference, no train)
   5. build_eval_dataset.py
   6. build_ensemble.py
   7. evaluate_predictions.py

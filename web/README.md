@@ -27,8 +27,8 @@ Open http://localhost:3000
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets — ticker grid, resolved calls, overview chart |
-| `/t/[symbol]` | Ticker detail — close-to-close hero, resolved strip (7/30/90d), Why / Advanced, charts |
+| `/` | Markets — direction call, expected move (±%), overview |
+| `/t/[symbol]` | Hero band, resolved strip, Why / Advanced (vol calibration) |
 | `/status` | Data freshness and evaluation summary (`news_scored` metrics when available) |
 
 Global date picker syncs across pages.

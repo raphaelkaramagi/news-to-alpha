@@ -9,6 +9,10 @@ type Props = {
   compact?: boolean;
   showReturn?: boolean;
   className?: string;
+  /** Expected move band (± pct) around start close when forecast unresolved. */
+  forecastLow?: number | null;
+  forecastHigh?: number | null;
+  expectedMovePct?: number | null;
 };
 
 export function CloseMoveVisual({
@@ -16,6 +20,9 @@ export function CloseMoveVisual({
   compact = false,
   showReturn = false,
   className,
+  forecastLow,
+  forecastHigh,
+  expectedMovePct,
 }: Props) {
   const start = ctx.start_close ?? ctx.session_close;
   const end = ctx.end_close ?? ctx.target_close;
@@ -27,15 +34,30 @@ export function CloseMoveVisual({
 
   const ret = ctx.return_pct;
   const retUp = ret != null && ret >= 0;
+  const showBand =
+    !resolved &&
+    expectedMovePct != null &&
+    forecastLow != null &&
+    forecastHigh != null &&
+    start != null;
 
   return (
-    <div
-      className={cn(
-        "flex items-center justify-center gap-1.5 sm:gap-2 max-w-full",
-        compact ? "text-[10px]" : "text-xs",
-        className
+    <div className={cn("flex flex-col items-center gap-1", className)}>
+      {showBand && (
+        <p className="text-[10px] text-muted-foreground tabular-nums whitespace-nowrap">
+          Expected move ±{expectedMovePct.toFixed(1)}%
+          <span className="mx-1 text-muted-foreground/50">·</span>
+          <span className="font-mono">
+            {formatPrice(forecastLow)} – {formatPrice(forecastHigh)}
+          </span>
+        </p>
       )}
-    >
+      <div
+        className={cn(
+          "flex items-center justify-center gap-1.5 sm:gap-2 max-w-full",
+          compact ? "text-[10px]" : "text-xs"
+        )}
+      >
       <div className="text-center min-w-0 flex-1 sm:flex-none sm:min-w-[4rem]">
         <p className="text-muted-foreground uppercase tracking-wide text-[9px] truncate">
           {compact ? shortDate(startD) : `${shortDate(startD)} close`}
@@ -84,11 +106,10 @@ export function CloseMoveVisual({
           {resolved ? formatPrice(end) : "—"}
         </p>
       </div>
+      </div>
     </div>
   );
 }
-
-/** Small pill: data day + forecast target sentence */
 export function ForecastDayPills({
   dataDate,
   forecastDate,

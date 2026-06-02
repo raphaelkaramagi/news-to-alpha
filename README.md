@@ -1,46 +1,42 @@
 # Stock Price and Sentiment Predictor
 
-Binary classifier for **next-session stock direction** (UP/DOWN). Combines price history (LSTM), news text (TF-IDF + FinBERT embeddings), and a learned ensemble meta-model.
+Next-session **direction** (UP/DOWN) and **expected move** (±% band) for 20 US equities. Combines price (LSTM), news (TF-IDF + FinBERT), a volatility regressor, and a conditional ensemble meta-model.
 
-**Universe:** 20 US equities — AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR, GOOGL, MSFT, MU, AMD, AMZN
+**Universe:** AAPL, NVDA, WMT, LLY, JPM, XOM, MCD, TSLA, DAL, MAR, GS, NFLX, META, ORCL, PLTR, GOOGL, MSFT, MU, AMD, AMZN
 
-**Live demo:** [stock.raphaelkaramagi.com](https://news-to-alpha.vercel.app/) (Next.js on Vercel, Flask API on Railway)
+**Live demo:** [news-to-alpha.vercel.app](https://news-to-alpha.vercel.app/) (Next.js on Vercel, Flask API on Railway)
 
 ---
 
-## Results at a glance
+## Signal limits 
 
-Held-out **LSTM test split** (n=2,220, Dec 2025–Jun 2026). For honest news/ensemble comparison use the **`news_scored`** subset (n=399) where news models are out-of-sample. Full tables: **[docs/RESULTS.md](docs/RESULTS.md)**.
+| Output | Test skill | Notes |
+|--------|------------|-------|
+| **Direction** (UP/DOWN) | AUC ≈ **0.50** | Efficient-market ceiling for liquid large-cap daily direction |
+| **Expected move %** (volatlity/return) | high-move AUC ≈ **0.65**, MAE ≈ 1.2% | The measurable signal; shown as ±% band on cards and detail |
+| **Drift** (always UP) | 52.5% (1d) | Base rate, not skill — accuracy without AUC does not count |
 
-| Model | Test accuracy (all) | `news_scored` accuracy | `news_scored` AUC | Notes |
-|-------|---------------------|------------------------|-------------------|-------|
-| **Ensemble** | 50.6% | 50.1% | 0.492 | Conditional HGB meta-model |
-| Previous-day direction | 51.5% | 52.6% | 0.525 | Simple baseline |
-| LSTM (price) | 50.7% | 51.1% | 0.504 | Val AUC 0.528; test ≈ noise |
-| TF-IDF news | 48.7% | 48.1% | 0.496 | Uncalibrated (sigmoid rejected) |
-| FinBERT embeddings | 49.0% | 49.6% | 0.487 | Per-headline mean-pool |
-
-Earlier reported ~62% ensemble accuracy was inflated by a **train→test news leakage** in the eval join (fixed June 2026). The live site was restored with a schema-compatible 13-feature ensemble; improved republish waits until honest `news_scored` accuracy ≥ **55%**.
+Full metrics and subsets: **[docs/RESULTS.md](docs/RESULTS.md)** 
 
 ---
 
 ## Architecture
 
 ```
-Training host          →  collect, train, daily inference
-         ↓ publish_deploy_bundle.py (SSH)
-Railway /data volume   ←  Flask API (read-only, Dockerfile.inference)
-         ↑
-Vercel (web/)          ←  Next.js dashboard proxies /api/*
+Training host  →  collect, train
+       ↓ publish_deploy_bundle.py
+Railway /data  ←  Flask API 
+       ↑
+Vercel (web/)  ←  Next.js dashboard
 ```
 
 | Layer | Stack | Role |
 |-------|-------|------|
-| **UI** | Next.js 16 (`web/`) | Markets grid, ticker detail, status |
+| **UI** | Next.js 16 (`web/`) | Markets grid, direction call, expected-move band |
 | **API** | Flask (`app/server.py`) | Serves CSVs + SQLite from `/data` |
-| **ML** | PyTorch + scikit-learn | Trained offline; artifacts uploaded to the API host |
+| **ML** | PyTorch + scikit-learn | Trained offline; artifacts uploaded to API host |
 
-Training and raw data stay on the operator host. Production serves precomputed predictions only.
+Models: **LSTM** (price direction), **TF-IDF + FinBERT** (news direction), **volatility regressor** (next-day |return|), **conditional HGB ensemble** (13 features, routes has_news / no_news).
 
 ---
 
@@ -55,21 +51,10 @@ python scripts/setup_database.py
 python scripts/run_pipeline.py --preset max_v2
 ```
 
-**API** (terminal 1):
+**API:** `python app/server.py --port 8000`  
+**UI:** `cd web && npm install && npm run dev` → http://localhost:3000
 
-```bash
-python app/server.py --port 8000
-```
-
-**UI** (terminal 2, from `web/`):
-
-```bash
-cd web && cp .env.example .env.local && npm install && npm run dev
-```
-
-Open http://localhost:3000
-
-Full setup and smoke tests: **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
+Details: **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
 
 ---
 
@@ -77,24 +62,15 @@ Full setup and smoke tests: **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
 
 | Doc | Purpose |
 |-----|---------|
-| [docs/README.md](docs/README.md) | Index and reading order |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local setup, API/UI, tests |
-| [docs/DATA.md](docs/DATA.md) | Pipeline, artifacts, daily refresh, publish |
-| [docs/RESULTS.md](docs/RESULTS.md) | Leakage-free evaluation metrics |
-| [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Architecture, splits, mermaid diagrams |
+| [docs/README.md](docs/README.md) | Index |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local setup, smoke tests |
+| [docs/DATA.md](docs/DATA.md) | Pipeline, artifacts, publish |
+| [docs/RESULTS.md](docs/RESULTS.md) | Evaluation metrics |
+| [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Architecture |
 | [web/README.md](web/README.md) | Frontend |
 
-After market close, refresh predictions without retraining:
-
-```bash
-python scripts/daily_update.py
-```
-
-Republish model artifacts only after a local retrain:
-
-```bash
-python scripts/publish_deploy_bundle.py --target railway --service web
-```
+Daily refresh (no retrain): `python scripts/daily_update.py`  
+Republish artifacts: `python scripts/publish_deploy_bundle.py --target railway --service web`
 
 ---
 
@@ -102,25 +78,9 @@ python scripts/publish_deploy_bundle.py --target railway --service web
 
 | Route | Description |
 |-------|-------------|
-| `/` | Markets grid, resolved calls, overview chart |
-| `/t/[symbol]` | Close-to-close hero, headlines, Why tab, charts |
-| `/status` | Data freshness and evaluation summary |
-
-A global date picker syncs all pages.
-
----
-
-## Project layout
-
-```
-app/           Flask JSON API
-web/           Next.js UI
-scripts/       CLI pipeline (train, collect, publish)
-src/           ML modules (features, models, data collection)
-tests/unit/    pytest suite
-docs/          Reference documentation
-data/          Artifacts (gitignored — created by pipeline)
-```
+| `/` | Markets grid — direction + expected move |
+| `/t/[symbol]` | Hero band, headlines, Why / Advanced |
+| `/status` | Freshness and evaluation summary |
 
 ---
 
@@ -131,5 +91,3 @@ pytest tests/unit -q
 cd web && npm run build
 python scripts/publish_deploy_bundle.py --dry-run
 ```
-
-See **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)** for the full verification checklist.

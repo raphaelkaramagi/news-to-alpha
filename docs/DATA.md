@@ -34,6 +34,7 @@ Raw downloads and training stay on the operator machine. Only inference artifact
 | `price_predictions.csv` | LSTM per (ticker, date) |
 | `news_tfidf_predictions.csv` | TF-IDF news scores |
 | `news_embeddings_predictions.csv` | FinBERT embedding scores |
+| `volatility_predictions.csv` | Expected next-day |return| (`expected_move_pct`) |
 | `eval_dataset.csv` | Joined per-model CSVs for ensemble training |
 | **`final_ensemble_predictions.csv`** | **Primary UI input** — ensemble + all model columns |
 | `evaluation_*.csv` | Metrics (`all`, `has_news`, `high_conf` subsets) |
@@ -47,6 +48,7 @@ Raw downloads and training stay on the operator machine. Only inference artifact
 | `lstm_model.pt` | LSTM weights + scaler (+ optional seed models) |
 | `nlp_baseline.joblib` / `news_tfidf.joblib` | TF-IDF + logistic pipeline |
 | `news_embeddings.joblib` | FinBERT + classifier |
+| `volatility_model.joblib` | Expected-move regressor |
 | `ensemble_meta.joblib` | Meta-model(s) + feature importances (Why tab) |
 
 See [RESULTS.md](RESULTS.md) for evaluation metrics produced from these artifacts.
@@ -140,7 +142,7 @@ python scripts/daily_update.py --full-lookback    # fixed 60-day window (legacy)
 python scripts/daily_update.py --lookback-days 90 # after long downtime
 ```
 
-Steps: collect prices/news → labels → `score_models.py` (live scoring + backfill) → rebuild ensemble → evaluate.
+Steps: collect prices/news → labels → `score_models.py` (LSTM + news + volatility live scoring + backfill) → rebuild ensemble → evaluate.
 
 Run metadata saved to `data/processed/pipeline_config.json` → `last_daily_update`.
 

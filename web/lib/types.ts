@@ -42,6 +42,11 @@ export type TickerApiResponse = {
   top_headlines: string[];
   per_model: Record<string, PerModelEntry>;
   price_context?: PriceContext;
+  /** Predicted next-session |return| in percent (volatility model). */
+  expected_move_pct?: number | null;
+  actual_abs_return_pct?: number | null;
+  forecast_low?: number | null;
+  forecast_high?: number | null;
 };
 
 export type DataStatus = {

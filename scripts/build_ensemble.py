@@ -120,6 +120,9 @@ OUTPUT_COLS = [
     "ensemble_confidence",
     "top_headlines",
     "actual_binary",
+    "expected_move_pct",
+    "actual_abs_return_pct",
+    "high_vol",
     "model_version",
 ]
 
@@ -257,6 +260,7 @@ def _augment(df: pd.DataFrame, db_path: Path) -> pd.DataFrame:
     df["all_agree"] = ((lstm_bin == tfidf_bin) & (tfidf_bin == emb_bin)).astype(int)
 
     df = _add_interaction_features(df)
+    df = _add_volatility_features(df)
 
     for c in META_FEATURES:
         if c not in df.columns:
@@ -285,6 +289,27 @@ def _add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _vol_median_threshold() -> float:
+    path = MODELS_DIR / "volatility_model.joblib"
+    if path.exists():
+        try:
+            payload = joblib.load(path)
+            return float(payload.get("high_vol_median_pct", 1.0))
+        except Exception:
+            pass
+    return 1.0
+
+
+def _add_volatility_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    if "expected_move_pct" not in df.columns:
+        df["expected_move_pct"] = 1.0
+    df["expected_move_pct"] = pd.to_numeric(df["expected_move_pct"], errors="coerce").fillna(1.0)
+    med = _vol_median_threshold()
+    df["high_vol"] = (df["expected_move_pct"] >= med).astype(float)
+    return df
+
+
 def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
     """Fill in derived features (confidences + all_agree) if missing."""
     df = df.copy()
@@ -303,6 +328,7 @@ def _ensure_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = 0
     df = _add_interaction_features(df)
+    df = _add_volatility_features(df)
     return df
 
 
