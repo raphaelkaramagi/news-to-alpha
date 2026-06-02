@@ -112,7 +112,7 @@ python scripts/run_pipeline.py --preset max_v2
 | `balanced` | 5 tickers, 3-day horizon |
 | `advanced` | All tickers, 3-day horizon, FinBERT |
 | `max` | All tickers, next-day (legacy production parity) |
-| **`max_v2`** | **Recommended** — FinBERT, conditional ensemble, VIX features |
+| **`max_v2`** | **Default full train** — FinBERT embeddings, conditional ensemble, VIX features, 13-feature meta schema |
 
 Retrain **replaces** prediction CSVs. The pipeline prunes stale DB rows and old seed checkpoints.
 
@@ -176,6 +176,18 @@ Verify:
 python scripts/audit_data_coverage.py
 curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool
 ```
+
+### Pull data from Railway
+
+After production daily updates, sync the volume back to your training host:
+
+```bash
+python scripts/pull_railway_data.py              # DB + key CSVs/models
+python scripts/pull_railway_data.py --db-only    # database only
+python scripts/generate_labels.py
+```
+
+Then retrain locally with `--skip-collect --skip-news` if the DB is already current.
 
 ### Publish to Railway
 
@@ -254,7 +266,7 @@ Measures **lean strength**, not P(correct). UI labels: Low (&lt;25%), Moderate (
 
 **Why this call:** counterfactual explanation via `src/ml/ensemble_explain.py`. With conditional ensemble, headline days use a separate meta-model route.
 
-Evaluation subsets: `all`, `has_news`, `high_conf` — see [RESULTS.md](RESULTS.md).
+Evaluation subsets: `all`, `has_news`, **`news_scored`**, `news_oos`, `high_conf` — see [RESULTS.md](RESULTS.md). Report **`news_scored`** for honest news/ensemble accuracy (out-of-sample news window, n≈399).
 
 ---
 

@@ -331,3 +331,44 @@ def chronological_split(
         len(test), len(test_dates),
     )
     return train, val, test
+
+
+def assign_split_labels(df: pd.DataFrame, split_info_path: Path) -> pd.DataFrame:
+    """Map each row's prediction_date to train/val/test using split_info.json."""
+    if not split_info_path.exists():
+        return df
+    with open(split_info_path) as f:
+        info = json.load(f)
+    date_to_split: dict[str, str] = {}
+    for name in ("train", "val", "test"):
+        for d in info["splits"][name]["dates"]:
+            date_to_split[str(d)] = name
+    out = df.copy()
+    out["prediction_date"] = out["prediction_date"].astype(str)
+    out["split"] = out["prediction_date"].map(date_to_split).fillna(out.get("split", "train"))
+    return out
+
+
+def split_by_info_json(
+    df: pd.DataFrame,
+    split_info_path: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Assign train/val/test using the same date sets as LSTM (split_info.json)."""
+    if not split_info_path.exists():
+        raise FileNotFoundError(
+            f"{split_info_path} not found — run scripts/split_dataset.py first."
+        )
+    with open(split_info_path) as f:
+        info = json.load(f)
+    date_sets = {
+        name: set(info["splits"][name]["dates"])
+        for name in ("train", "val", "test")
+    }
+    train = df[df["prediction_date"].isin(date_sets["train"])].copy()
+    val = df[df["prediction_date"].isin(date_sets["val"])].copy()
+    test = df[df["prediction_date"].isin(date_sets["test"])].copy()
+    logger.info(
+        "Split (split_info.json) — train: %d | val: %d | test: %d rows",
+        len(train), len(val), len(test),
+    )
+    return train, val, test

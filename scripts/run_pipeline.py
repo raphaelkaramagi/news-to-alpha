@@ -177,10 +177,11 @@ def run(cfg: PipelineConfig) -> None:
         )
     if not cfg.skip_emb:
         emb_args = [*horizon_args, *move_args]
-        if cfg.use_finbert:
-            emb_args.append("--use-finbert")
         if cfg.encoder_model:
             emb_args.extend(["--encoder-model", cfg.encoder_model])
+        # Sentiment aggregates duplicate signal when FinBERT is already the encoder.
+        if cfg.use_finbert and cfg.encoder_model not in ("finbert", "FinBERT"):
+            emb_args.append("--use-finbert")
         _run(
             [_py(), "scripts/train_news_embeddings.py", *emb_args],
             "train_news_embeddings",

@@ -73,9 +73,39 @@ With Flask on port 8000:
 curl -s http://127.0.0.1:8000/healthz | python3 -m json.tool
 curl -s http://127.0.0.1:8000/api/data-status | python3 -m json.tool
 curl -s "http://127.0.0.1:8000/api/ticker?ticker=AAPL&model=ensemble" | python3 -m json.tool
+curl -s "http://127.0.0.1:8000/api/rationale?ticker=AAPL&date=2026-06-01" | python3 -m json.tool
+```
+
+After retrain, regenerate metrics (report **`news_scored`** for honest news/ensemble numbers):
+
+```bash
+python scripts/evaluate_predictions.py --horizon 1
+cat data/processed/evaluation_summary.txt
 ```
 
 Restart Flask after API changes or after retraining.
+
+### Daily update checklist
+
+After market close, or to verify the incremental pipeline:
+
+```bash
+python scripts/daily_update.py --dry-run   # preview window, no writes
+python scripts/daily_update.py
+python scripts/audit_data_coverage.py
+```
+
+| Step | Good signs | Warning signs |
+|------|------------|---------------|
+| Header | `gap_days` 0–2 when data is current | `gap_days` > 7 — stale data |
+| `collect_prices` | 0–22 rows added | Failed tickers listed |
+| `collect_news` | Some new articles | 0 articles every day — check API key |
+| `score_models` | `Appended N live rows` | Traceback in FinBERT / LSTM load |
+| Footer | `DAILY UPDATE COMPLETE` | Exit code 1 |
+
+Run metadata: `data/processed/pipeline_config.json` → `last_daily_update`.
+
+See also [LOCAL_TESTING.md](LOCAL_TESTING.md) for UI walkthrough and troubleshooting tables.
 
 ---
 

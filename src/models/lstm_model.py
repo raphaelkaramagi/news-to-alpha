@@ -93,12 +93,14 @@ class StockLSTM(nn.Module):
         dropout: float = 0.3,
         num_tickers: int = 0,
         ticker_embed_dim: int = 4,
+        bidirectional_l2: bool = False,
     ):
         super().__init__()
         hs = hidden_sizes or LSTM_CONFIG["lstm_units"]
 
         self.num_tickers = int(num_tickers)
         self.ticker_embed_dim = int(ticker_embed_dim) if self.num_tickers > 0 else 0
+        self.bidirectional_l2 = bool(bidirectional_l2)
         if self.num_tickers > 0:
             self.ticker_embedding = nn.Embedding(self.num_tickers, self.ticker_embed_dim)
         else:
@@ -107,9 +109,12 @@ class StockLSTM(nn.Module):
         lstm_input = input_size + self.ticker_embed_dim
         self.lstm1 = nn.LSTM(lstm_input, hs[0], batch_first=True)
         self.dropout1 = nn.Dropout(dropout)
-        self.lstm2 = nn.LSTM(hs[0], hs[1], batch_first=True)
+        self.lstm2 = nn.LSTM(
+            hs[0], hs[1], batch_first=True, bidirectional=self.bidirectional_l2,
+        )
         self.dropout2 = nn.Dropout(dropout)
-        self.classifier = nn.Linear(hs[1], 1)
+        out_dim = hs[1] * (2 if self.bidirectional_l2 else 1)
+        self.classifier = nn.Linear(out_dim, 1)
 
         self._init_weights()
 
@@ -142,7 +147,10 @@ class StockLSTM(nn.Module):
         out = self.dropout1(out)
         out, _ = self.lstm2(out)
         out = self.dropout2(out)
-        logits = self.classifier(out[:, -1, :])
+        if self.bidirectional_l2:
+            logits = self.classifier(out[:, -1, :])
+        else:
+            logits = self.classifier(out[:, -1, :])
         return logits.squeeze(-1)
 
 
@@ -176,7 +184,8 @@ class LSTMTrainer:
             self.criterion = nn.BCEWithLogitsLoss()
         self.pos_weight = float(pos_weight) if pos_weight is not None else None
         self.history: dict[str, list[float]] = {
-            "train_loss": [], "train_acc": [], "val_acc": [],
+            "train_loss": [], "train_acc": [], "train_auc": [],
+            "val_acc": [], "val_auc": [], "val_bal_acc": [],
         }
         self.ticker_to_idx = ticker_to_idx or {}
         self.scaler_state = scaler_state
@@ -200,16 +209,25 @@ class LSTMTrainer:
 
         for epoch in range(epochs):
             train_loss, train_acc = self._train_epoch(train_loader)
+            train_auc = self._eval_auc(train_loader)
+            val_auc = self._eval_auc(val_loader)
+            val_ba = self._eval_balanced_accuracy(val_loader)
             if early_stop_metric == "auc":
-                val_metric = self._eval_auc(val_loader)
+                val_metric = val_auc
                 metric_label = "Val AUC"
-            else:
-                val_metric = self._eval_balanced_accuracy(val_loader)
+            elif early_stop_metric == "balanced_accuracy":
+                val_metric = val_ba
                 metric_label = "Val BalAcc"
+            else:
+                val_metric = (val_auc + val_ba) / 2.0
+                metric_label = "Val composite"
 
             self.history["train_loss"].append(train_loss)
             self.history["train_acc"].append(train_acc)
+            self.history["train_auc"].append(train_auc)
             self.history["val_acc"].append(val_metric)
+            self.history["val_auc"].append(val_auc)
+            self.history["val_bal_acc"].append(val_ba)
 
             self.scheduler.step(val_metric)
 
@@ -221,12 +239,20 @@ class LSTMTrainer:
             else:
                 wait += 1
 
-            if (epoch + 1) % 5 == 0 or epoch == 0:
+            verbose_every = int(self.config.get("log_every_n_epochs", 5))
+            if verbose_every <= 0:
+                verbose_every = 5
+            if (epoch + 1) % verbose_every == 0 or epoch == 0:
+                train_proba = self.predict_proba(X_train[: min(len(X_train), 512)],
+                                                 tidx_train[: min(len(X_train), 512)] if tidx_train is not None else None,
+                                                 apply_calibration=False)
+                proba_std = float(np.std(train_proba)) if len(train_proba) else 0.0
                 marker = " *" if improved else ""
                 print(f"  Epoch {epoch + 1:3d}/{epochs}  "
                       f"Loss: {train_loss:.4f}  "
-                      f"Train Acc: {train_acc:.4f}  "
-                      f"{metric_label}: {val_metric:.4f}{marker}")
+                      f"Train AUC: {train_auc:.4f}  "
+                      f"Val AUC: {val_auc:.4f}  Val BalAcc: {val_ba:.4f}  "
+                      f"proba_std(sample): {proba_std:.4f}{marker}")
 
             if wait >= patience:
                 print(f"  Early stopping at epoch {epoch + 1} "
@@ -262,6 +288,21 @@ class LSTMTrainer:
                 ticker_idx: np.ndarray | None = None) -> np.ndarray:
         probs = self.predict_proba(X, ticker_idx)
         return (probs >= self.decision_threshold).astype(np.int32)
+
+    def predict_logits(self, X: np.ndarray,
+                       ticker_idx: np.ndarray | None = None) -> np.ndarray:
+        self.model.eval()
+        X_t = torch.FloatTensor(X).to(self.device)
+        tidx_t = None
+        if self.model.ticker_embedding is not None:
+            if ticker_idx is None:
+                raise ValueError(
+                    "ticker_idx is required: the model has a ticker embedding."
+                )
+            tidx_t = torch.LongTensor(ticker_idx).to(self.device)
+        with torch.no_grad():
+            logits = self.model(X_t, tidx_t)
+            return logits.cpu().numpy()
 
     def predict_proba(self, X: np.ndarray,
                       ticker_idx: np.ndarray | None = None,
@@ -371,6 +412,7 @@ class LSTMTrainer:
             "calibrator": self.calibrator,
             "calibration_method": self.calibration_method,
             "decision_threshold": self.decision_threshold,
+            "bidirectional_l2": self.model.bidirectional_l2,
             # Diagnostic: val metric history (AUC or balanced accuracy)
             "early_stop_metric": self.config.get("early_stop_metric", "auc"),
         }, path)
@@ -389,6 +431,7 @@ class LSTMTrainer:
             dropout=config["dropout"],
             num_tickers=checkpoint.get("num_tickers", 0),
             ticker_embed_dim=checkpoint.get("ticker_embed_dim", 4),
+            bidirectional_l2=bool(checkpoint.get("bidirectional_l2", False)),
         )
         model.load_state_dict(checkpoint["model_state_dict"])
 

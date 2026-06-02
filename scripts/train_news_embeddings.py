@@ -65,9 +65,13 @@ _PROJECT_ROOT = _SCRIPT_DIR.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.config import DATABASE_PATH, MODELS_DIR, PROCESSED_DATA_DIR  # noqa: E402
+from src.config import DATABASE_PATH, MODELS_DIR, PROCESSED_DATA_DIR, NLP_CONFIG  # noqa: E402
 from src.features.publisher_features import PublisherOneHot  # noqa: E402
-from src.models.news_pipeline import build_dataset, chronological_split  # noqa: E402
+from src.ml.threshold_tuning import (  # noqa: E402
+    calibration_preserves_spread,
+    tune_threshold_balanced_accuracy,
+)
+from src.models.news_pipeline import build_dataset, chronological_split, assign_split_labels  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +135,7 @@ class NewsEmbeddingClassifier:
         self._encoder: Any = None
         self._finbert: Any = None
         self._calibrated: Any = None
+        self.decision_threshold: float = 0.5
 
     def _get_encoder(self) -> Any:
         if self._encoder is None:
@@ -258,10 +263,23 @@ class NewsEmbeddingClassifier:
             return self
         X_val = self.build_features(val_df, fit=False)
         y_val = val_df["label_binary"].to_numpy(dtype=int)
+        raw_proba = self.classifier.predict_proba(X_val)[:, 1]
         cal = _make_prefit_calibrator(self.classifier, method="sigmoid")
         cal.fit(X_val, y_val)
-        self._calibrated = cal
-        log.info("Calibrated embeddings classifier on %d val rows.", len(val_df))
+        cal_proba = cal.predict_proba(X_val)[:, 1]
+        if calibration_preserves_spread(raw_proba, cal_proba):
+            self._calibrated = cal
+            log.info(
+                "Calibrated embeddings on %d val rows (raw_std=%.4f cal_std=%.4f).",
+                len(val_df), float(raw_proba.std()), float(cal_proba.std()),
+            )
+        else:
+            self._calibrated = None
+            log.warning(
+                "Rejected sigmoid calibration (raw_std=%.4f cal_std=%.4f); "
+                "using uncalibrated classifier.",
+                float(raw_proba.std()), float(cal_proba.std()),
+            )
         return self
 
     def predict_proba_positive(
@@ -271,12 +289,44 @@ class NewsEmbeddingClassifier:
         clf = self._calibrated if self._calibrated is not None else self.classifier
         return clf.predict_proba(X)[:, 1]
 
+    def predict_binary(self, df: pd.DataFrame, *, show_progress: bool = False) -> np.ndarray:
+        proba = self.predict_proba_positive(df, show_progress=show_progress)
+        return (proba >= self.decision_threshold).astype(int)
+
+
+def _pick_embedding_C(model: NewsEmbeddingClassifier, train_df: pd.DataFrame,
+                      val_df: pd.DataFrame) -> float:
+    if val_df.empty or val_df["label_binary"].nunique() < 2:
+        return float(NLP_CONFIG.get("logreg_C", 1.0))
+    log.info("Precomputing embedding features for C grid search ...")
+    X_train = model.build_features(train_df, fit=True, show_progress=True)
+    y_train = train_df["label_binary"].to_numpy(dtype=int)
+    X_val = model.build_features(val_df, fit=False)
+    y_val = val_df["label_binary"].to_numpy(dtype=int)
+    best_C, best_auc = float(NLP_CONFIG.get("logreg_C", 1.0)), -1.0
+    for C in (0.1, 0.5, 1.0, 2.0, 5.0):
+        clf = LogisticRegression(
+            C=C, max_iter=1_000, class_weight="balanced", random_state=42, solver="lbfgs",
+        )
+        clf.fit(X_train, y_train)
+        cal = _make_prefit_calibrator(clf, method="sigmoid")
+        cal.fit(X_val, y_val)
+        proba = cal.predict_proba(X_val)[:, 1]
+        try:
+            auc = roc_auc_score(y_val, proba)
+        except ValueError:
+            auc = 0.5
+        if auc > best_auc:
+            best_auc, best_C = auc, C
+    log.info("Selected embedding LogReg C=%.1f (val AUC=%.3f)", best_C, best_auc)
+    return best_C
+
 
 def evaluate(model: NewsEmbeddingClassifier, df: pd.DataFrame, split_name: str) -> dict:
     if df.empty:
         return {}
     proba = model.predict_proba_positive(df, show_progress=len(df) > 200)
-    preds = (proba >= 0.5).astype(int)
+    preds = model.predict_binary(df, show_progress=False)
     acc = accuracy_score(df["label_binary"], preds)
     try:
         auc = roc_auc_score(df["label_binary"], proba)
@@ -289,7 +339,7 @@ def evaluate(model: NewsEmbeddingClassifier, df: pd.DataFrame, split_name: str) 
 def export_predictions(model: NewsEmbeddingClassifier,
                        split_name: str, df: pd.DataFrame) -> pd.DataFrame:
     proba = model.predict_proba_positive(df)
-    binary = (proba >= 0.5).astype(int)
+    binary = model.predict_binary(df)
     conf = np.abs(proba - 0.5) * 2
 
     out = df[["ticker", "prediction_date"]].copy().reset_index(drop=True)
@@ -321,6 +371,7 @@ def load_embedding_model(path: str | Path) -> NewsEmbeddingClassifier:
     )
     model._calibrated = payload.get("calibrated")
     model._model_version = payload.get("model_version")
+    model.decision_threshold = float(payload.get("decision_threshold", 0.5))
     return model
 
 
@@ -450,7 +501,7 @@ def main() -> None:
     df = build_dataset(db_path, drop_rows_without_news=True, horizon=args.horizon)
     print(f"  {len(df):,} ticker-day rows (news-aligned, horizon={args.horizon})")
 
-    print("Step 2/4  Splitting (chronological) ...")
+    print("Step 2/4  Splitting (chronological on news dates) ...")
     train_df, val_df, test_df = chronological_split(
         df, train_ratio=args.train_ratio, val_ratio=args.val_ratio
     )
@@ -461,6 +512,11 @@ def main() -> None:
               f"dropped {before - len(train_df)} train rows, kept {len(train_df)}")
     splits = {"train": train_df, "val": val_df, "test": test_df}
 
+    is_finbert_encoder = sentence_model == FINBERT_MODEL
+    if is_finbert_encoder and args.use_finbert:
+        print("  note: skipping --use-finbert sentiment stack (redundant with FinBERT encoder)")
+        args.use_finbert = False
+
     finbert_cache = (PROCESSED_DATA_DIR / "finbert_cache.db") if args.use_finbert else None
     model = NewsEmbeddingClassifier(
         sentence_model_name=sentence_model,
@@ -470,10 +526,20 @@ def main() -> None:
     )
 
     print("Step 3/4  Training ...")
+    best_C = _pick_embedding_C(model, train_df, val_df)
+    model.classifier = LogisticRegression(
+        C=best_C, max_iter=1_000, class_weight="balanced", random_state=42, solver="lbfgs",
+    )
     model.fit(train_df)
 
     if not args.no_calibration:
         model.calibrate(val_df)
+    if not val_df.empty and val_df["label_binary"].nunique() >= 2:
+        model.decision_threshold = tune_threshold_balanced_accuracy(
+            val_df["label_binary"].to_numpy(),
+            model.predict_proba_positive(val_df),
+        )
+        log.info("Embeddings decision threshold=%.3f", model.decision_threshold)
 
     print()
     metrics = {name: evaluate(model, split_df, name) for name, split_df in splits.items()}
@@ -482,6 +548,7 @@ def main() -> None:
     payload = {
         "classifier": model.classifier,
         "calibrated": model._calibrated,
+        "decision_threshold": model.decision_threshold,
         "sentence_model_name": model.sentence_model_name,
         "publisher_encoder": model.publisher_encoder,
         "use_finbert": model.use_finbert,
@@ -510,6 +577,15 @@ def main() -> None:
         if m:
             print(f"  {name.upper():5s}  accuracy={m['accuracy']:.3f}  "
                   f"AUC={m['auc']:.3f}  n={m['n']}")
+
+    from src.ml.model_diagnostics import per_ticker_auc, print_per_ticker_auc  # noqa: E402
+    test_df = splits.get("test")
+    if test_df is not None and not test_df.empty:
+        scored = test_df.copy()
+        scored["news_pred_proba"] = model.predict_proba_positive(test_df)
+        scored["actual_binary"] = scored["label_binary"]
+        tt = per_ticker_auc(scored, proba_col="news_pred_proba", min_rows=10)
+        print_per_ticker_auc("Per-ticker test AUC (embeddings)", tt)
     print()
     print(f"  model_name    : {MODEL_NAME}")
     print(f"  model_version : {MODEL_VERSION}")

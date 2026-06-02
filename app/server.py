@@ -1228,6 +1228,7 @@ def _meta_payload_for_explanation(row: pd.Series, full_payload: dict) -> dict[st
                 "meta": full_payload.get("has_news_model"),
                 "temperature": float(full_payload.get("has_news_temperature", 1.0)),
                 "importances": full_payload.get("importances") or [],
+                "features": full_payload.get("features") or [],
                 "conditional": True,
                 "route": "has_news",
             }
@@ -1235,6 +1236,7 @@ def _meta_payload_for_explanation(row: pd.Series, full_payload: dict) -> dict[st
             "meta": full_payload.get("no_news_model"),
             "temperature": float(full_payload.get("no_news_temperature", 1.0)),
             "importances": full_payload.get("importances") or [],
+            "features": full_payload.get("features") or [],
             "conditional": True,
             "route": "no_news",
         }
@@ -1242,6 +1244,7 @@ def _meta_payload_for_explanation(row: pd.Series, full_payload: dict) -> dict[st
         "meta": full_payload.get("meta"),
         "temperature": float(full_payload.get("temperature", 1.0)),
         "importances": full_payload.get("importances") or [],
+        "features": full_payload.get("features") or [],
         "conditional": False,
         "route": "unified",
     }

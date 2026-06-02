@@ -77,22 +77,25 @@ LSTM_CONFIG: dict = {
     "batch_size": 64,
     "epochs": 80,
     "learning_rate": 0.0005,
-    "lstm_units": [64, 64],
-    "dropout": 0.4,
-    "weight_decay": 1e-4,
+    "lstm_units": [32, 32],
+    "dropout": 0.30,
+    "weight_decay": 5e-4,
     "ticker_embed_dim": 4,
     "use_focal_loss": False,
     "focal_gamma": 2.0,
     "focal_alpha": 0.5,
-    "patience": 20,
+    "patience": 12,
     "early_stop_metric": "auc",
-    "seeds": [42, 1337, 2024],
+    "log_every_n_epochs": 10,
+    "seeds": [42],
+    "bidirectional_l2": False,
 }
 
 NLP_CONFIG: dict = {
-    "max_features": 5000,
+    "max_features": 8000,
     "max_news_per_day": 20,
     "min_relevance_score": 0.3,
+    "logreg_C": 1.0,
 }
 
 ENSEMBLE_CONFIG: dict = {

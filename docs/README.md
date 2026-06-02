@@ -1,6 +1,6 @@
 # Documentation
 
-Reading order for contributors:
+Reading order:
 
 1. **[../README.md](../README.md)** — overview, quick start, results snapshot  
 2. **[DEVELOPMENT.md](DEVELOPMENT.md)** — local setup, API/UI, smoke tests  

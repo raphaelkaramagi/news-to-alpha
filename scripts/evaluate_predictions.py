@@ -41,6 +41,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.metrics import (
@@ -149,6 +150,27 @@ def _load_lstm_decision_threshold() -> float:
         return 0.5
 
 
+def _load_news_decision_thresholds() -> dict[str, float]:
+    """Read tuned cutoffs saved by train_nlp / train_news_embeddings."""
+    out: dict[str, float] = {"news_tfidf": 0.5, "news_embeddings": 0.5}
+    for name, fname in (
+        ("news_tfidf", "news_tfidf.joblib"),
+        ("news_embeddings", "news_embeddings.joblib"),
+    ):
+        path = MODELS_DIR / fname
+        if not path.exists():
+            continue
+        try:
+            obj = joblib.load(path)
+            if isinstance(obj, dict):
+                out[name] = float(obj.get("decision_threshold", 0.5))
+            elif hasattr(obj, "decision_threshold"):
+                out[name] = float(obj.decision_threshold)
+        except Exception:
+            pass
+    return out
+
+
 def evaluate_all(
     predictions_path: Path,
     labels_path: Optional[Path] = None,
@@ -175,8 +197,20 @@ def evaluate_all(
         conf = (df["ensemble_pred_proba"].fillna(0.5) - 0.5).abs() * 2
         high_conf_mask = (conf >= 0.3).to_numpy()
 
+    news_scored_mask = None
+    news_oos_mask = None
+    if "news_tfidf_split" in df.columns and "split" in df.columns:
+        news_scored_mask = (
+            df["news_tfidf_split"].fillna("") == df["split"]
+        ).to_numpy()
+        news_oos_mask = (
+            df["news_tfidf_split"].fillna("").isin(["val", "test"])
+            & (df["news_tfidf_split"].fillna("") == df["split"])
+        ).to_numpy()
+
     y_true = df["actual_binary"].to_numpy()
     lstm_threshold = _load_lstm_decision_threshold()
+    news_thresholds = _load_news_decision_thresholds()
     overall_rows: list[dict] = []
     by_ticker_rows: list[dict] = []
 
@@ -197,6 +231,10 @@ def evaluate_all(
         _add_subset(name, y_pred, y_proba, subset="all")
         if has_news_mask is not None:
             _add_subset(name, y_pred, y_proba, subset="has_news", mask=has_news_mask)
+        if news_scored_mask is not None and news_scored_mask.any():
+            _add_subset(name, y_pred, y_proba, subset="news_scored", mask=news_scored_mask)
+        if news_oos_mask is not None and news_oos_mask.any():
+            _add_subset(name, y_pred, y_proba, subset="news_oos", mask=news_oos_mask)
         if high_conf_mask is not None:
             _add_subset(name, y_pred, y_proba, subset="high_conf", mask=high_conf_mask)
 
@@ -220,7 +258,7 @@ def evaluate_all(
             print(f"  [skip] {name}: column {col!r} not in predictions")
             continue
         proba = df[col].astype(float).to_numpy()
-        threshold = lstm_threshold if name == "lstm_price" else 0.5
+        threshold = lstm_threshold if name == "lstm_price" else news_thresholds.get(name, 0.5)
         pred = (proba >= threshold).astype(int)
         _add(name, pred, proba)
 
@@ -384,7 +422,7 @@ def _evaluate_by_confidence(
 
 
 def _format_summary(overall: pd.DataFrame, split: str) -> str:
-    subsets = ["all", "has_news", "high_conf"] if "subset" in overall.columns else ["all"]
+    subsets = ["all", "has_news", "news_scored", "news_oos", "high_conf"] if "subset" in overall.columns else ["all"]
     lines = []
     for subset in subsets:
         sub = overall[overall["subset"] == subset] if "subset" in overall.columns else overall

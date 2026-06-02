@@ -1,8 +1,6 @@
 """Generate 60-day sequences for LSTM training (no per-window normalization).
 
-The old per-window min-max destroyed absolute scale across windows (RSI=70
-could become 0.0 in one window and 1.0 in another).  Scaling now happens
-once, globally, in `scripts/train_lstm.py` using a StandardScaler fit on
+Scaling now happens once, globally, in `scripts/train_lstm.py` using a StandardScaler fit on
 the training split; level features get scaled, scale-invariant features
 (returns, ratios, oscillators) go through unchanged.
 
@@ -43,9 +41,15 @@ SCALE_INVARIANT_FEATURES: list[str] = [
     "market_return_5d",
     "excess_return",
     "volume_zscore_20",
-    # VIX regime features — default 0 when VIX not collected yet
-    "vix_level",   # absolute VIX level (10–80+); scaled by StandardScaler
-    "vix_change",  # daily % change in VIX (fear spike signal)
+    "overnight_gap",
+    "dist_ma20",
+    "dist_ma50",
+    "vol_ratio_5_20",
+    "rs_vs_spy_5d",
+    "rs_vs_spy_20d",
+    "vix_level",
+    "vix_change",
+    "vix_ma_ratio",
 ]
 
 LEVEL_FEATURES: list[str] = [

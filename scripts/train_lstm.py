@@ -198,11 +198,11 @@ class SeedEnsemble:
 
     def predict_proba_raw(self, X: np.ndarray,
                           ticker_idx: np.ndarray | None = None) -> np.ndarray:
-        parts = [
-            t.predict_proba(X, ticker_idx, apply_calibration=False)
-            for t in self.trainers
-        ]
-        return np.mean(np.stack(parts, axis=0), axis=0)
+        logits = np.mean(
+            np.stack([t.predict_logits(X, ticker_idx) for t in self.trainers], axis=0),
+            axis=0,
+        )
+        return 1.0 / (1.0 + np.exp(-logits))
 
     def predict_proba(self, X: np.ndarray,
                       ticker_idx: np.ndarray | None = None) -> np.ndarray:
@@ -494,6 +494,7 @@ def main() -> None:
             dropout=config["dropout"],
             num_tickers=len(ticker_to_idx),
             ticker_embed_dim=config.get("ticker_embed_dim", 4),
+            bidirectional_l2=bool(config.get("bidirectional_l2", False)),
         )
         trainer_i = LSTMTrainer(
             model_i, config,
@@ -532,8 +533,21 @@ def main() -> None:
         primary.decision_threshold = predictor.decision_threshold
 
     print("\n--- Evaluation (seed-ensemble + calibration) ---")
+    from src.ml.model_diagnostics import (  # noqa: E402
+        per_ticker_auc, print_per_ticker_auc, print_split_metrics, split_metrics,
+    )
+
+    threshold = getattr(predictor, "decision_threshold", 0.5)
+    for split_name in ("train", "val", "test"):
+        sp = splits[split_name]
+        if len(sp["y"]) == 0:
+            continue
+        proba = _prob_predict(predictor, sp["X"], sp["tidx"])
+        m = split_metrics(sp["y"].astype(int), proba, threshold=threshold, split_name=split_name)
+        print_split_metrics(m, prefix="  ")
+
     test_proba = _prob_predict(predictor, splits["test"]["X"], splits["test"]["tidx"])
-    test_pred = (test_proba >= getattr(predictor, "decision_threshold", 0.5)).astype(int)
+    test_pred = (test_proba >= threshold).astype(int)
     y_test = splits["test"]["y"].astype(int)
     test_acc = float((test_pred == y_test).mean()) if len(y_test) else 0.0
     up_total = int((y_test == 1).sum())
@@ -541,12 +555,17 @@ def main() -> None:
     down_total = int((y_test == 0).sum())
     down_correct = int(((test_pred == 0) & (y_test == 0)).sum())
     bal_acc = ((up_correct / max(up_total, 1)) + (down_correct / max(down_total, 1))) / 2
-    print(f"  Test accuracy  : {test_acc:.4f}  ({int((test_pred == y_test).sum())}/{len(y_test)})")
-    print(f"  Balanced acc   : {bal_acc:.4f}")
-    print(f"  Up   recall    : {up_correct}/{up_total}  "
-          f"({up_correct / max(up_total, 1):.2%})")
-    print(f"  Down recall    : {down_correct}/{down_total}  "
-          f"({down_correct / max(down_total, 1):.2%})")
+
+    # Per-ticker test AUC from sequence-level test split
+    sp_test = splits["test"]
+    if len(sp_test["y"]) > 0:
+        test_export = build_prediction_export(
+            predictor, "test", sp_test["X"], sp_test["y"], sp_test["tidx"], sp_test["meta"],
+        )
+        tt = per_ticker_auc(
+            test_export, proba_col="financial_pred_proba", min_rows=15,
+        )
+        print_per_ticker_auc("Per-ticker test AUC", tt)
 
     print("\n--- LSTM Probability Diagnostics (test set) ---")
     print(f"  proba min={test_proba.min():.4f}  max={test_proba.max():.4f}  "

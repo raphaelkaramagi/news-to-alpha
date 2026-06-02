@@ -82,6 +82,9 @@ class TechnicalIndicators:
         df = self._add_excess_return(df)
         df = self._add_derived_ratios(df)
         df = self._merge_vix_features(df)
+        df = self._add_gap_and_ma_features(df)
+        df = self._add_vol_regime_features(df)
+        df = self._add_relative_strength(df)
 
         return df
 
@@ -260,10 +263,12 @@ class TechnicalIndicators:
         if vix is None or vix.empty:
             df["vix_level"] = 0.0
             df["vix_change"] = 0.0
+            df["vix_ma_ratio"] = 1.0
             return df
         df = df.join(vix, how="left")
         df["vix_level"] = df["vix_level"].ffill().fillna(0.0)
         df["vix_change"] = df["vix_change"].fillna(0.0)
+        df["vix_ma_ratio"] = df["vix_ma_ratio"].ffill().fillna(1.0)
         return df
 
     def _load_vix(self) -> pd.DataFrame | None:
@@ -288,5 +293,36 @@ class TechnicalIndicators:
         vix = vix.set_index("date").sort_index()
         vix["vix_level"] = vix["close"]
         vix["vix_change"] = vix["close"].pct_change() * 100
-        self._vix_cache = vix[["vix_level", "vix_change"]]
+        vix_ma20 = vix["close"].rolling(20).mean()
+        vix["vix_ma_ratio"] = vix["close"] / vix_ma20.replace(0, np.nan)
+        self._vix_cache = vix[["vix_level", "vix_change", "vix_ma_ratio"]]
         return self._vix_cache
+
+    @staticmethod
+    def _add_gap_and_ma_features(df: pd.DataFrame) -> pd.DataFrame:
+        """Overnight gap and distance from moving averages (% units)."""
+        prev_close = df["close"].shift(1)
+        df["overnight_gap"] = (df["open"] - prev_close) / prev_close.replace(0, np.nan) * 100
+        for window in (20, 50):
+            ma = df["close"].rolling(window=window).mean()
+            df[f"dist_ma{window}"] = (df["close"] - ma) / ma.replace(0, np.nan) * 100
+        return df
+
+    @staticmethod
+    def _add_vol_regime_features(df: pd.DataFrame) -> pd.DataFrame:
+        """Short vs long realized vol ratio (vol regime shift)."""
+        log_ret = np.log(df["close"] / df["close"].shift(1))
+        vol5 = log_ret.rolling(5).std() * np.sqrt(252) * 100
+        vol20 = log_ret.rolling(20).std() * np.sqrt(252) * 100
+        df["vol_ratio_5_20"] = vol5 / vol20.replace(0, np.nan)
+        return df
+
+    def _add_relative_strength(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Cumulative excess return vs SPY over 5d and 20d windows."""
+        if "excess_return" not in df.columns:
+            df["rs_vs_spy_5d"] = 0.0
+            df["rs_vs_spy_20d"] = 0.0
+            return df
+        df["rs_vs_spy_5d"] = df["excess_return"].rolling(5).sum()
+        df["rs_vs_spy_20d"] = df["excess_return"].rolling(20).sum()
+        return df

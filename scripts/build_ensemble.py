@@ -103,6 +103,8 @@ OUTPUT_COLS = [
     "ticker",
     "prediction_date",
     "split",
+    "news_tfidf_split",
+    "news_embeddings_split",
     "financial_pred_proba",
     "financial_confidence",
     "news_tfidf_pred_proba",

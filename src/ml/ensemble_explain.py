@@ -23,16 +23,17 @@ _NEUTRAL: dict[str, float] = {
 }
 
 
-def _row_to_matrix(row: pd.Series) -> np.ndarray:
+def _row_to_matrix(row: pd.Series, features: list[str] | None = None) -> np.ndarray:
     from scripts.build_ensemble import META_FEATURES, _add_interaction_features, _ensure_derived_features
 
     df = pd.DataFrame([row.to_dict()])
     df = _ensure_derived_features(df)
     df = _add_interaction_features(df)
-    for c in META_FEATURES:
+    cols = features or META_FEATURES
+    for c in cols:
         if c not in df.columns:
             df[c] = 0.0
-    return df[META_FEATURES].to_numpy(dtype=np.float64)
+    return df[cols].to_numpy(dtype=np.float64)
 
 
 def _score_matrix(model: Any, X: np.ndarray, temperature: float) -> float:
@@ -81,10 +82,15 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
     if model is None:
         return {"error": "no meta model"}
 
+    features: list[str] = list(meta_payload.get("features") or [])
+    if not features:
+        from scripts.build_ensemble import META_FEATURES
+        features = list(META_FEATURES)
+
     temperature = float(meta_payload.get("temperature", 1.0))
     importances = dict(meta_payload.get("importances") or [])
 
-    X = _row_to_matrix(row)
+    X = _row_to_matrix(row, features)
     base_p = _score_matrix(model, X, temperature)
     direction = "UP" if base_p >= 0.5 else "DOWN"
     confidence = abs(base_p - 0.5) * 2.0
@@ -137,7 +143,7 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
     drivers: list[dict[str, Any]] = []
     for feat, label in driver_specs:
         neutral_row = _apply_neutral(row, feat)
-        cf_p = _score_matrix(model, _row_to_matrix(neutral_row), temperature)
+        cf_p = _score_matrix(model, _row_to_matrix(neutral_row, features), temperature)
         effect = base_p - cf_p
         val = float(row.get(feat, _NEUTRAL.get(feat, 0)))
         if feat == "lstm_confidence":

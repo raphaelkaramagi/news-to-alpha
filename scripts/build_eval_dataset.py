@@ -26,6 +26,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -162,7 +163,7 @@ def main() -> None:
     df["n_headlines"] = df.get("n_headlines", pd.Series(0, index=df.index)).fillna(0).astype(int)
     df["has_news"] = (df["n_headlines"] > 0).astype(int)
 
-    # Fill missing news probas with neutral 0.5 and zero confidence
+    # Fill missing news probas: neutral only when there is no news
     for col, neutral in [
         ("news_tfidf_pred_proba", 0.5),
         ("news_embeddings_pred_proba", 0.5),
@@ -170,7 +171,17 @@ def main() -> None:
         ("news_embeddings_confidence", 0.0),
     ]:
         if col in df.columns:
-            df[col] = df[col].fillna(neutral)
+            no_news = df["has_news"] == 0
+            df.loc[no_news, col] = df.loc[no_news, col].fillna(neutral)
+            if col == "news_embeddings_pred_proba" and "news_tfidf_pred_proba" in df.columns:
+                miss = (df["has_news"] == 1) & df[col].isna()
+                df.loc[miss, col] = df.loc[miss, "news_tfidf_pred_proba"]
+            if col == "news_tfidf_pred_proba" and "news_embeddings_pred_proba" in df.columns:
+                miss = (df["has_news"] == 1) & df[col].isna()
+                df.loc[miss, col] = df.loc[miss, "news_embeddings_pred_proba"]
+            still = (df["has_news"] == 1) & df[col].isna()
+            if still.any():
+                df.loc[still, col] = neutral
 
     for col in ("news_tfidf_pred_binary", "news_embeddings_pred_binary"):
         if col in df.columns:
@@ -189,6 +200,34 @@ def main() -> None:
         df["top_headlines"] = "[]"
 
     df["split"] = df["price_split"]
+
+    # Only use news scores from the matching chronological split to avoid
+    # applying train-set news predictions onto LSTM test rows (data leakage).
+    split_match = (
+        (df["price_split"] == df["news_tfidf_split"])
+        | df["news_tfidf_split"].isna()
+    )
+    for col in (
+        "news_tfidf_pred_proba",
+        "news_tfidf_pred_binary",
+        "news_tfidf_confidence",
+        "news_tfidf_top_headlines",
+    ):
+        if col in df.columns:
+            df.loc[~split_match, col] = np.nan
+
+    emb_match = (
+        (df["price_split"] == df["news_embeddings_split"])
+        | df["news_embeddings_split"].isna()
+    )
+    for col in (
+        "news_embeddings_pred_proba",
+        "news_embeddings_pred_binary",
+        "news_embeddings_confidence",
+        "news_embeddings_top_headlines",
+    ):
+        if col in df.columns:
+            df.loc[~emb_match, col] = np.nan
 
     print(f"  Rows after join: {len(df):,}")
     print(f"  Tickers        : {df['ticker'].nunique()}")

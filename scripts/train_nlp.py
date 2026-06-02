@@ -55,9 +55,14 @@ def _make_prefit_calibrator(estimator, method: str = "sigmoid") -> CalibratedCla
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 
-from src.config import DATABASE_PATH, PROCESSED_DATA_DIR, MODELS_DIR  # noqa: E402
+from src.config import DATABASE_PATH, PROCESSED_DATA_DIR, MODELS_DIR, NLP_CONFIG  # noqa: E402
 from src.features.publisher_features import PublisherOneHot  # noqa: E402
-from src.models.news_pipeline import build_dataset, chronological_split  # noqa: E402
+from src.ml.threshold_tuning import (  # noqa: E402
+    calibration_preserves_spread,
+    tune_threshold_balanced_accuracy,
+)
+from src.models.news_pipeline import build_dataset, chronological_split, assign_split_labels  # noqa: E402
+from src.config import PROCESSED_DATA_DIR  # noqa: E402
 
 MODEL_NAME = "news_tfidf"
 MODEL_VERSION = datetime.now().strftime("%Y%m%dT%H%M%S")
@@ -110,6 +115,7 @@ class TfidfPublisherClassifier:
             solver="lbfgs",
         )
         self._calibrated: CalibratedClassifierCV | None = None
+        self.decision_threshold: float = 0.5
 
     def _features(self, df: pd.DataFrame, *, fit: bool):
         text = _text_with_snippet(df)
@@ -140,10 +146,23 @@ class TfidfPublisherClassifier:
             return self
         X_val = self._features(val_df, fit=False)
         y_val = val_df["label_binary"].to_numpy(dtype=int)
+        raw_proba = self.classifier.predict_proba(X_val)[:, 1]
         cal = _make_prefit_calibrator(self.classifier, method="sigmoid")
         cal.fit(X_val, y_val)
-        self._calibrated = cal
-        log.info("Calibrated on %d val rows.", len(val_df))
+        cal_proba = cal.predict_proba(X_val)[:, 1]
+        if calibration_preserves_spread(raw_proba, cal_proba):
+            self._calibrated = cal
+            log.info(
+                "Calibrated on %d val rows (raw_std=%.4f cal_std=%.4f).",
+                len(val_df), float(raw_proba.std()), float(cal_proba.std()),
+            )
+        else:
+            self._calibrated = None
+            log.warning(
+                "Rejected sigmoid calibration (raw_std=%.4f cal_std=%.4f); "
+                "using uncalibrated classifier.",
+                float(raw_proba.std()), float(cal_proba.std()),
+            )
         return self
 
     def predict_proba_positive(self, df: pd.DataFrame) -> np.ndarray:
@@ -151,12 +170,39 @@ class TfidfPublisherClassifier:
         clf = self._calibrated if self._calibrated is not None else self.classifier
         return clf.predict_proba(X)[:, 1]
 
+    def predict_binary(self, df: pd.DataFrame) -> np.ndarray:
+        proba = self.predict_proba_positive(df)
+        return (proba >= self.decision_threshold).astype(int)
+
+
+def _pick_logreg_C(train_df: pd.DataFrame, val_df: pd.DataFrame,
+                   max_features: int, top_publishers: int) -> float:
+    if val_df.empty or val_df["label_binary"].nunique() < 2:
+        return float(NLP_CONFIG.get("logreg_C", 1.0))
+    best_C, best_auc = float(NLP_CONFIG.get("logreg_C", 1.0)), -1.0
+    for C in (0.1, 0.5, 1.0, 2.0, 5.0):
+        probe = TfidfPublisherClassifier(max_features=max_features, top_publishers=top_publishers)
+        probe.classifier = LogisticRegression(
+            C=C, max_iter=1_000, class_weight="balanced", random_state=42, solver="lbfgs",
+        )
+        probe.fit(train_df)
+        probe.calibrate(val_df)
+        proba = probe.predict_proba_positive(val_df)
+        try:
+            auc = roc_auc_score(val_df["label_binary"], proba)
+        except ValueError:
+            auc = 0.5
+        if auc > best_auc:
+            best_auc, best_C = auc, C
+    log.info("Selected LogReg C=%.1f (val AUC=%.3f)", best_C, best_auc)
+    return best_C
+
 
 def evaluate(model: TfidfPublisherClassifier, df: pd.DataFrame, split_name: str) -> dict:
     if df.empty:
         return {}
     proba = model.predict_proba_positive(df)
-    preds = (proba >= 0.5).astype(int)
+    preds = model.predict_binary(df)
     acc = accuracy_score(df["label_binary"], preds)
     try:
         auc = roc_auc_score(df["label_binary"], proba)
@@ -170,7 +216,7 @@ def evaluate(model: TfidfPublisherClassifier, df: pd.DataFrame, split_name: str)
 def export_predictions(model: TfidfPublisherClassifier,
                        split_name: str, df: pd.DataFrame) -> pd.DataFrame:
     proba = model.predict_proba_positive(df)
-    binary = (proba >= 0.5).astype(int)
+    binary = model.predict_binary(df)
     conf = np.abs(proba - 0.5) * 2
 
     out = df[["ticker", "prediction_date"]].copy().reset_index(drop=True)
@@ -198,6 +244,7 @@ def load_tfidf_model(path: str | Path) -> TfidfPublisherClassifier:
     model.classifier = payload["classifier"]
     model._calibrated = payload.get("calibrated")
     model._model_version = payload.get("model_version")
+    model.decision_threshold = float(payload.get("decision_threshold", 0.5))
     return model
 
 
@@ -270,7 +317,8 @@ def main() -> None:
     parser.add_argument("--db", default=str(DATABASE_PATH))
     parser.add_argument("--train-ratio", type=float, default=0.70)
     parser.add_argument("--val-ratio", type=float, default=0.15)
-    parser.add_argument("--max-features", type=int, default=5_000)
+    parser.add_argument("--max-features", type=int,
+                        default=int(NLP_CONFIG.get("max_features", 5000)))
     parser.add_argument("--top-publishers", type=int, default=15)
     parser.add_argument("--horizon", type=int, default=1, choices=[1, 3],
                         help="Prediction horizon in trading days (default: 1)")
@@ -304,7 +352,7 @@ def main() -> None:
     df = build_dataset(db_path, drop_rows_without_news=True, horizon=args.horizon)
     print(f"  {len(df):,} ticker-day rows (news-aligned, horizon={args.horizon})")
 
-    print("Step 2/4  Splitting (chronological) ...")
+    print("Step 2/4  Splitting (chronological on news dates) ...")
     train_df, val_df, test_df = chronological_split(
         df, train_ratio=args.train_ratio, val_ratio=args.val_ratio
     )
@@ -316,13 +364,23 @@ def main() -> None:
     splits = {"train": train_df, "val": val_df, "test": test_df}
 
     print("Step 3/4  Training ...")
+    best_C = _pick_logreg_C(train_df, val_df, args.max_features, args.top_publishers)
     model = TfidfPublisherClassifier(
         max_features=args.max_features,
         top_publishers=args.top_publishers,
     )
+    model.classifier = LogisticRegression(
+        C=best_C, max_iter=1_000, class_weight="balanced", random_state=42, solver="lbfgs",
+    )
     model.fit(train_df)
     if not args.no_calibration:
         model.calibrate(val_df)
+    if not val_df.empty and val_df["label_binary"].nunique() >= 2:
+        model.decision_threshold = tune_threshold_balanced_accuracy(
+            val_df["label_binary"].to_numpy(),
+            model.predict_proba_positive(val_df),
+        )
+        log.info("TF-IDF decision threshold=%.3f", model.decision_threshold)
 
     print()
     metrics = {name: evaluate(model, split_df, name) for name, split_df in splits.items()}
@@ -333,6 +391,7 @@ def main() -> None:
         "publisher_encoder": model.publisher_encoder,
         "classifier": model.classifier,
         "calibrated": model._calibrated,
+        "decision_threshold": model.decision_threshold,
         "model_name": MODEL_NAME,
         "model_version": MODEL_VERSION,
     }
@@ -354,6 +413,15 @@ def main() -> None:
         if m:
             print(f"  {name.upper():5s}  accuracy={m['accuracy']:.3f}  "
                   f"AUC={m['auc']:.3f}  n={m['n']}")
+
+    from src.ml.model_diagnostics import per_ticker_auc, print_per_ticker_auc  # noqa: E402
+    test_df = splits.get("test")
+    if test_df is not None and not test_df.empty:
+        scored = test_df.copy()
+        scored["news_pred_proba"] = model.predict_proba_positive(test_df)
+        scored["actual_binary"] = scored["label_binary"]
+        tt = per_ticker_auc(scored, proba_col="news_pred_proba", min_rows=10)
+        print_per_ticker_auc("Per-ticker test AUC (TF-IDF)", tt)
     print()
     print(f"  model_name    : {MODEL_NAME}")
     print(f"  model_version : {MODEL_VERSION}")

@@ -29,7 +29,7 @@ Open http://localhost:3000
 |-------|-------------|
 | `/` | Markets — ticker grid, resolved calls, overview chart |
 | `/t/[symbol]` | Ticker detail — close-to-close hero, resolved strip (7/30/90d), Why / Advanced, charts |
-| `/status` | Data freshness and evaluation summary |
+| `/status` | Data freshness and evaluation summary (`news_scored` metrics when available) |
 
 Global date picker syncs across pages.
 
