@@ -6,7 +6,14 @@ export type MarketsOverviewData = {
   window: number;
   price_index: { date: string; index: number }[];
   accuracy_series: { date: string; accuracy: number }[];
+  volatility_series: { date: string; accuracy: number }[];
   summary: { n: number; hits: number; accuracy: number | null };
+  volatility_summary: {
+    n: number;
+    hits: number;
+    accuracy: number | null;
+    mae_pct: number | null;
+  };
 };
 
 function sanitizeJson(text: string): string {
@@ -34,6 +41,47 @@ function accuracySeriesFromRows(rows: { date: string; hit: number }[]): { date: 
     const cur = byDate.get(r.date) ?? { hits: 0, n: 0 };
     cur.n += 1;
     cur.hits += r.hit ? 1 : 0;
+    byDate.set(r.date, cur);
+  }
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, { hits, n }]) => ({ date, accuracy: n ? hits / n : 0 }));
+}
+
+async function fetchVolatilitySummaryAll(
+  window: ChartWindow
+): Promise<
+  MarketsOverviewData["volatility_summary"] & {
+    rows: { date: string; within_band: number }[];
+  }
+> {
+  const res = await fetch(`/api/volatility-summary?ticker=ALL&window=${window}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("volatility-summary failed");
+  const data = await res.json();
+  return {
+    n: data.n ?? 0,
+    hits: data.hits ?? 0,
+    accuracy: data.accuracy ?? null,
+    mae_pct: data.mae_pct ?? null,
+    rows: (data.rows ?? []).map(
+      (r: { date: string; within_band: number }) => ({
+        date: r.date,
+        within_band: r.within_band ?? 0,
+      })
+    ),
+  };
+}
+
+function volatilitySeriesFromRows(
+  rows: { date: string; within_band: number }[]
+): { date: string; accuracy: number }[] {
+  const byDate = new Map<string, { hits: number; n: number }>();
+  for (const r of rows) {
+    const cur = byDate.get(r.date) ?? { hits: 0, n: 0 };
+    cur.n += 1;
+    cur.hits += r.within_band ? 1 : 0;
     byDate.set(r.date, cur);
   }
   return Array.from(byDate.entries())
@@ -87,6 +135,7 @@ async function buildPriceIndexClient(days: number): Promise<{ date: string; inde
 export async function fetchMarketsOverviewFallback(window: ChartWindow): Promise<MarketsOverviewData> {
   const days = chartWindowDays(window);
   const summaryBlock = await fetchAccuracySummaryAll(window);
+  const volBlock = await fetchVolatilitySummaryAll(window);
   const accuracy_series = accuracySeriesFromRows(summaryBlock.rows);
   const price_index = await buildPriceIndexClient(days);
 
@@ -94,10 +143,17 @@ export async function fetchMarketsOverviewFallback(window: ChartWindow): Promise
     window: days,
     price_index,
     accuracy_series,
+    volatility_series: volatilitySeriesFromRows(volBlock.rows),
     summary: {
       n: summaryBlock.n,
       hits: summaryBlock.hits,
       accuracy: summaryBlock.accuracy,
+    },
+    volatility_summary: {
+      n: volBlock.n,
+      hits: volBlock.hits,
+      accuracy: volBlock.accuracy,
+      mae_pct: volBlock.mae_pct,
     },
   };
 }
@@ -107,7 +163,16 @@ export async function fetchMarketsOverview(window: ChartWindow): Promise<Markets
   if (res.ok) {
     const data = (await res.json()) as MarketsOverviewData & { error?: string };
     if (!data.error && (data.price_index?.length || data.accuracy_series?.length)) {
-      return data;
+      return {
+        ...data,
+        volatility_series: data.volatility_series ?? [],
+        volatility_summary: data.volatility_summary ?? {
+          n: 0,
+          hits: 0,
+          accuracy: null,
+          mae_pct: null,
+        },
+      };
     }
   }
   return fetchMarketsOverviewFallback(window);

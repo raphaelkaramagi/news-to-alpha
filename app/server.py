@@ -1503,7 +1503,9 @@ def api_markets_overview():
             "window": window,
             "price_index": [],
             "accuracy_series": [],
+            "volatility_series": [],
             "summary": {"n": 0, "hits": 0, "accuracy": None},
+            "volatility_summary": {"n": 0, "hits": 0, "accuracy": None, "mae_pct": None},
         })
 
     sub = df[df["actual_binary"].notna()].copy()
@@ -1523,6 +1525,34 @@ def api_markets_overview():
         for _, r in daily.iterrows()
     ]
 
+    vol_sub = _volatility_labeled(df)
+    vol_daily = (
+        vol_sub.groupby("prediction_date")
+        .agg(hits=("within_band", "sum"), n=("within_band", "count"))
+        .reset_index()
+        .sort_values("prediction_date")
+    )
+    if not vol_daily.empty:
+        vol_daily["accuracy"] = vol_daily["hits"] / vol_daily["n"]
+        vol_daily = vol_daily.tail(window)
+    volatility_series = [
+        {"date": str(r["prediction_date"]), "accuracy": float(r["accuracy"])}
+        for _, r in vol_daily.iterrows()
+    ]
+
+    vol_trim = _volatility_window_trim(vol_sub, "ALL", str(window))
+    if vol_trim.empty:
+        volatility_summary = {"n": 0, "hits": 0, "accuracy": None, "mae_pct": None}
+    else:
+        vn = int(len(vol_trim))
+        vhits = int(vol_trim["within_band"].sum())
+        volatility_summary = {
+            "n": vn,
+            "hits": vhits,
+            "accuracy": (vhits / vn) if vn else None,
+            "mae_pct": float(vol_trim["calibration_error"].mean()),
+        }
+
     # Summary over the same calendar dates as the chart window
     if daily.empty:
         summary = {"n": 0, "hits": 0, "accuracy": None}
@@ -1537,7 +1567,9 @@ def api_markets_overview():
         "window": window,
         "price_index": _markets_price_index(window),
         "accuracy_series": accuracy_series,
+        "volatility_series": volatility_series,
         "summary": summary,
+        "volatility_summary": volatility_summary,
     })
 
 
@@ -1623,6 +1655,133 @@ def api_accuracy_summary():
         "accuracy": (hits / n) if n else None,
         "rows": rows,
     })
+
+
+def _volatility_labeled(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows with both predicted and realized |return| for band-accuracy metrics."""
+    sub = df.copy()
+    if "expected_move_pct" not in sub.columns:
+        sub["expected_move_pct"] = np.nan
+    if "actual_abs_return_pct" not in sub.columns:
+        sub["actual_abs_return_pct"] = np.nan
+    sub = sub[
+        sub["expected_move_pct"].notna() & sub["actual_abs_return_pct"].notna()
+    ].copy()
+    if sub.empty:
+        return sub
+    sub["within_band"] = (
+        sub["actual_abs_return_pct"] <= sub["expected_move_pct"]
+    ).astype(int)
+    sub["calibration_error"] = (
+        sub["actual_abs_return_pct"] - sub["expected_move_pct"]
+    ).abs()
+    return sub
+
+
+def _volatility_window_trim(
+    sub: pd.DataFrame, ticker: str, window_raw: str
+) -> pd.DataFrame:
+    sub = sub.sort_values("prediction_date")
+    if window_raw == "all":
+        return sub
+    try:
+        n = max(1, int(window_raw))
+    except ValueError:
+        n = 30
+    if ticker == "ALL":
+        latest_dates = sorted(sub["prediction_date"].unique())[-n:]
+        return sub[sub["prediction_date"].isin(latest_dates)]
+    return sub.tail(n)
+
+
+@app.route("/api/volatility-summary")
+def api_volatility_summary():
+    """Within-band rate and MAE for expected-move predictions.
+
+    A session counts as a hit when realized |return| <= expected_move_pct.
+    """
+    ticker = (request.args.get("ticker") or "ALL").upper()
+    window_raw = (request.args.get("window") or "30").lower()
+    df = _load_predictions()
+    if df is None:
+        return jsonify({
+            "scope": ticker,
+            "window": window_raw,
+            "n": 0,
+            "hits": 0,
+            "accuracy": None,
+            "mae_pct": None,
+            "rows": [],
+        })
+
+    sub = df if ticker == "ALL" else df[df["ticker"] == ticker]
+    sub = _volatility_labeled(sub)
+    if sub.empty:
+        return jsonify({
+            "scope": ticker,
+            "window": window_raw,
+            "n": 0,
+            "hits": 0,
+            "accuracy": None,
+            "mae_pct": None,
+            "rows": [],
+        })
+
+    window_trim = _volatility_window_trim(sub, ticker, window_raw)
+    rows = []
+    for _, r in window_trim.iterrows():
+        rows.append({
+            "date": str(r["prediction_date"]),
+            "ticker": r["ticker"],
+            "expected_move_pct": float(r["expected_move_pct"]),
+            "actual_abs_return_pct": float(r["actual_abs_return_pct"]),
+            "within_band": int(r["within_band"]),
+            "calibration_error": float(r["calibration_error"]),
+        })
+
+    n = len(rows)
+    hits = int(sum(r["within_band"] for r in rows))
+    mae = (
+        float(window_trim["calibration_error"].mean())
+        if not window_trim.empty
+        else None
+    )
+    return jsonify({
+        "scope": ticker,
+        "window": window_raw,
+        "n": n,
+        "hits": hits,
+        "accuracy": (hits / n) if n else None,
+        "mae_pct": mae,
+        "rows": rows,
+    })
+
+
+@app.route("/api/volatility-trace")
+def api_volatility_trace():
+    """Rolling within-band rate for expected-move predictions."""
+    ticker = (request.args.get("ticker") or "").upper()
+    try:
+        window = max(5, int(request.args.get("window") or "30"))
+    except ValueError:
+        window = 30
+
+    df = _load_predictions()
+    if df is None:
+        return jsonify({"ticker": ticker, "window": window, "series": []})
+
+    sub = df[df["ticker"] == ticker].copy() if ticker else df.copy()
+    sub = _volatility_labeled(sub)
+    if sub.empty:
+        return jsonify({"ticker": ticker, "window": window, "series": []})
+
+    sub = sub.sort_values("prediction_date")
+    sub["rolling_acc"] = sub["within_band"].rolling(window=window, min_periods=5).mean()
+    series = [
+        {"date": d, "accuracy": (float(a) if pd.notna(a) else None)}
+        for d, a in zip(sub["prediction_date"], sub["rolling_acc"])
+    ]
+    return _jsonify_safe({"ticker": ticker, "window": window, "series": series})
 
 
 @app.route("/api/conviction")

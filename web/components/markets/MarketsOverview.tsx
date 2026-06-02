@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChartWindowPicker } from "@/components/charts/ChartWindowPicker";
 import { PriceIndexChart } from "@/components/charts/PriceIndexChart";
 import { AccuracyTraceChart } from "@/components/charts/AccuracyTraceChart";
+import { VolatilityTraceChart } from "@/components/charts/VolatilityTraceChart";
 import { chartWindowDays, type ChartWindow } from "@/lib/chartWindow";
 import { useSelectedDate } from "@/components/layout/SelectedDateProvider";
 import { fetchMarketsOverview } from "@/lib/marketsOverview";
@@ -63,7 +64,7 @@ export function MarketsOverview() {
           </div>
 
           <div>
-            <p className="text-sm font-medium mb-1">Window total</p>
+            <p className="text-sm font-medium mb-1">Direction · window total</p>
             <div className="flex items-baseline gap-3">
               <span className="text-4xl font-bold tabular-nums">
                 {data.summary.accuracy !== null
@@ -73,6 +74,41 @@ export function MarketsOverview() {
               <span className="text-sm text-muted-foreground">
                 {data.summary.hits}/{data.summary.n} calls correct
               </span>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t space-y-6">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">
+                Expected-move band accuracy by session
+              </p>
+              <p className="text-[10px] text-muted-foreground mb-2">
+                Share of tickers whose realized |return| stayed inside the ±% band
+              </p>
+              <VolatilityTraceChart
+                window={window}
+                selectedDate={selectedDate ?? undefined}
+                series={data.volatility_series}
+              />
+            </div>
+
+            <div>
+              <p className="text-sm font-medium mb-1">Volatility · window total</p>
+              <div className="flex items-baseline gap-3">
+                <span className="text-4xl font-bold tabular-nums">
+                  {data.volatility_summary.accuracy !== null
+                    ? `${(data.volatility_summary.accuracy * 100).toFixed(0)}%`
+                    : "—"}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {data.volatility_summary.hits}/{data.volatility_summary.n} within band
+                </span>
+              </div>
+              {data.volatility_summary.mae_pct != null && (
+                <p className="text-xs text-muted-foreground mt-2 tabular-nums">
+                  Avg calibration error {data.volatility_summary.mae_pct.toFixed(2)}%
+                </p>
+              )}
             </div>
           </div>
         </>

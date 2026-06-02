@@ -38,6 +38,38 @@ async function buildFromFlaskSubroutes(window: ChartWindow): Promise<MarketsOver
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, { hits, n }]) => ({ date, accuracy: n ? hits / n : 0 }));
 
+    const volRes = await fetch(`${base}/api/volatility-summary?ticker=ALL&window=${window}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    let volatility_series: { date: string; accuracy: number }[] = [];
+    let volatility_summary = { n: 0, hits: 0, accuracy: null as number | null, mae_pct: null as number | null };
+    if (volRes.ok) {
+      const volJson = await volRes.json();
+      const volRows: { date: string; within_band: number }[] = (volJson.rows ?? []).map(
+        (r: { date: string; within_band: number }) => ({
+          date: r.date,
+          within_band: r.within_band ?? 0,
+        })
+      );
+      const volByDate = new Map<string, { hits: number; n: number }>();
+      for (const r of volRows) {
+        const cur = volByDate.get(r.date) ?? { hits: 0, n: 0 };
+        cur.n += 1;
+        cur.hits += r.within_band ? 1 : 0;
+        volByDate.set(r.date, cur);
+      }
+      volatility_series = Array.from(volByDate.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, { hits, n }]) => ({ date, accuracy: n ? hits / n : 0 }));
+      volatility_summary = {
+        n: volJson.n ?? 0,
+        hits: volJson.hits ?? 0,
+        accuracy: volJson.accuracy ?? null,
+        mae_pct: volJson.mae_pct ?? null,
+      };
+    }
+
     const histories = await Promise.all(
       TICKERS.map(async (ticker) => {
         const res = await fetch(`${base}/api/history?ticker=${ticker}&window=${days}`, {
@@ -82,11 +114,13 @@ async function buildFromFlaskSubroutes(window: ChartWindow): Promise<MarketsOver
       window: days,
       price_index,
       accuracy_series,
+      volatility_series,
       summary: {
         n: summaryJson.n ?? 0,
         hits: summaryJson.hits ?? 0,
         accuracy: summaryJson.accuracy ?? null,
       },
+      volatility_summary,
     };
   } catch {
     return null;

@@ -4,6 +4,8 @@ import { PricePredictionChart } from "@/components/charts/PricePredictionChart";
 import { AccuracyTraceChart } from "@/components/charts/AccuracyTraceChart";
 import { ChartWindowPicker } from "@/components/charts/ChartWindowPicker";
 import { AccuracyPanel } from "@/components/ticker/AccuracyPanel";
+import { VolatilityAccuracyPanel } from "@/components/ticker/VolatilityAccuracyPanel";
+import { VolatilityTraceChart } from "@/components/charts/VolatilityTraceChart";
 import { ResolvedStrip } from "@/components/ticker/ResolvedStrip";
 import type { ChartWindow } from "@/lib/chartWindow";
 import type { ModelId } from "@/lib/tickers";
@@ -74,8 +76,29 @@ export function PriceAccuracySection({
       <ResolvedStrip ticker={ticker} chartWindow={window} model={model} />
 
       <div>
-        <p className="text-sm font-medium mb-3">Accuracy ({window}d window)</p>
+        <p className="text-sm font-medium mb-3">Direction accuracy ({window}d window)</p>
         <AccuracyPanel ticker={ticker} window={window} model={model} />
+      </div>
+
+      <div className="pt-4 border-t space-y-6">
+        <div>
+          <p className="text-xs font-medium text-muted-foreground mb-1">
+            Expected-move band accuracy
+          </p>
+          <p className="text-[10px] text-muted-foreground mb-2">
+            Share of sessions where realized |return| stayed inside the ±% band
+          </p>
+          <VolatilityTraceChart
+            ticker={ticker}
+            window={window}
+            selectedDate={selectedDate}
+          />
+        </div>
+
+        <div>
+          <p className="text-sm font-medium mb-3">Volatility ({window}d window)</p>
+          <VolatilityAccuracyPanel ticker={ticker} window={window} />
+        </div>
       </div>
     </section>
   );
