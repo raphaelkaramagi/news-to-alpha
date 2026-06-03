@@ -201,7 +201,15 @@ def _score_volatility(horizon: int, dry_run: bool) -> bool:
 
     cfg = load_or_default()
     tickers = cfg.get("tickers") or list(TICKERS)
-    n = append_live_volatility_predictions(tickers=tickers, horizon=horizon)
+    try:
+        n = append_live_volatility_predictions(tickers=tickers, horizon=horizon)
+    except Exception as exc:
+        print(
+            f"[score_volatility] SKIP – live scoring failed: {exc}\n"
+            "  Daily update continues; direction/news scores are unaffected.\n"
+            "  Retrain volatility and republish, or fix sklearn version mismatch (see docs/DATA.md)."
+        )
+        return False
     print(f"[score_volatility] Appended {n} live rows → {out_csv}")
     return n > 0
 

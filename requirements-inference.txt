@@ -14,7 +14,7 @@ yfinance              # daily_update price collection on Railway
 # ── ML inference (CPU torch) ─────────────────────────────────────────────
 # torch CPU wheel is resolved from --index-url at install time (see Dockerfile.inference)
 torch
-scikit-learn
+scikit-learn>=1.6.0,<1.9.0   # must match training host when loading .joblib models
 joblib
 
 # ── Sentence embeddings (MiniLM) ─────────────────────────────────────────

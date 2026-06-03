@@ -99,6 +99,7 @@ def run(
     skip_lstm: bool = False,
     skip_tfidf: bool = False,
     skip_embeddings: bool = False,
+    skip_volatility: bool = False,
     dry_run: bool = False,
 ) -> None:
     """Run the daily update pipeline (infer-only)."""
@@ -162,6 +163,8 @@ def run(
         score_args.append("--skip-tfidf")
     if skip_embeddings:
         score_args.append("--skip-embeddings")
+    if skip_volatility:
+        score_args.append("--skip-volatility")
 
     _run(
         [_py(), "scripts/score_models.py", *score_args],
@@ -219,6 +222,8 @@ def main() -> None:
     parser.add_argument("--skip-lstm", action="store_true")
     parser.add_argument("--skip-tfidf", action="store_true")
     parser.add_argument("--skip-embeddings", action="store_true")
+    parser.add_argument("--skip-volatility", action="store_true",
+                        help="Skip expected-move live scoring (e.g. sklearn/joblib mismatch)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Print what would run without executing.")
     args = parser.parse_args()
@@ -232,6 +237,7 @@ def main() -> None:
         skip_lstm=args.skip_lstm,
         skip_tfidf=args.skip_tfidf,
         skip_embeddings=args.skip_embeddings,
+        skip_volatility=args.skip_volatility,
         dry_run=args.dry_run,
     )
 

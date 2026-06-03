@@ -36,7 +36,17 @@ def _load_model():
     path = MODELS_DIR / MODEL_FILE
     if not path.exists():
         return None, FEATURE_COLS
-    payload = joblib.load(path)
+    try:
+        payload = joblib.load(path)
+    except Exception as exc:
+        import sklearn
+        print(
+            f"[volatility_live_export] SKIP – could not load {path.name}: {exc}\n"
+            f"  Runtime sklearn {sklearn.__version__} may differ from the training version.\n"
+            f"  Fix: retrain (python scripts/train_volatility.py) and republish the bundle,\n"
+            f"  or align scikit-learn in requirements-inference.txt with the training host."
+        )
+        return None, FEATURE_COLS
     return payload.get("model"), payload.get("features", FEATURE_COLS)
 
 

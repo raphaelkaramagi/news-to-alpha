@@ -158,6 +158,45 @@ Daily runs use all **20 canonical tickers** and **horizon 1**, regardless of old
 
 When the job runs **inside** the Railway container on `/data`, no separate publish step is needed — outputs are written where the API reads them.
 
+#### If the GitHub Action fails at `score_volatility`
+
+Typical log:
+
+```
+ModuleNotFoundError: No module named '_loss'
+```
+
+**Cause:** `volatility_model.joblib` was trained with a different **scikit-learn** version than Railway’s runtime (e.g. model pickled on 1.8, container on 1.9). Unpickling HistGradientBoosting models is not compatible across those minor versions.
+
+**Immediate effect:** After the code fix is deployed, `daily_update.py` **continues** (direction + news + ensemble still refresh); only live volatility rows are skipped until the model is fixed.
+
+**Until that deploy lands**, run catch-up manually with volatility skipped:
+
+```bash
+railway ssh … -- sh -c 'cd /app && python scripts/daily_update.py --skip-volatility && PUBLISH_SOURCE=manual python scripts/stamp_published.py'
+```
+
+Or re-trigger the GitHub Action after pushing the resilience fix.
+
+**Fix (pick one):**
+
+1. **Retrain + republish (fastest, no Railway redeploy)** — on a machine with the **same sklearn as Railway** (check via `railway ssh … python -c "import sklearn; print(sklearn.__version__)"`):
+   ```bash
+   python scripts/train_volatility.py --horizon 1
+   python scripts/publish_deploy_bundle.py --target railway --service web
+   ```
+
+2. **Pin sklearn + redeploy Railway** — `requirements-inference.txt` pins `scikit-learn>=1.6.0,<1.9.0`. Push code, wait for Railway rebuild, then republish the bundle (or retrain on sklearn 1.8 and republish).
+
+3. **Manual catch-up after fix:**
+   ```bash
+   railway ssh -p … -s web -e … -- python scripts/score_models.py --horizon 1 --incremental --skip-lstm --skip-tfidf --skip-embeddings
+   python scripts/build_eval_dataset.py
+   python scripts/build_ensemble.py --conditional
+   ```
+
+Other models may log `InconsistentVersionWarning` (1.8 → 1.9); those usually still load. Volatility HGB is stricter — treat warnings as a signal to retrain and republish on a aligned sklearn.
+
 ### Manual catch-up (step-by-step)
 
 When models exist and only dates need advancing:
