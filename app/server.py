@@ -162,14 +162,14 @@ def _load_predictions() -> Optional[pd.DataFrame]:
         return None
     df = pd.read_csv(PREDICTIONS_CSV)
     df["prediction_date"] = pd.to_datetime(df["prediction_date"]).dt.strftime("%Y-%m-%d")
-    if "expected_move_pct" not in df.columns:
-        vol_path = PROCESSED_DATA_DIR / "volatility_predictions.csv"
-        if vol_path.exists():
-            vol = pd.read_csv(vol_path)[
-                ["ticker", "prediction_date", "expected_move_pct", "actual_abs_return_pct"]
-            ]
-            vol["prediction_date"] = pd.to_datetime(vol["prediction_date"]).dt.strftime("%Y-%m-%d")
-            df = df.merge(vol, on=["ticker", "prediction_date"], how="left")
+    vol_path = PROCESSED_DATA_DIR / "volatility_predictions.csv"
+    if vol_path.exists():
+        vol = pd.read_csv(vol_path)[
+            ["ticker", "prediction_date", "expected_move_pct", "actual_abs_return_pct"]
+        ]
+        vol["prediction_date"] = pd.to_datetime(vol["prediction_date"]).dt.strftime("%Y-%m-%d")
+        df = df.drop(columns=["expected_move_pct", "actual_abs_return_pct"], errors="ignore")
+        df = df.merge(vol, on=["ticker", "prediction_date"], how="left")
     return df
 
 

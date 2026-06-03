@@ -218,6 +218,11 @@ def _score_volatility(horizon: int, dry_run: bool) -> bool:
 # Backfill actual_binary from labels onto live prediction rows
 # ---------------------------------------------------------------------------
 
+def _abs_return_pct_from_label(label_return: float) -> float:
+    """|return| in percent points (label_return is already % — see label_generator)."""
+    return abs(float(label_return))
+
+
 def backfill_outcomes(dry_run: bool = False) -> int:
     """Join labels from the DB onto live rows in prediction CSVs.
 
@@ -242,21 +247,21 @@ def backfill_outcomes(dry_run: bool = False) -> int:
         for _, r in labels.dropna(subset=["label_binary"]).iterrows()
     }
     abs_return_map: dict[tuple, float] = {
-        (r["ticker"], r["prediction_date"]): abs(float(r["label_return"])) * 100.0
+        (r["ticker"], r["prediction_date"]): _abs_return_pct_from_label(r["label_return"])
         for _, r in labels.dropna(subset=["label_return"]).iterrows()
     }
 
-    # (filename, outcome column, lookup map)
-    specs: list[tuple[str, str, dict]] = [
-        ("price_predictions.csv", "actual_binary", label_map),
-        ("news_tfidf_predictions.csv", "actual_binary", label_map),
-        ("news_embeddings_predictions.csv", "actual_binary", label_map),
-        ("final_ensemble_predictions.csv", "actual_binary", label_map),
-        ("volatility_predictions.csv", "actual_abs_return_pct", abs_return_map),
+    # (filename, outcome column, lookup map, sync_all_from_labels)
+    specs: list[tuple[str, str, dict, bool]] = [
+        ("price_predictions.csv", "actual_binary", label_map, False),
+        ("news_tfidf_predictions.csv", "actual_binary", label_map, False),
+        ("news_embeddings_predictions.csv", "actual_binary", label_map, False),
+        ("final_ensemble_predictions.csv", "actual_binary", label_map, False),
+        ("volatility_predictions.csv", "actual_abs_return_pct", abs_return_map, True),
     ]
 
     total = 0
-    for filename, outcome_col, value_map in specs:
+    for filename, outcome_col, value_map, sync_all in specs:
         if not value_map:
             continue
         csv_path = PROCESSED_DATA_DIR / filename
@@ -266,13 +271,33 @@ def backfill_outcomes(dry_run: bool = False) -> int:
         if outcome_col not in df.columns:
             continue
         df["prediction_date"] = df["prediction_date"].astype(str)
-        null_mask = df[outcome_col].isna()
-        if not null_mask.any():
-            continue
 
-        keys = list(zip(df.loc[null_mask, "ticker"], df.loc[null_mask, "prediction_date"]))
-        filled_vals = [value_map.get(k) for k in keys]
-        filled = sum(v is not None for v in filled_vals)
+        if sync_all:
+            filled = 0
+            for idx, row in df.iterrows():
+                key = (row["ticker"], row["prediction_date"])
+                new_val = value_map.get(key)
+                if new_val is None:
+                    continue
+                old = row[outcome_col]
+                if pd.isna(old) or abs(float(old) - new_val) > 1e-4:
+                    filled += 1
+                    if not dry_run:
+                        df.at[idx, outcome_col] = new_val
+        else:
+            null_mask = df[outcome_col].isna()
+            if not null_mask.any():
+                continue
+            keys = list(zip(df.loc[null_mask, "ticker"], df.loc[null_mask, "prediction_date"]))
+            filled_vals = [value_map.get(k) for k in keys]
+            filled = sum(v is not None for v in filled_vals)
+            if filled == 0:
+                continue
+            if not dry_run:
+                for idx, val in zip(df.index[null_mask], filled_vals):
+                    if val is not None:
+                        df.at[idx, outcome_col] = val
+
         if filled == 0:
             continue
         if dry_run:
@@ -282,9 +307,6 @@ def backfill_outcomes(dry_run: bool = False) -> int:
             )
             total += filled
             continue
-        for idx, val in zip(df.index[null_mask], filled_vals):
-            if val is not None:
-                df.at[idx, outcome_col] = val
         if (
             outcome_col == "actual_binary"
             and "hit" in df.columns
