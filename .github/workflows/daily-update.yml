@@ -18,6 +18,9 @@ jobs:
     timeout-minutes: 45
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install Railway CLI
         run: npm install -g @railway/cli@latest
 
@@ -34,10 +37,8 @@ jobs:
           chmod 600 ~/.ssh/railway_actions
           ssh-keyscan -H ssh.railway.com >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Run daily update in Railway container
+      - name: Sync pipeline code to Railway container
         env:
-          # Account token (NOT project token). Create at Railway → Account → Tokens,
-          # select "No workspace".
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
@@ -53,7 +54,26 @@ jobs:
               exit 1
             fi
           done
-          # Project tokens (RAILWAY_TOKEN) do not authenticate railway ssh in CI
+          unset RAILWAY_TOKEN || true
+          # Data lives on /data volume; Python scripts must track git main.
+          # The container image is only rebuilt on Railway deploy — sync scripts/src each run.
+          tar czf - scripts src \
+            | railway ssh \
+                -p "$RAILWAY_PROJECT_ID" \
+                -s "$RAILWAY_SERVICE" \
+                -e "$RAILWAY_ENVIRONMENT" \
+                -i ~/.ssh/railway_actions \
+                -- sh -c 'cd /app && tar xzf -'
+
+      - name: Run daily update in Railway container
+        env:
+          # Account token (NOT project token). Create at Railway → Account → Tokens,
+          # select "No workspace".
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+        run: |
           unset RAILWAY_TOKEN || true
           railway ssh \
             -p "$RAILWAY_PROJECT_ID" \

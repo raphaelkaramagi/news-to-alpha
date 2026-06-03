@@ -221,14 +221,13 @@ def _score_volatility(horizon: int, dry_run: bool) -> bool:
 def backfill_outcomes(dry_run: bool = False) -> int:
     """Join labels from the DB onto live rows in prediction CSVs.
 
-    Direction CSVs get ``actual_binary``; volatility CSV gets ``actual_abs_return_pct``.
+    Each CSV declares its own outcome column (direction vs volatility).
     """
     import sqlite3
     conn = sqlite3.connect(str(DATABASE_PATH))
     try:
         labels = pd.read_sql_query(
-            "SELECT ticker, date AS prediction_date, label_binary AS actual_binary, "
-            "label_return FROM labels",
+            "SELECT ticker, date AS prediction_date, label_binary, label_return FROM labels",
             conn,
         )
     finally:
@@ -239,52 +238,58 @@ def backfill_outcomes(dry_run: bool = False) -> int:
 
     labels["prediction_date"] = labels["prediction_date"].astype(str)
     label_map: dict[tuple, int] = {
-        (r["ticker"], r["prediction_date"]): int(r["actual_binary"])
-        for _, r in labels.dropna(subset=["actual_binary"]).iterrows()
+        (r["ticker"], r["prediction_date"]): int(r["label_binary"])
+        for _, r in labels.dropna(subset=["label_binary"]).iterrows()
     }
-    abs_return_map: dict[tuple, float] = {}
-    for _, r in labels.iterrows():
-        if pd.notna(r.get("label_return")):
-            abs_return_map[(r["ticker"], r["prediction_date"])] = abs(
-                float(r["label_return"])
-            ) * 100.0
+    abs_return_map: dict[tuple, float] = {
+        (r["ticker"], r["prediction_date"]): abs(float(r["label_return"])) * 100.0
+        for _, r in labels.dropna(subset=["label_return"]).iterrows()
+    }
+
+    # (filename, outcome column, lookup map)
+    specs: list[tuple[str, str, dict]] = [
+        ("price_predictions.csv", "actual_binary", label_map),
+        ("news_tfidf_predictions.csv", "actual_binary", label_map),
+        ("news_embeddings_predictions.csv", "actual_binary", label_map),
+        ("final_ensemble_predictions.csv", "actual_binary", label_map),
+        ("volatility_predictions.csv", "actual_abs_return_pct", abs_return_map),
+    ]
 
     total = 0
-    direction_csvs = [
-        PROCESSED_DATA_DIR / "price_predictions.csv",
-        PROCESSED_DATA_DIR / "news_tfidf_predictions.csv",
-        PROCESSED_DATA_DIR / "news_embeddings_predictions.csv",
-        PROCESSED_DATA_DIR / "final_ensemble_predictions.csv",
-    ]
-    for csv_path in direction_csvs:
+    for filename, outcome_col, value_map in specs:
+        if not value_map:
+            continue
+        csv_path = PROCESSED_DATA_DIR / filename
         if not csv_path.exists():
             continue
         df = pd.read_csv(csv_path)
-        if "actual_binary" not in df.columns:
+        if outcome_col not in df.columns:
             continue
         df["prediction_date"] = df["prediction_date"].astype(str)
-        null_mask = df["actual_binary"].isna()
+        null_mask = df[outcome_col].isna()
         if not null_mask.any():
             continue
 
-        def _fill(row):
-            if pd.isna(row["actual_binary"]):
-                return label_map.get((row["ticker"], row["prediction_date"]))
-            return row["actual_binary"]
-
-        updated = df[null_mask].apply(_fill, axis=1)
-        filled = updated.notna().sum()
+        keys = list(zip(df.loc[null_mask, "ticker"], df.loc[null_mask, "prediction_date"]))
+        filled_vals = [value_map.get(k) for k in keys]
+        filled = sum(v is not None for v in filled_vals)
         if filled == 0:
             continue
         if dry_run:
-            print(f"[backfill_outcomes] DRY-RUN – would fill {filled} rows in {csv_path.name}")
+            print(
+                f"[backfill_outcomes] DRY-RUN – would fill {filled} "
+                f"{outcome_col} in {filename}"
+            )
             total += filled
             continue
-        df.loc[null_mask, "actual_binary"] = updated
+        for idx, val in zip(df.index[null_mask], filled_vals):
+            if val is not None:
+                df.at[idx, outcome_col] = val
         if (
-            "hit" in df.columns
+            outcome_col == "actual_binary"
+            and "hit" in df.columns
             and "ensemble_pred_binary" in df.columns
-            and csv_path.name == "final_ensemble_predictions.csv"
+            and filename == "final_ensemble_predictions.csv"
         ):
             resolved = df["actual_binary"].notna()
             df.loc[resolved, "hit"] = (
@@ -292,38 +297,8 @@ def backfill_outcomes(dry_run: bool = False) -> int:
                 == df.loc[resolved, "actual_binary"].astype(int)
             ).astype(int)
         df.to_csv(csv_path, index=False)
-        print(f"[backfill_outcomes] Filled {filled} actual_binary values in {csv_path.name}")
-        total += int(filled)
-
-    vol_path = PROCESSED_DATA_DIR / "volatility_predictions.csv"
-    if vol_path.exists() and abs_return_map:
-        df = pd.read_csv(vol_path)
-        if "actual_abs_return_pct" in df.columns:
-            df["prediction_date"] = df["prediction_date"].astype(str)
-            null_mask = df["actual_abs_return_pct"].isna()
-            if null_mask.any():
-
-                def _fill_abs(row):
-                    if pd.isna(row["actual_abs_return_pct"]):
-                        return abs_return_map.get((row["ticker"], row["prediction_date"]))
-                    return row["actual_abs_return_pct"]
-
-                updated = df[null_mask].apply(_fill_abs, axis=1)
-                filled = updated.notna().sum()
-                if filled:
-                    if dry_run:
-                        print(
-                            f"[backfill_outcomes] DRY-RUN – would fill {filled} "
-                            f"actual_abs_return_pct in {vol_path.name}"
-                        )
-                    else:
-                        df.loc[null_mask, "actual_abs_return_pct"] = updated
-                        df.to_csv(vol_path, index=False)
-                        print(
-                            f"[backfill_outcomes] Filled {filled} actual_abs_return_pct "
-                            f"values in {vol_path.name}"
-                        )
-                    total += int(filled)
+        print(f"[backfill_outcomes] Filled {filled} {outcome_col} values in {filename}")
+        total += filled
 
     return total
 
