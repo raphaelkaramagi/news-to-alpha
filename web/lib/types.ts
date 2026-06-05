@@ -148,6 +148,10 @@ export type EnsembleExplanation = {
     effect: number;
     direction: "up" | "down" | "neutral";
   }>;
+  // Combiner score for a "typical" call on this route (all displayed signals at
+  // their median). The drivers' effects are Shapley contributions that sum from
+  // this baseline to ensemble_proba, so the waterfall reconciles exactly.
+  baseline_proba?: number;
   disagreement?: {
     base_lean_proba: number;
     base_lean_direction: "UP" | "DOWN";

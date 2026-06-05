@@ -38,7 +38,7 @@ export function humanEnsembleSummary(
 
   const up = active.filter((v) => v.direction === "UP").length;
   if (up === active.length && active.length > 0) {
-    return `Price, keywords, and FinBERT all lean up — the news-tuned combiner calls ${ens} (${pct}% chance of rising).`;
+    return `Price, keywords, and sentiment all lean up — the news-tuned combiner calls ${ens} (${pct}% chance of rising).`;
   }
   if (up === 0 && active.length > 0) {
     return `All active models lean down — combined into ${ens} (${pct}% up).`;

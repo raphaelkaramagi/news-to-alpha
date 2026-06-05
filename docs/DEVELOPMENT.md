@@ -128,7 +128,7 @@ python scripts/walk_forward_eval.py --all-targets
 python -c "import pandas as pd; p=pd.read_csv('data/processed/price_predictions.csv'); print('distinct proba:', p['financial_pred_proba'].nunique(), 'std:', round(p['financial_pred_proba'].std(),4))"
 ```
 
-Report the **`news_scored`** subset for honest news/ensemble numbers (out-of-sample
+Report the **`news_scored`** subset for news/ensemble numbers (out-of-sample
 news window). See [RESULTS.md](RESULTS.md).
 
 ### API smoke tests
@@ -147,7 +147,7 @@ Pick `<latest>` from the max `prediction_date` in
 Checklist:
 1. `/api/ticker` returns non-null `expected_move_pct`, `forecast_low`, `forecast_high`.
 2. News probas in `per_model` are not exactly 0.5 when headlines exist.
-3. `/api/rationale` includes `explanation.disagreement` when the ensemble flips the base lean.
+3. `/api/rationale` includes `baseline_proba` and `drivers` that sum to the final call.
 4. UI markets grid shows all 20 tickers; resolved dates show ✓/✗, the latest shows a pending ring.
 
 Restart Flask after API changes or a retrain.

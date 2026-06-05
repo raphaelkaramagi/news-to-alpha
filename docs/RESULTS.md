@@ -45,7 +45,7 @@ Separate from the direction ensemble; reported as the ±% band on the cards. Mov
 
 | Subset | Use |
 |--------|-----|
-| `news_scored` | honest news OOS |
+| `news_scored` | out-of-sample news window |
 | `low_vol` / `high_vol` | direction by predicted move size |
 | `high_conf` | ensemble confidence ≥ 0.3 |
 
@@ -56,6 +56,6 @@ Separate from the direction ensemble; reported as the ±% band on the cards. Mov
 
 | Surface | Signal |
 |---------|--------|
-| Markets grid | ±expected move (primary) + direction call |
-| Why tab | base inputs + disagreement when ensemble flips |
-| Advanced | 13 meta-features, counterfactual drivers |
+| Markets grid | direction call + expected move (±%) |
+| Why tab | model inputs + Shapley waterfall (what weighted the call) |
+| Advanced | meta-features + same driver waterfall |

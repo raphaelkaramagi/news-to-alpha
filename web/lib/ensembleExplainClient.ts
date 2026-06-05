@@ -9,14 +9,15 @@ function leanDisplay(proba: number): { display: string; direction: "UP" | "DOWN"
   return { display: `${pct.toFixed(0)}% UP`, direction: "DOWN" };
 }
 
-const DRIVER_LABELS: Record<string, string> = {
-  financial_pred_proba: "Price model",
-  lstm_confidence: "Price conviction",
-  news_tfidf_pred_proba: "Keywords",
-  news_embeddings_pred_proba: "FinBERT",
-  spy_return_5d: "Market (5d)",
-  all_agree: "Models agree",
-};
+// Directional signals (must mirror _DIRECTIONAL_SPECS in ensemble_explain.py).
+// The browser fallback has no permutation importances or SPY 5d return, so it
+// weights the available base-model leans equally — enough to keep the chart
+// sign-correct until Flask serves the full explanation.
+const DRIVER_SPECS: { feature: string; label: string; key: "lstm" | "tfidf" | "embeddings" }[] = [
+  { feature: "financial_pred_proba", label: "Price model", key: "lstm" },
+  { feature: "news_tfidf_pred_proba", label: "Keywords", key: "tfidf" },
+  { feature: "news_embeddings_pred_proba", label: "Sentiment", key: "embeddings" },
+];
 
 /** Build explanation in the browser when Flask hasn't been restarted yet. */
 export function buildClientExplanation(data: RationaleResponse): EnsembleExplanation | null {
@@ -42,12 +43,12 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
   if (hasNews) {
     base_votes.push(
       { model: "tfidf", label: "Keywords", proba: tfidf, active: true, ...leanDisplay(tfidf) },
-      { model: "embeddings", label: "FinBERT", proba: emb, active: true, ...leanDisplay(emb) }
+      { model: "embeddings", label: "Sentiment", proba: emb, active: true, ...leanDisplay(emb) }
     );
   } else {
     base_votes.push(
       { model: "tfidf", label: "Keywords", proba: tfidf, active: false, display: "No headlines", direction: "N/A" },
-      { model: "embeddings", label: "FinBERT", proba: emb, active: false, display: "No headlines", direction: "N/A" }
+      { model: "embeddings", label: "Sentiment", proba: emb, active: false, display: "No headlines", direction: "N/A" }
     );
   }
 
@@ -69,13 +70,23 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
     );
   }
 
-  const drivers = Object.entries(DRIVER_LABELS).map(([feature, driverLabel]) => ({
-    feature,
-    label: driverLabel,
-    value: 0,
-    effect: 0,
-    direction: "neutral" as const,
-  }));
+  const driverProbas: Record<"lstm" | "tfidf" | "embeddings", number> = {
+    lstm,
+    tfidf,
+    embeddings: emb,
+  };
+  // Degraded fallback only (server is the source of truth for Shapley effects):
+  // approximate each model's pull as its lean from 50%, in rough probability
+  // points. No baseline available client-side, so the UI omits the waterfall.
+  const drivers = DRIVER_SPECS.filter((s) => hasNews || s.key === "lstm")
+    .map((s) => {
+      const p = driverProbas[s.key];
+      const effect = (p - 0.5) * 0.3; // ~±15 pts at the extremes
+      const direction: "up" | "down" | "neutral" =
+        effect > 0.01 ? "up" : effect < -0.01 ? "down" : "neutral";
+      return { feature: s.feature, label: s.label, value: p, effect, direction };
+    })
+    .sort((a, b) => Math.abs(b.effect) - Math.abs(a.effect));
 
   const baseLeanProba = simpleAvg;
   const baseLeanDir: "UP" | "DOWN" = baseLeanProba >= 0.5 ? "UP" : "DOWN";

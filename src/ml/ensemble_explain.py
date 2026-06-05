@@ -1,26 +1,19 @@
-"""Plain-language ensemble call explanations (counterfactual attribution)."""
+"""Plain-language ensemble call explanations.
+
+Attribution uses exact Shapley values (see ``_build_drivers``): each displayed
+signal's contribution is its fair share of the gap between a "typical day"
+baseline (every signal at its route-median) and the actual call. Contributions
+sum exactly to ``final - baseline``, so the UI waterfall can never contradict the
+call direction. Coalitions are scored from the raw row with only the baseline
+members swapped to their median, so the full coalition reproduces the real call
+(including HGB's native NaN handling for missing news scores).
+"""
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
 import pandas as pd
-
-_NEUTRAL: dict[str, float] = {
-    "financial_pred_proba": 0.5,
-    "lstm_confidence": 0.0,
-    "news_tfidf_pred_proba": 0.5,
-    "tfidf_confidence": 0.0,
-    "news_embeddings_pred_proba": 0.5,
-    "emb_confidence": 0.0,
-    "has_news": 0.0,
-    "n_headlines": 0.0,
-    "news_tfidf_x_has_news": 0.5,
-    "news_emb_x_has_news": 0.5,
-    "lstm_x_agree": 0.5,
-    "spy_return_5d": 0.0,
-    "all_agree": 0.0,
-}
 
 
 def _row_to_matrix(row: pd.Series, features: list[str] | None = None) -> np.ndarray:
@@ -36,37 +29,40 @@ def _row_to_matrix(row: pd.Series, features: list[str] | None = None) -> np.ndar
     return df[cols].to_numpy(dtype=np.float64)
 
 
-def _score_matrix(model: Any, X: np.ndarray, temperature: float) -> float:
-    p = float(model.predict_proba(X)[0, 1])
+def _temp_adjust(p: np.ndarray, temperature: float) -> np.ndarray:
     eps = 1e-6
-    p = float(np.clip(p, eps, 1 - eps))
+    p = np.clip(p, eps, 1 - eps)
     if abs(temperature - 1.0) < 1e-6:
         return p
     logits = np.log(p / (1 - p))
-    return float(1.0 / (1.0 + np.exp(-logits / max(temperature, 1e-3))))
+    return 1.0 / (1.0 + np.exp(-logits / max(temperature, 1e-3)))
 
 
-def _apply_neutral(row: pd.Series, feature: str) -> pd.Series:
-    out = row.copy()
-    out[feature] = _NEUTRAL[feature]
-    if feature == "financial_pred_proba":
-        out["financial_confidence"] = 0.0
-        out["lstm_confidence"] = 0.0
-    if feature == "lstm_confidence":
-        out["lstm_confidence"] = 0.0
-        out["financial_confidence"] = 0.0
-    if feature == "news_tfidf_pred_proba":
-        out["news_tfidf_confidence"] = 0.0
-        out["tfidf_confidence"] = 0.0
-    if feature == "news_embeddings_pred_proba":
-        out["news_embeddings_confidence"] = 0.0
-        out["emb_confidence"] = 0.0
-    if feature == "all_agree":
-        out["all_agree"] = 0.0
-    if feature == "has_news":
-        out["has_news"] = 0.0
-        out["n_headlines"] = 0.0
-    return out
+def _score_matrix(model: Any, X: np.ndarray, temperature: float) -> float:
+    p = float(model.predict_proba(X)[0, 1])
+    return float(_temp_adjust(np.array([p]), temperature)[0])
+
+
+def _score_rows(model: Any, rows: list[dict], features: list[str], temperature: float) -> np.ndarray:
+    """Score many feature rows in one predict_proba call (derived feats applied once)."""
+    from scripts.build_ensemble import _add_interaction_features, _ensure_derived_features
+
+    df = pd.DataFrame(rows)
+    df = _add_interaction_features(_ensure_derived_features(df))
+    for c in features:
+        if c not in df.columns:
+            df[c] = 0.0
+    raw = model.predict_proba(df[features].to_numpy(dtype=np.float64))[:, 1]
+    return _temp_adjust(raw, temperature)
+
+
+def _safe_proba(value: Any, default: float = 0.5) -> float:
+    """Coerce a probability cell to float, mapping NaN/None to a neutral 0.5."""
+    try:
+        p = float(value)
+    except (TypeError, ValueError):
+        return default
+    return default if pd.isna(p) else p
 
 
 def _lean_display(proba: float) -> tuple[str, str]:
@@ -76,8 +72,14 @@ def _lean_display(proba: float) -> tuple[str, str]:
     return f"{pct:.0f}% UP ({100 - pct:.0f}% down)", "DOWN"
 
 
-def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
-    """Build structured explanation for one (ticker, date) ensemble call."""
+def explain_ensemble_row(
+    row: pd.Series, meta_payload: dict, background: pd.DataFrame | None = None
+) -> dict[str, Any]:
+    """Build structured explanation for one (ticker, date) ensemble call.
+
+    ``background`` should be the prediction rows on the same route (has_news vs
+    no_news); their per-feature medians anchor the Shapley attribution.
+    """
     model = meta_payload.get("meta") or meta_payload.get("model")
     if model is None:
         return {"error": "no meta model"}
@@ -95,10 +97,14 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
     direction = "UP" if base_p >= 0.5 else "DOWN"
     confidence = abs(base_p - 0.5) * 2.0
 
-    lstm_p = float(row.get("financial_pred_proba", 0.5))
-    tfidf_p = float(row.get("news_tfidf_pred_proba", 0.5))
-    emb_p = float(row.get("news_embeddings_pred_proba", 0.5))
+    # Guard against missing/NaN base-model scores (e.g. a news row where a news
+    # model couldn't produce a probability) — treat as a neutral 0.5 lean.
+    lstm_p = _safe_proba(row.get("financial_pred_proba"))
+    tfidf_p = _safe_proba(row.get("news_tfidf_pred_proba"))
+    emb_p = _safe_proba(row.get("news_embeddings_pred_proba"))
     lstm_conf = float(row.get("financial_confidence", abs(lstm_p - 0.5) * 2))
+    if pd.isna(lstm_conf):
+        lstm_conf = abs(lstm_p - 0.5) * 2
     agree = float(row.get("all_agree", 0)) >= 0.5
     spy = float(row.get("spy_return_5d", 0.0))
 
@@ -113,49 +119,33 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
     if has_news:
         base_votes.extend([
             {"model": "tfidf", "label": "Keywords", "proba": tfidf_p, "active": True, **_vote_fields(tfidf_p)},
-            {"model": "embeddings", "label": "FinBERT", "proba": emb_p, "active": True, **_vote_fields(emb_p)},
+            {"model": "embeddings", "label": "Sentiment", "proba": emb_p, "active": True, **_vote_fields(emb_p)},
         ])
     else:
         base_votes.extend([
             {"model": "tfidf", "label": "Keywords", "proba": tfidf_p, "active": False,
              "display": "No headlines", "direction": "N/A"},
-            {"model": "embeddings", "label": "FinBERT", "proba": emb_p, "active": False,
+            {"model": "embeddings", "label": "Sentiment", "proba": emb_p, "active": False,
              "display": "No headlines", "direction": "N/A"},
         ])
     active_votes = [v for v in base_votes if v.get("active", True)]
     up_votes = sum(1 for v in active_votes if v.get("direction") == "UP")
     down_votes = sum(1 for v in active_votes if v.get("direction") == "DOWN")
 
-    # Counterfactual drivers (interpretable subset)
-    driver_specs = [
-        ("all_agree", "Models agree"),
-        ("financial_pred_proba", "Price model lean"),
-        ("lstm_confidence", "Price conviction"),
-        ("news_tfidf_pred_proba", "Keyword headlines"),
-        ("news_embeddings_pred_proba", "FinBERT headlines"),
-        ("has_news", "Headlines present"),
-        ("n_headlines", "Headline count"),
-        ("spy_return_5d", "SPY 5-day return"),
-        ("news_tfidf_x_has_news", "Keywords × headlines"),
-        ("news_emb_x_has_news", "FinBERT × headlines"),
-        ("lstm_x_agree", "Price × agreement"),
-    ]
-    drivers: list[dict[str, Any]] = []
-    for feat, label in driver_specs:
-        neutral_row = _apply_neutral(row, feat)
-        cf_p = _score_matrix(model, _row_to_matrix(neutral_row, features), temperature)
-        effect = base_p - cf_p
-        val = float(row.get(feat, _NEUTRAL.get(feat, 0)))
-        if feat == "lstm_confidence":
-            val = lstm_conf
-        drivers.append({
-            "feature": feat,
-            "label": label,
-            "value": val,
-            "effect": effect,
-            "direction": "up" if effect > 0.003 else "down" if effect < -0.003 else "neutral",
-        })
-    drivers.sort(key=lambda d: abs(d["effect"]), reverse=True)
+    # Per-call attribution via exact Shapley values over the displayed signals.
+    #
+    # Why not simpler? The combiner is a tiny per-route HGB whose output is
+    # dominated by a regime baseline (a "typical" news day scores ~75% UP), with
+    # individual signals only nudging it. Single-feature counterfactuals are
+    # either non-discriminative (wash out toward the mean) or unstable (a tiny
+    # input change crosses a tree split and swings 30pts). Shapley fairly splits
+    # the gap between the baseline (all displayed signals at their route-median)
+    # and the actual call, sums exactly, and is stable. The UI shows it as a
+    # waterfall: baseline -> signed contributions -> final, so it can never
+    # contradict the call.
+    drivers, baseline_proba = _build_drivers(
+        row, model, features, temperature, has_news, background
+    )
 
     # base lean = simple mean of active model P(up)s — what users intuitively expect
     # flips_base_lean = ensemble direction disagrees with that mean (the confusing case)
@@ -164,13 +154,11 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
     base_lean_dir = "UP" if base_lean_proba >= 0.5 else "DOWN"
     flips = base_lean_dir != direction
 
-    # Drivers that pushed the call toward the ENSEMBLE direction (away from the
-    # base lean). For a DOWN call we want the most negative effects; for UP the
-    # most positive. effect = base_p - cf_p (feature's presence vs neutral).
+    # Signals leaning the same way as the final call (used to explain a flip).
     if direction == "DOWN":
-        flip_drivers = [d for d in drivers if d["effect"] < -0.003]
+        flip_drivers = [d for d in drivers if d["effect"] < -0.02]
     else:
-        flip_drivers = [d for d in drivers if d["effect"] > 0.003]
+        flip_drivers = [d for d in drivers if d["effect"] > 0.02]
     flip_drivers = sorted(flip_drivers, key=lambda d: abs(d["effect"]), reverse=True)[:3]
 
     if flips:
@@ -250,6 +238,7 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
         "bullets": bullets,
         "base_votes": base_votes,
         "drivers": drivers,
+        "baseline_proba": baseline_proba,
         "disagreement": disagreement,
         "news_weight_note": news_note,
         "models_disagree": has_news and not agree,
@@ -261,3 +250,115 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
 def _vote_fields(proba: float) -> dict[str, str]:
     display, direction = _lean_display(proba)
     return {"display": display, "direction": direction}
+
+
+# Signals attributed in "what weighted the call". For has-news rows we include
+# news volume (n_headlines) — empirically the combiner leans on it heavily. For
+# no-news rows only price + market regime vary.
+_PLAYERS_NEWS = [
+    ("financial_pred_proba", "Price model"),
+    ("news_tfidf_pred_proba", "Keywords"),
+    ("news_embeddings_pred_proba", "Sentiment"),
+    ("spy_return_5d", "Market trend (5d)"),
+    ("n_headlines", "News volume"),
+]
+_PLAYERS_NO_NEWS = [
+    ("financial_pred_proba", "Price model"),
+    ("spy_return_5d", "Market trend (5d)"),
+]
+
+# proba feature -> the confidence columns derived from it (kept consistent when
+# we swap a feature to its baseline value).
+_CONF_LINK = {
+    "financial_pred_proba": ("financial_confidence", "lstm_confidence"),
+    "news_tfidf_pred_proba": ("news_tfidf_confidence", "tfidf_confidence"),
+    "news_embeddings_pred_proba": ("news_embeddings_confidence", "emb_confidence"),
+}
+
+# Effects (probability points) below this read as "no effect" in the UI.
+_EFFECT_EPS = 0.01
+
+
+def _build_drivers(
+    row: pd.Series,
+    model: Any,
+    features: list[str],
+    temperature: float,
+    has_news: bool,
+    background: pd.DataFrame | None,
+) -> tuple[list[dict[str, Any]], float]:
+    """Exact Shapley attribution of the call over the displayed signals.
+
+    Returns ``(drivers, baseline_proba)`` where ``baseline_proba`` is the score
+    with every player at its route-median and each driver ``effect`` is the
+    signal's Shapley contribution (in probability units). They sum exactly from
+    the baseline to the ensemble probability.
+    """
+    import itertools
+    from math import factorial
+
+    players = _PLAYERS_NEWS if has_news else _PLAYERS_NO_NEWS
+
+    # Baseline ("typical day") value for each player: route median when we have
+    # a background, else a neutral fallback.
+    def _median(feat: str) -> float:
+        if background is not None and feat in background.columns:
+            col = pd.to_numeric(background[feat], errors="coerce").dropna()
+            if len(col):
+                return float(col.median())
+        return 0.0 if feat in ("spy_return_5d", "n_headlines") else 0.5
+
+    base_vals = {feat: _median(feat) for feat, _ in players}
+    # Display value only (Shapley uses the raw row so the full coalition exactly
+    # reproduces the real call, including HGB's native NaN handling).
+    actual_disp = {feat: _safe_proba(row.get(feat), default=0.0) for feat, _ in players}
+
+    n = len(players)
+    keys = [feat for feat, _ in players]
+    subsets = list(
+        itertools.chain.from_iterable(
+            itertools.combinations(range(n), r) for r in range(n + 1)
+        )
+    )
+
+    # Build each coalition from the raw row, swapping only the *baseline* members
+    # to their route-median. Members "in" the coalition keep the row's real value
+    # (NaN included) — so the full coalition == the actual scored row and the
+    # contributions reconcile exactly to (final - baseline).
+    # Confidence columns are derived from the probas. Drop them from every
+    # coalition dict so `_ensure_derived_features` recomputes them uniformly —
+    # otherwise the full coalition (which never calls `_set_feature`) ends up
+    # missing those keys, pandas injects NaN for it in the batch frame, and its
+    # score diverges from the real call.
+    _conf_cols = [c for cols in _CONF_LINK.values() for c in cols]
+    coalition_rows = []
+    for S in subsets:
+        d = row.to_dict()
+        for c in _conf_cols:
+            d.pop(c, None)
+        for i, feat in enumerate(keys):
+            if i not in S:
+                d[feat] = base_vals[feat]
+        coalition_rows.append(d)
+
+    scores = _score_rows(model, coalition_rows, features, temperature)
+    vmap = {S: float(scores[i]) for i, S in enumerate(subsets)}
+    baseline_proba = vmap[()]
+
+    drivers: list[dict[str, Any]] = []
+    for i, (feat, label) in enumerate(players):
+        contrib = 0.0
+        for S in subsets:
+            if i in S:
+                continue
+            w = factorial(len(S)) * factorial(n - len(S) - 1) / factorial(n)
+            contrib += w * (vmap[tuple(sorted(S + (i,)))] - vmap[S])
+        drivers.append({
+            "feature": feat,
+            "label": label,
+            "value": actual_disp[feat],
+            "effect": contrib,
+            "direction": "up" if contrib > _EFFECT_EPS else "down" if contrib < -_EFFECT_EPS else "neutral",
+        })
+    drivers.sort(key=lambda d: abs(d["effect"]), reverse=True)
+    return drivers, baseline_proba

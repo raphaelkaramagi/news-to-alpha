@@ -18,7 +18,7 @@ trading session (close T → close T+1):
 Forecasts are produced once per session after the 4 PM ET cutoff, served by a
 Flask API, and shown on a Next.js dashboard.
 
-Honest framing: daily large-cap direction is close to the efficient-market noise
+Daily large-cap direction is close to the efficient-market noise
 floor, so the direction call is a modest signal (test AUC ≈ 0.53). The expected-move
 model is more reliable (high-move AUC ≈ 0.65). The UI presents the direction call
 first with the expected-move band alongside it. See [RESULTS.md](RESULTS.md).
@@ -157,7 +157,7 @@ Frontend details: [../web/README.md](../web/README.md).
   high-move AUC for volatility.
 - **Walk-forward harness** reports purged expanding-window folds as a less
   optimistic cross-check; direction targets sit near 0.49–0.50 across folds.
-- Honest news/ensemble numbers come from the **`news_scored`** subset (out-of-sample
+- News/ensemble numbers on headline days come from the **`news_scored`** subset (out-of-sample
   news window). See [RESULTS.md](RESULTS.md).
 
 ---
@@ -187,7 +187,7 @@ Key routes (full field tables in [DATA.md](DATA.md)):
 | Route | Returns |
 |-------|---------|
 | `/api/ticker` | Direction call + `expected_move_pct`, `forecast_low/high`, price context |
-| `/api/rationale` | Why-this-call drivers + `explanation.disagreement` |
+| `/api/rationale` | Why-this-call: model inputs, Shapley drivers, `baseline_proba` |
 | `/api/data-status` | Freshness, market status, pending reason |
 | `/api/history` / `/api/accuracy-summary` | Resolved outcomes for charts |
 

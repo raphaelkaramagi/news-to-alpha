@@ -94,18 +94,21 @@ function inputsSentence(exp: EnsembleExplanation, hasNews: boolean): string {
   return "Each model's rising chance before the combiner merges them — dot position is the estimate, 50 is even.";
 }
 
-function weightedSentence(drivers: Driver[], dir: "UP" | "DOWN"): string {
-  if (drivers.length === 0) return "Factors that shifted the ensemble probability toward the final call.";
-  const top = drivers[0];
-  const others = drivers.length > 1 ? ` and ${drivers.length - 1} other factor${drivers.length > 2 ? "s" : ""}` : "";
-  const push = top.direction === "up" ? "toward UP" : top.direction === "down" ? "toward DOWN" : "on the score";
-  return `${top.label} had the largest pull ${push}${others}.`;
-}
-
-function overrideSentence(dis: NonNullable<EnsembleExplanation["disagreement"]>): string {
-  const lean = Math.round(dis.base_lean_proba * 100);
-  const final = Math.round(dis.ensemble_proba * 100);
-  return `Inputs averaged ${lean}% UP (${dis.base_lean_direction}), but market context pushed the combiner to ${final}% UP (${dis.ensemble_direction}).`;
+function weightedSentence(
+  drivers: Driver[],
+  baselinePct: number,
+  finalPct: number,
+  hasNews: boolean
+): string {
+  const setup = hasNews ? "news day" : "price-only day";
+  const directional = drivers.filter((d) => d.direction !== "neutral");
+  const start = `Before today's signals, a ${setup} like this averages ${baselinePct}% chance up (the combiner's starting point).`;
+  if (directional.length === 0) {
+    return `${start} Today's signals barely moved it — final ${finalPct}% chance up.`;
+  }
+  const top = directional[0];
+  const push = top.direction === "up" ? "up" : "down";
+  return `${start} ${top.label} moved it the most (${push} ${Math.abs(Math.round(top.effect * 100))} pts); the bars add up to the final ${finalPct}% chance up.`;
 }
 
 /** 0–100 scale with dot at model estimate; 50% tick = even odds. */
@@ -185,10 +188,12 @@ function ModelVoteCard({ vote }: { vote: Vote }) {
   );
 }
 
-function DriverBar({ driver }: { driver: Driver }) {
+/** Driver effect is a Shapley contribution in probability points (signed). */
+function DriverBar({ driver, maxAbs }: { driver: Driver; maxAbs: number }) {
   const neutral = driver.direction === "neutral";
   const isUp = driver.direction === "up";
-  const width = neutral ? 4 : Math.min(100, Math.max(12, Math.abs(driver.effect) * 400));
+  const pts = Math.round(driver.effect * 100);
+  const width = neutral ? 4 : Math.min(100, Math.max(10, (Math.abs(driver.effect) / maxAbs) * 100));
 
   return (
     <div className="flex items-center gap-3 text-sm min-w-0">
@@ -204,17 +209,27 @@ function DriverBar({ driver }: { driver: Driver }) {
           style={{ width: `${width}%` }}
         />
       </div>
-      {!neutral && (
-        <span
-          className={cn(
-            "text-[10px] font-mono tabular-nums shrink-0 w-12 text-right",
-            isUp ? "text-up" : "text-down"
-          )}
-        >
-          {driver.effect >= 0 ? "+" : ""}
-          {(driver.effect * 100).toFixed(1)}
-        </span>
-      )}
+      <span
+        className={cn(
+          "text-[10px] font-mono tabular-nums shrink-0 w-12 text-right",
+          neutral ? "text-muted-foreground" : isUp ? "text-up" : "text-down"
+        )}
+      >
+        {neutral ? "0" : `${pts >= 0 ? "+" : ""}${pts}`}
+      </span>
+    </div>
+  );
+}
+
+/** Small labelled anchor (baseline / final) for the waterfall. */
+function WaterfallAnchor({ label, pct }: { label: string; pct: number }) {
+  const up = pct >= 50;
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("font-semibold tabular-nums", up ? "text-up" : "text-down")}>
+        {pct}% chance up
+      </span>
     </div>
   );
 }
@@ -337,16 +352,22 @@ export function RationaleBars({ ticker, date, model, onOpenHeadlines }: Props) {
   const canOpenHeadlines = hasNews && headlines !== 0 && !!onOpenHeadlines;
   const isUp = exp.ensemble_direction === "UP";
 
-  const topDrivers = (exp.drivers ?? [])
-    .filter((d) => d.direction !== "neutral" && Math.abs(d.effect) > 0.001)
-    .slice(0, 4);
+  // Shapley contributions: a "typical call" baseline plus signed per-signal
+  // effects (probability points) that sum exactly to the final call. Showing
+  // the baseline is what lets the bars reconcile with the call direction.
+  const drivers = (exp.drivers ?? []).slice(0, 5);
+  const maxAbs = Math.max(...drivers.map((d) => Math.abs(d.effect)), 0.01);
+  const baselinePct =
+    exp.baseline_proba != null ? Math.round(exp.baseline_proba * 100) : null;
 
-  const flipDrivers =
-    exp.disagreement?.flips_base_lean && exp.disagreement.flip_drivers.length > 0
-      ? exp.disagreement.flip_drivers
-      : [];
-
-  const showOverride = exp.disagreement?.flips_base_lean;
+  // News-wording signals present but flat — explains the common "~0" bars.
+  const newsWordingDrivers = drivers.filter(
+    (d) => d.feature === "news_tfidf_pred_proba" || d.feature === "news_embeddings_pred_proba"
+  );
+  const sentimentMuted =
+    !!hasNews &&
+    newsWordingDrivers.length > 0 &&
+    newsWordingDrivers.every((d) => d.direction === "neutral");
 
   return (
     <div className="space-y-4">
@@ -392,56 +413,46 @@ export function RationaleBars({ ticker, date, model, onOpenHeadlines }: Props) {
         </div>
       </Section>
 
-      {/* Ensemble override — focal when inputs disagree with final */}
-      {showOverride && exp.disagreement && (
-        <Section
-          title="Ensemble override"
-          sentence={overrideSentence(exp.disagreement)}
-          accent="highlight"
-        >
-          <div className="flex items-center gap-2 text-sm flex-wrap rounded-md border bg-background/80 px-3 py-2">
-            <span className="text-muted-foreground text-xs">Inputs avg</span>
-            <span
-              className={cn(
-                "font-semibold tabular-nums",
-                exp.disagreement.base_lean_direction === "UP" ? "text-up" : "text-down"
-              )}
-            >
-              {Math.round(exp.disagreement.base_lean_proba * 100)}%
-            </span>
-            <span className="text-muted-foreground">→</span>
-            <span className="text-muted-foreground text-xs">Final</span>
-            <span
-              className={cn(
-                "font-semibold tabular-nums",
-                exp.disagreement.ensemble_direction === "UP" ? "text-up" : "text-down"
-              )}
-            >
-              {ensPct}% {exp.disagreement.ensemble_direction}
-            </span>
-          </div>
-          {flipDrivers.length > 0 && (
-            <div className="space-y-2">
-              {flipDrivers.map((d) => (
-                <DriverBar key={d.feature} driver={d} />
-              ))}
-            </div>
-          )}
-        </Section>
-      )}
-
-      {/* Combiner weights */}
-      {topDrivers.length > 0 && (
+      {/* What weighted the call — waterfall: baseline -> contributions -> final */}
+      {drivers.length > 0 && (
         <Section
           title="What weighted the call"
-          sentence={weightedSentence(topDrivers, exp.ensemble_direction)}
+          sentence={weightedSentence(
+            drivers,
+            baselinePct ?? ensPct,
+            ensPct,
+            !!hasNews
+          )}
           accent="neutral"
         >
-          <div className="space-y-2">
-            {topDrivers.map((d) => (
-              <DriverBar key={d.feature} driver={d} />
+          <div className="rounded-md border bg-background/80 p-3 space-y-2.5">
+            {baselinePct != null && (
+              <>
+                <WaterfallAnchor
+                  label={hasNews ? "Starting point (typical news day)" : "Starting point (typical price-only day)"}
+                  pct={baselinePct}
+                />
+                <div className="border-t" />
+              </>
+            )}
+            {drivers.map((d) => (
+              <DriverBar key={d.feature} driver={d} maxAbs={maxAbs} />
             ))}
+            <div className="border-t" />
+            <WaterfallAnchor label="Final call" pct={ensPct} />
           </div>
+          <p className="text-[10px] text-muted-foreground leading-snug">
+            Bars are each signal&apos;s contribution in probability points; they add to
+            the starting point to reach the final call. News volume = headline count vs a
+            typical day; Price = the LSTM price-direction model.
+          </p>
+          {sentimentMuted && (
+            <p className="text-[10px] text-muted-foreground/80 leading-snug">
+              Keywords and Sentiment show ~0 here: the combiner counts that headlines
+              exist (News volume), but learned that their wording/tone barely predicts the
+              next session&apos;s direction, so it leans on price and market context instead.
+            </p>
+          )}
         </Section>
       )}
     </div>

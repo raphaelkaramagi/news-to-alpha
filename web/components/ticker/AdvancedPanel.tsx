@@ -70,6 +70,8 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
     (rationale ? buildClientExplanation(rationale) : null);
   const drivers = explanation?.drivers ?? [];
   const newsNote = explanation?.news_weight_note ?? null;
+  const baselineProba = explanation?.baseline_proba ?? null;
+  const finalProba = explanation?.ensemble_proba ?? null;
 
   const chartData = trace.filter((p) => p.accuracy !== null).slice(-60);
 
@@ -129,9 +131,11 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
           <LstmContextTable context={rationale?.lstm_context ?? null} />
 
           <div>
-            <p className="text-sm font-medium mb-3">What moved the score</p>
+            <p className="text-sm font-medium mb-3">What weighted the call</p>
             <ExplanationDrivers
               drivers={drivers}
+              baselineProba={baselineProba}
+              finalProba={finalProba}
               newsNote={newsNote}
               routeNote={routeNoteFromData(rationale)}
             />

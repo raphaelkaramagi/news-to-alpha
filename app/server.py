@@ -1200,16 +1200,16 @@ _FEATURE_BASELINES: dict[str, float] = {
 _FEATURE_LABELS: dict[str, str] = {
     "financial_pred_proba": "Price P(UP)",
     "news_tfidf_pred_proba": "Keywords P(UP)",
-    "news_embeddings_pred_proba": "FinBERT P(UP)",
+    "news_embeddings_pred_proba": "Sentiment (FinBERT) P(UP)",
     "lstm_confidence": "Price conviction",
     "tfidf_confidence": "Keyword conviction",
-    "emb_confidence": "FinBERT conviction",
+    "emb_confidence": "Sentiment conviction",
     "all_agree": "All models agree",
     "has_news": "Headlines present",
     "n_headlines": "Headline count",
     "spy_return_5d": "SPY 5-day return",
     "news_tfidf_x_has_news": "Keywords × headlines",
-    "news_emb_x_has_news": "FinBERT × headlines",
+    "news_emb_x_has_news": "Sentiment × headlines",
     "lstm_x_agree": "Price × agreement",
 }
 
@@ -1368,7 +1368,10 @@ def api_rationale():
         from src.ml.ensemble_explain import explain_ensemble_row
 
         if META_MODEL_PATH.exists() and meta_for_row.get("meta") is not None:
-            explanation = explain_ensemble_row(row, meta_for_row)
+            # Same-route rows anchor the Shapley baseline (route-median signals).
+            row_has_news = int(row.get("has_news", 0) or 0)
+            background = df[df["has_news"].fillna(0).astype(int) == row_has_news]
+            explanation = explain_ensemble_row(row, meta_for_row, background=background)
     except Exception as exc:
         import logging
         logging.getLogger(__name__).warning("ensemble explain failed: %s", exc)

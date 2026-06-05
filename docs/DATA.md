@@ -308,9 +308,9 @@ confidence = |probability − 0.5| × 2    # range 0–1
 
 Measures **lean strength**, not P(correct). UI labels: Low (&lt;25%), Moderate (25–45%), Strong (≥45%).
 
-**Why this call:** counterfactual explanation via `src/ml/ensemble_explain.py`. With conditional ensemble, headline days use a separate meta-model route.
+**Why this call:** Shapley waterfall attribution via `src/ml/ensemble_explain.py` (baseline → per-signal contributions → final call). With conditional ensemble, headline days use a separate meta-model route.
 
-Evaluation subsets: `all`, `has_news`, **`news_scored`**, `news_oos`, `high_conf` — see [RESULTS.md](RESULTS.md). Report **`news_scored`** for honest news/ensemble accuracy (out-of-sample news window, n≈399).
+Evaluation subsets: `all`, `has_news`, **`news_scored`**, `news_oos`, `high_conf` — see [RESULTS.md](RESULTS.md). Report **`news_scored`** for news/ensemble accuracy on the out-of-sample news window (n≈399).
 
 ---
 

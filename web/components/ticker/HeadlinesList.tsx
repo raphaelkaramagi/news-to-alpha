@@ -18,11 +18,17 @@ async function fetchHeadlines(ticker: string, date: string): Promise<HeadlinesRe
   return res.json();
 }
 
+// Dot reflects FinBERT headline sentiment (signed P(pos) − P(neg), range −1..1).
+// Legend at the top of the list explains the colors.
 function SentimentDot({ score }: { score: number | null | undefined }) {
-  if (score === null || score === undefined) {
-    return <span className="size-1.5 rounded-full bg-muted-foreground/30 inline-block flex-shrink-0 mt-2" />;
-  }
-  const color = score > 0.1 ? "bg-up" : score < -0.1 ? "bg-down" : "bg-muted-foreground/40";
+  const color =
+    score === null || score === undefined
+      ? "bg-muted-foreground/30"
+      : score > 0.1
+        ? "bg-up"
+        : score < -0.1
+          ? "bg-down"
+          : "bg-muted-foreground/40";
   return <span className={`size-1.5 rounded-full inline-block flex-shrink-0 mt-2 ${color}`} />;
 }
 
@@ -113,6 +119,12 @@ export function HeadlinesList({ ticker, date }: Props) {
 
   return (
     <div>
+      <div className="flex items-center gap-3 text-[11px] text-muted-foreground pb-2 mb-1 border-b">
+        <span className="font-medium uppercase tracking-wide">FinBERT sentiment</span>
+        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-up inline-block" /> positive</span>
+        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-down inline-block" /> negative</span>
+        <span className="flex items-center gap-1"><span className="size-1.5 rounded-full bg-muted-foreground/40 inline-block" /> neutral</span>
+      </div>
       <div className="space-y-1">
         {visible.map((h, i) => (
           <HeadlineRow key={`${h.url ?? h.title}-${i}`} h={h} />

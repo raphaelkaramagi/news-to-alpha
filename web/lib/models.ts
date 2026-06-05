@@ -5,7 +5,7 @@ export const MODEL_DISPLAY_LABELS: Record<ModelId, string> = {
   ensemble: "Ensemble",
   lstm: "Price",
   tfidf: "Keywords",
-  embeddings: "FinBERT",
+  embeddings: "Sentiment",
 };
 
 /** Chart styling + legend copy per model tab. */
@@ -30,8 +30,8 @@ export const MODEL_CHART_CONFIG: Record<
   },
   embeddings: {
     color: "hsl(271 81% 56%)",
-    probaLegend: "Black = close · purple = FinBERT P(UP) (right axis)",
-    accuracyLegend: "FinBERT rolling hit rate · dashed = 50%",
+    probaLegend: "Black = close · purple = Sentiment (FinBERT) P(UP) (right axis)",
+    accuracyLegend: "Sentiment (FinBERT) rolling hit rate · dashed = 50%",
   },
 };
 
@@ -41,7 +41,7 @@ export const MODEL_DESCRIPTIONS: Record<
 > = {
   ensemble: {
     title: "Ensemble",
-    body: "Combines three inputs: Price (LSTM), Keywords (TF-IDF), and FinBERT. With headlines, a news-tuned combiner runs; without headlines, a price-only combiner is used.",
+    body: "Combines three inputs: Price (LSTM), Keywords (TF-IDF), and Sentiment (FinBERT). With headlines, a news-tuned combiner runs; without headlines, a price-only combiner is used.",
   },
   lstm: {
     title: "Price (LSTM)",
@@ -52,8 +52,8 @@ export const MODEL_DESCRIPTIONS: Record<
     body: "Scores headline wording (bigram patterns). Only runs when at least one headline exists before 4 PM ET.",
   },
   embeddings: {
-    title: "FinBERT",
-    body: "Scores financial sentiment from headline meaning (ProsusAI/finbert). Only runs when headlines are present.",
+    title: "Sentiment",
+    body: "Reads the financial sentiment (bullish vs bearish tone) of each headline using FinBERT (ProsusAI/finbert), a finance-tuned language model. Only runs when headlines are present before the close.",
   },
 };
 
