@@ -380,26 +380,22 @@ def fit_meta_model(
       temperature - scalar T (1.0 if disabled)
       importances - [(feature, importance), ...] sorted descending
     """
+    # meta is fit on val only — test labels must never touch the combiner
     val = df[(df["split"] == "val") & df["actual_binary"].notna()]
     if len(val) < 40:
-        test = df[(df["split"] == "test") & df["actual_binary"].notna()]
-        if len(test) >= 40:
-            print(f"  [WARN] val split has only {len(val)} labeled rows; "
-                  f"fitting meta on test ({len(test)} rows) instead.")
-            val = test
-        else:
-            print("  [WARN] not enough labeled rows to fit meta model; "
-                  "using uniform mean fallback.")
-            return {
-                "model": _UniformFallback(),
-                "raw_model": None,
-                "calibration_method": "uniform_fallback",
-                "n_val": int(len(val)),
-                "proba_std": 0.0,
-                "temperature": 1.0,
-                "importances": [],
-                "features": META_FEATURES,
-            }
+        # old code fell back to test here; that leaked labels. uniform mean instead.
+        print(f"  [WARN] val split has only {len(val)} labeled rows (<40); "
+              "using leakage-free uniform mean fallback (NOT fitting on test).")
+        return {
+            "model": _UniformFallback(),
+            "raw_model": None,
+            "calibration_method": "uniform_fallback",
+            "n_val": int(len(val)),
+            "proba_std": 0.0,
+            "temperature": 1.0,
+            "importances": [],
+            "features": META_FEATURES,
+        }
 
     X = _feature_matrix(val)
     y = val["actual_binary"].astype(int).to_numpy()

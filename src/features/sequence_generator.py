@@ -171,17 +171,50 @@ class SequenceGenerator:
                     ticker, len(X), X.shape, y.mean() * 100, self.horizon)
         return X, y, returns, date_list
 
-    def generate_live(self, ticker: str) -> tuple[np.ndarray, list[str]]:
-        """Build sequences for dates after the last labeled row (forward inference).
+    def generate_unscored(
+        self,
+        ticker: str,
+        existing_dates: set[str] | None = None,
+        min_date: str | None = None,
+    ) -> tuple[np.ndarray, list[str]]:
+        """Build sequences for price sessions missing from *existing_dates*.
 
-        Used to score the latest trading days where we have prices but no
-        realized label yet (e.g. after a holiday gap or before next close).
+        Covers forward inference (latest bar) and catch-up when a late price
+        collect + label pass left holes (e.g. only AAPL updated for a few days).
+        *min_date* caps how far back we look so we don't rescore ancient history.
         """
         ti = TechnicalIndicators(self.db_path)
         df = ti.compute(ticker)
         if df.empty:
             return np.array([]), []
 
+        skip = existing_dates or set()
+        indicator_df = df[self.feature_columns].dropna()
+        if len(indicator_df) < self.seq_len + 1:
+            return np.array([]), []
+
+        values = indicator_df.to_numpy(dtype=np.float32)
+        dates_index = indicator_df.index
+
+        X_list: list[np.ndarray] = []
+        date_list: list[str] = []
+        for i in range(self.seq_len, len(indicator_df) + 1):
+            label_date = dates_index[i - 1]
+            ds = label_date.strftime("%Y-%m-%d")
+            if ds in skip:
+                continue
+            if min_date and ds < min_date:
+                continue
+            X_list.append(values[i - self.seq_len : i])
+            date_list.append(ds)
+
+        if not X_list:
+            return np.array([]), []
+
+        return np.stack(X_list).astype(np.float32), date_list
+
+    def generate_live(self, ticker: str) -> tuple[np.ndarray, list[str]]:
+        """Build sequences for dates after the last labeled row (forward inference)."""
         conn = sqlite3.connect(self.db_path)
         labels_df = pd.read_sql_query(
             "SELECT date FROM labels WHERE ticker = ? ORDER BY date ASC",
@@ -195,6 +228,11 @@ class SequenceGenerator:
             if not labels_df.empty
             else pd.Timestamp("1900-01-01")
         )
+
+        ti = TechnicalIndicators(self.db_path)
+        df = ti.compute(ticker)
+        if df.empty:
+            return np.array([]), []
 
         indicator_df = df[self.feature_columns].dropna()
         if len(indicator_df) < self.seq_len + 1:

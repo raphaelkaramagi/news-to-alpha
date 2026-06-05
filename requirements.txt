@@ -6,6 +6,7 @@ numpy
 yfinance              # Yahoo Finance price data
 finnhub-python        # Finnhub news API (optional alternative client)
 requests              # HTTP calls
+lxml                  # required by yfinance get_earnings_dates (earnings calendar)
 
 # ── Database ────────────────────────────────────────────────
 # SQLite is built-in; no extra package needed for Week 1-2

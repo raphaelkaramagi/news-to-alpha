@@ -71,7 +71,7 @@ from src.ml.threshold_tuning import (  # noqa: E402
     calibration_preserves_spread,
     tune_threshold_balanced_accuracy,
 )
-from src.models.news_pipeline import build_dataset, chronological_split, assign_split_labels  # noqa: E402
+from src.models.news_pipeline import build_dataset, split_dataset_for_news, assign_split_labels  # noqa: E402
 
 log = logging.getLogger(__name__)
 
@@ -444,6 +444,11 @@ def main() -> None:
     parser.add_argument("--db", default=str(DATABASE_PATH))
     parser.add_argument("--train-ratio", type=float, default=0.70)
     parser.add_argument("--val-ratio", type=float, default=0.15)
+    parser.add_argument(
+        "--split-source", choices=["news_chrono", "global"], default="news_chrono",
+        help="news_chrono: chronological over news dates (default). global: "
+             "reuse LSTM split_info.json date sets (auto-falls back if empty).",
+    )
     parser.add_argument("--sentence-model", default=DEFAULT_SENTENCE_MODEL,
                         help="sentence-transformers model name (overridden by --encoder-model).")
     parser.add_argument(
@@ -501,9 +506,13 @@ def main() -> None:
     df = build_dataset(db_path, drop_rows_without_news=True, horizon=args.horizon)
     print(f"  {len(df):,} ticker-day rows (news-aligned, horizon={args.horizon})")
 
-    print("Step 2/4  Splitting (chronological on news dates) ...")
-    train_df, val_df, test_df = chronological_split(
-        df, train_ratio=args.train_ratio, val_ratio=args.val_ratio
+    print(f"Step 2/4  Splitting (source={args.split_source}) ...")
+    train_df, val_df, test_df = split_dataset_for_news(
+        df,
+        source=args.split_source,
+        split_info_path=PROCESSED_DATA_DIR / "split_info.json",
+        train_ratio=args.train_ratio,
+        val_ratio=args.val_ratio,
     )
     if args.min_move_pct > 0 and not train_df.empty:
         before = len(train_df)

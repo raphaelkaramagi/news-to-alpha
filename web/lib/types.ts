@@ -148,6 +148,21 @@ export type EnsembleExplanation = {
     effect: number;
     direction: "up" | "down" | "neutral";
   }>;
+  disagreement?: {
+    base_lean_proba: number;
+    base_lean_direction: "UP" | "DOWN";
+    ensemble_direction: "UP" | "DOWN";
+    ensemble_proba: number;
+    flips_base_lean: boolean;
+    flip_drivers: Array<{
+      feature: string;
+      label: string;
+      value: number;
+      effect: number;
+      direction: "up" | "down" | "neutral";
+    }>;
+    explanation: string;
+  };
   news_weight_note?: string | null;
   models_disagree?: boolean;
   ensemble_route?: "has_news" | "no_news" | "unified" | null;

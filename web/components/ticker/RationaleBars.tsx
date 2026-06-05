@@ -1,10 +1,10 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
-import { BarChart3, ChevronRight, Newspaper, TrendingDown, TrendingUp } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { EnsembleExplanation, RationaleResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import type { ModelId } from "@/lib/tickers";
-import { ENSEMBLE_INPUT_WHY, MODEL_DISPLAY_LABELS } from "@/lib/models";
+import { MODEL_DISPLAY_LABELS } from "@/lib/models";
 import { buildClientExplanation } from "@/lib/ensembleExplainClient";
 import { confidenceLabel } from "@/lib/confidence";
 
@@ -16,6 +16,7 @@ interface Props {
 }
 
 type Vote = EnsembleExplanation["base_votes"][number];
+type Driver = EnsembleExplanation["drivers"][number];
 
 async function fetchRationale(
   ticker: string,
@@ -38,118 +39,108 @@ function voteLabel(vote: Vote): string {
   return map[vote.model] ?? vote.label;
 }
 
-function inputWhyCopy(vote: Vote): string | null {
-  if (vote.model === "lstm" || vote.model === "tfidf" || vote.model === "embeddings") {
-    return ENSEMBLE_INPUT_WHY[vote.model];
-  }
-  return null;
-}
-
 function headlineCount(data: RationaleResponse): number | null {
   const row = data.meta_features?.find((f) => f.key === "n_headlines");
   if (row && row.value > 0) return Math.round(row.value);
   return data.has_news ? null : 0;
 }
 
-function agreementSummary(votes: Vote[]): { label: string; tone: "up" | "down" | "mixed" | "neutral" } {
-  const active = votes.filter((v) => v.active !== false && v.direction !== "N/A");
+function activeVotes(votes: Vote[]): Vote[] {
+  return votes.filter((v) => v.active !== false && v.direction !== "N/A");
+}
+
+function agreementSummary(votes: Vote[]): string {
+  const active = activeVotes(votes);
+  const up = active.filter((v) => v.direction === "UP").length;
+  const down = active.length - up;
+  if (active.length === 0) return "Price only";
+  if (up === active.length) return `${up}/${active.length} lean UP`;
+  if (down === active.length) return `${down}/${active.length} lean DOWN`;
+  return `${up} up · ${down} down`;
+}
+
+function summarySentence(
+  exp: EnsembleExplanation,
+  hasNews: boolean,
+  confLabel: string,
+  ensPct: number
+): string {
+  const dir = exp.ensemble_direction;
+  const active = activeVotes(exp.base_votes);
   const up = active.filter((v) => v.direction === "UP").length;
   const down = active.length - up;
 
-  if (active.length === 0) {
-    return { label: "Price only", tone: "neutral" };
+  if (!hasNews) {
+    return `Price-only call: ${dir} at ${ensPct}% chance of rising (${confLabel.toLowerCase()} confidence).`;
   }
-  if (up === active.length) {
-    return { label: `${up}/${active.length} inputs lean UP`, tone: "up" };
+  if (up === active.length || down === active.length) {
+    return `All inputs lean ${dir}; ensemble agrees at ${ensPct}% UP (${confLabel.toLowerCase()} confidence).`;
   }
-  if (down === active.length) {
-    return { label: `${down}/${active.length} inputs lean DOWN`, tone: "down" };
+  if (exp.disagreement?.flips_base_lean) {
+    const lean = Math.round(exp.disagreement.base_lean_proba * 100);
+    return `Inputs average ${lean}% UP, but the combiner calls ${dir} at ${ensPct}% — context shifted the score.`;
   }
-  return { label: `Mixed · ${up} up · ${down} down`, tone: "mixed" };
+  return `${dir} at ${ensPct}% UP (${confLabel.toLowerCase()} confidence) with ${up} of ${active.length} inputs leaning up.`;
 }
 
-function StatCard({
-  children,
-  className,
-  onClick,
-  disabled,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  const Tag = onClick && !disabled ? "button" : "div";
-  return (
-    <Tag
-      type={onClick && !disabled ? "button" : undefined}
-      onClick={disabled ? undefined : onClick}
-      className={cn(
-        "rounded-lg border p-3 flex flex-col justify-center gap-1 min-h-[4.5rem] text-left w-full",
-        onClick && !disabled && "hover:bg-accent transition-colors cursor-pointer group",
-        disabled && "opacity-70",
-        className
-      )}
-    >
-      {children}
-    </Tag>
-  );
+function inputsSentence(exp: EnsembleExplanation, hasNews: boolean): string {
+  if (!hasNews) {
+    return "Only the price model ran today — no headlines before the close.";
+  }
+  const active = activeVotes(exp.base_votes);
+  const up = active.filter((v) => v.direction === "UP").length;
+  if (up === active.length) return "All three models see a rising chance; dots mark each model's estimate on the 0–100% scale.";
+  if (up === 0) return "All three models lean down; dots mark each model's estimate on the 0–100% scale.";
+  return "Each model's rising chance before the combiner merges them — dot position is the estimate, 50 is even.";
 }
 
-/** 0–100% gauge with 50% midpoint */
-function ProbabilityGauge({
-  proba,
-  direction,
-}: {
-  proba: number;
-  direction: "UP" | "DOWN";
-}) {
+function weightedSentence(drivers: Driver[], dir: "UP" | "DOWN"): string {
+  if (drivers.length === 0) return "Factors that shifted the ensemble probability toward the final call.";
+  const top = drivers[0];
+  const others = drivers.length > 1 ? ` and ${drivers.length - 1} other factor${drivers.length > 2 ? "s" : ""}` : "";
+  const push = top.direction === "up" ? "toward UP" : top.direction === "down" ? "toward DOWN" : "on the score";
+  return `${top.label} had the largest pull ${push}${others}.`;
+}
+
+function overrideSentence(dis: NonNullable<EnsembleExplanation["disagreement"]>): string {
+  const lean = Math.round(dis.base_lean_proba * 100);
+  const final = Math.round(dis.ensemble_proba * 100);
+  return `Inputs averaged ${lean}% UP (${dis.base_lean_direction}), but market context pushed the combiner to ${final}% UP (${dis.ensemble_direction}).`;
+}
+
+/** 0–100 scale with dot at model estimate; 50% tick = even odds. */
+function ProbabilityScale({ proba }: { proba: number }) {
   const pct = Math.round(proba * 100);
-  const isUp = direction === "UP";
+  const isUp = proba >= 0.5;
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-end justify-between gap-2">
-        <div className="flex items-center gap-2">
-          {isUp ? (
-            <TrendingUp className="size-5 text-up" aria-hidden />
-          ) : (
-            <TrendingDown className="size-5 text-down" aria-hidden />
-          )}
-          <span className={cn("text-2xl font-bold", isUp ? "text-up" : "text-down")}>
-            {direction}
-          </span>
-        </div>
-        <span className="text-sm font-mono tabular-nums text-muted-foreground">
-          {pct}% chance of rising
-        </span>
-      </div>
-      <div className="relative h-3 rounded-full bg-muted overflow-hidden">
+    <div className="space-y-1">
+      <div className="relative h-2 rounded-full bg-muted overflow-hidden">
         <div
-          className="absolute top-0 bottom-0 w-px bg-foreground/30 z-10"
+          className={cn(
+            "absolute inset-y-0 left-0 rounded-full opacity-50",
+            isUp ? "bg-up" : "bg-down"
+          )}
+          style={{ width: `${pct}%` }}
+        />
+        <div
+          className="absolute top-0 bottom-0 w-px bg-foreground/25 z-10"
           style={{ left: "50%" }}
           aria-hidden
         />
         <div
           className={cn(
-            "absolute top-0 bottom-0 rounded-full transition-all",
-            isUp ? "bg-up/70" : "bg-down/70"
+            "absolute top-1/2 -translate-y-1/2 size-2.5 rounded-full border-2 border-background shadow-sm z-20",
+            isUp ? "bg-up" : "bg-down"
           )}
-          style={{
-            left: isUp ? "50%" : `${pct}%`,
-            width: isUp ? `${pct - 50}%` : `${50 - pct}%`,
-          }}
-        />
-        <div
-          className="absolute top-1/2 -translate-y-1/2 size-3.5 rounded-full border-2 border-background bg-foreground shadow-sm z-20"
-          style={{ left: `calc(${pct}% - 7px)` }}
+          style={{ left: `calc(${pct}% - 5px)` }}
           aria-hidden
         />
       </div>
-      <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
-        <span>0%</span>
-        <span>50% even</span>
-        <span>100%</span>
+      <div className="flex justify-between text-[9px] text-muted-foreground font-mono tabular-nums">
+        <span>0</span>
+        <span>50 even</span>
+        <span>100</span>
       </div>
     </div>
   );
@@ -159,56 +150,143 @@ function ModelVoteCard({ vote }: { vote: Vote }) {
   const inactive = vote.active === false || vote.direction === "N/A";
   const isUp = !inactive && vote.direction === "UP";
   const pct = Math.round(vote.proba * 100);
-  const barWidth = inactive ? 0 : isUp ? pct : 100 - pct;
-  const why = inputWhyCopy(vote);
 
   return (
     <div
       className={cn(
-        "rounded-lg border p-4 flex flex-col gap-2 min-w-0 h-full",
-        inactive && "opacity-50 bg-muted/20",
-        !inactive && isUp && "border-up/25 bg-up/5",
-        !inactive && !isUp && "border-down/25 bg-down/5"
+        "rounded-lg border p-3 flex flex-col gap-2 min-w-0",
+        inactive ? "opacity-50 bg-muted/20" : "bg-background"
       )}
     >
-      <div className="flex items-center justify-between gap-1">
-        <span className="text-xs font-semibold text-foreground truncate">
-          {voteLabel(vote)}
-        </span>
-        {!inactive &&
-          (isUp ? (
-            <TrendingUp className="size-4 text-up shrink-0" />
-          ) : (
-            <TrendingDown className="size-4 text-down shrink-0" />
-          ))}
-      </div>
-      {why && (
-        <p className="text-[11px] text-muted-foreground leading-snug flex-1">{why}</p>
-      )}
-      <p
-        className={cn(
-          "text-xl font-bold tabular-nums leading-none",
-          inactive ? "text-muted-foreground" : isUp ? "text-up" : "text-down"
-        )}
-      >
-        {inactive ? "—" : isUp ? "UP" : "DOWN"}
-      </p>
-      {!inactive && (
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        {voteLabel(vote)}
+      </span>
+      {inactive ? (
+        <span className="text-sm text-muted-foreground">No headlines</span>
+      ) : (
         <>
-          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn("h-full rounded-full", isUp ? "bg-up" : "bg-down")}
-              style={{ width: `${barWidth}%` }}
-            />
+          <div className="flex items-baseline justify-between gap-2">
+            <span
+              className={cn(
+                "text-sm font-semibold tabular-nums",
+                isUp ? "text-up" : "text-down"
+              )}
+            >
+              {isUp ? "UP" : "DOWN"}
+            </span>
+            <span className="text-xs font-mono tabular-nums text-muted-foreground">
+              {pct}% rising
+            </span>
           </div>
-          <p className="text-[11px] text-muted-foreground font-mono tabular-nums">
-            {pct}% chance of rising
-          </p>
+          <ProbabilityScale proba={vote.proba} />
         </>
       )}
-      {inactive && (
-        <p className="text-[11px] text-muted-foreground">Skipped — no headlines</p>
+    </div>
+  );
+}
+
+function DriverBar({ driver }: { driver: Driver }) {
+  const neutral = driver.direction === "neutral";
+  const isUp = driver.direction === "up";
+  const width = neutral ? 4 : Math.min(100, Math.max(12, Math.abs(driver.effect) * 400));
+
+  return (
+    <div className="flex items-center gap-3 text-sm min-w-0">
+      <span className="text-muted-foreground truncate w-[7.5rem] shrink-0 text-xs">
+        {driver.label}
+      </span>
+      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+        <div
+          className={cn(
+            "h-full rounded-full",
+            neutral ? "bg-border" : isUp ? "bg-up/70" : "bg-down/70"
+          )}
+          style={{ width: `${width}%` }}
+        />
+      </div>
+      {!neutral && (
+        <span
+          className={cn(
+            "text-[10px] font-mono tabular-nums shrink-0 w-12 text-right",
+            isUp ? "text-up" : "text-down"
+          )}
+        >
+          {driver.effect >= 0 ? "+" : ""}
+          {(driver.effect * 100).toFixed(1)}
+        </span>
       )}
+    </div>
+  );
+}
+
+function MetricCell({
+  label,
+  value,
+  sub,
+  onClick,
+  clickable,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  onClick?: () => void;
+  clickable?: boolean;
+}) {
+  const Tag = clickable ? "button" : "div";
+  return (
+    <Tag
+      type={clickable ? "button" : undefined}
+      onClick={onClick}
+      className={cn(
+        "px-3 py-2.5 flex flex-col gap-0.5 min-w-0 text-left",
+        clickable && "hover:bg-background/60 transition-colors cursor-pointer group"
+      )}
+    >
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="text-sm font-medium leading-snug">{value}</span>
+      {sub && (
+        <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+          {sub}
+          {clickable && (
+            <ChevronRight className="size-3 opacity-60 group-hover:opacity-100" />
+          )}
+        </span>
+      )}
+    </Tag>
+  );
+}
+
+function Section({
+  title,
+  sentence,
+  children,
+  accent,
+}: {
+  title: string;
+  sentence: string;
+  children: React.ReactNode;
+  accent?: "up" | "down" | "neutral" | "highlight";
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border p-3 space-y-3",
+        accent === "up" && "border-up/25 bg-up/[0.04]",
+        accent === "down" && "border-down/25 bg-down/[0.04]",
+        accent === "highlight" && "border-up/30 bg-up/[0.06]",
+        accent === "highlight" && "dark:bg-up/[0.08]",
+        (!accent || accent === "neutral") && "bg-muted/30"
+      )}
+    >
+      <div>
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+          {title}
+        </p>
+        <p className="text-sm text-muted-foreground leading-snug">{sentence}</p>
+      </div>
+      {children}
     </div>
   );
 }
@@ -231,7 +309,7 @@ export function RationaleBars({ ticker, date, model, onOpenHeadlines }: Props) {
   }
 
   if (isLoading) {
-    return <div className="h-40 rounded-lg bg-muted animate-pulse" />;
+    return <div className="h-32 rounded-lg bg-muted animate-pulse" />;
   }
 
   if (error || !data) {
@@ -255,95 +333,116 @@ export function RationaleBars({ ticker, date, model, onOpenHeadlines }: Props) {
   const headlines = headlineCount(data);
   const confLabel = exp.confidence_label ?? confidenceLabel(exp.ensemble_confidence);
   const confPct = Math.round(exp.ensemble_confidence * 100);
-  const agreement = agreementSummary(exp.base_votes);
+  const ensPct = Math.round(exp.ensemble_proba * 100);
   const canOpenHeadlines = hasNews && headlines !== 0 && !!onOpenHeadlines;
+  const isUp = exp.ensemble_direction === "UP";
+
+  const topDrivers = (exp.drivers ?? [])
+    .filter((d) => d.direction !== "neutral" && Math.abs(d.effect) > 0.001)
+    .slice(0, 4);
+
+  const flipDrivers =
+    exp.disagreement?.flips_base_lean && exp.disagreement.flip_drivers.length > 0
+      ? exp.disagreement.flip_drivers
+      : [];
+
+  const showOverride = exp.disagreement?.flips_base_lean;
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-lg border p-4 space-y-4">
-        <ProbabilityGauge proba={exp.ensemble_proba} direction={exp.ensemble_direction} />
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <StatCard
-            className={cn(
-              agreement.tone === "up" && "border-up/30 bg-up/5",
-              agreement.tone === "down" && "border-down/30 bg-down/5"
-            )}
-          >
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Input agreement
-            </span>
-            <span
-              className={cn(
-                "text-sm font-semibold leading-snug",
-                agreement.tone === "up" && "text-up",
-                agreement.tone === "down" && "text-down"
-              )}
-            >
-              {agreement.label}
-            </span>
-          </StatCard>
-
-          <StatCard>
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
-              <BarChart3 className="size-3" aria-hidden />
-              Confidence
-            </span>
-            <span className="text-sm font-semibold">{confLabel} confidence</span>
-            <span className="text-2xl font-bold tabular-nums leading-none">{confPct}%</span>
-            <span className="text-[10px] text-muted-foreground">from 50% even</span>
-          </StatCard>
-
-          <StatCard
-            onClick={canOpenHeadlines ? onOpenHeadlines : undefined}
-            disabled={!canOpenHeadlines}
-          >
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground inline-flex items-center gap-1">
-              <Newspaper className="size-3" aria-hidden />
-              Headlines
-            </span>
-            <span className="text-sm font-semibold flex items-center gap-1">
-              {hasNews
+    <div className="space-y-4">
+      {/* Summary + context metrics */}
+      <Section
+        title="Why this call"
+        sentence={summarySentence(exp, !!hasNews, confLabel, ensPct)}
+        accent={isUp ? "up" : "down"}
+      >
+        <div className="rounded-md border bg-background/80 grid grid-cols-3 divide-x overflow-hidden">
+          <MetricCell label="Agreement" value={agreementSummary(exp.base_votes)} />
+          <MetricCell
+            label="Confidence"
+            value={`${confLabel} · ${confPct}%`}
+            sub="from 50% even"
+          />
+          <MetricCell
+            label="Headlines"
+            value={
+              hasNews
                 ? headlines != null
                   ? `${headlines} before close`
-                  : "Used in call"
-                : "None · price only"}
-              {canOpenHeadlines && (
-                <ChevronRight className="size-4 text-muted-foreground group-hover:text-foreground" />
-              )}
-            </span>
-            {canOpenHeadlines && (
-              <span className="text-[10px] text-muted-foreground">View headlines</span>
-            )}
-          </StatCard>
+                  : "Used"
+                : "None"
+            }
+            sub={canOpenHeadlines ? "View" : hasNews ? undefined : "Price only"}
+            onClick={canOpenHeadlines ? onOpenHeadlines : undefined}
+            clickable={canOpenHeadlines}
+          />
         </div>
+      </Section>
 
-        <p className="text-[11px] text-muted-foreground leading-relaxed border-t pt-3">
-          <span className="font-medium text-foreground">Confidence </span> measures how far
-          the rising chance sits from 50% even — a stronger lean, not how often the model
-          has been right. Past accuracy is under Price &amp; accuracy below.
-        </p>
-      </div>
-
-      <div>
-        <p className="text-xs font-medium text-muted-foreground mb-1">Three inputs</p>
-        <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
-          Each model outputs P(up): probability the next close is above today&apos;s close.
-          {hasNews
-            ? " With headlines, a trained combiner merges the three votes into the gauge above (weights in Advanced)."
-            : " No headlines today — only the price model ran, then the price-only combiner."}
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-stretch">
+      {/* Model inputs */}
+      <Section
+        title="Model inputs"
+        sentence={inputsSentence(exp, !!hasNews)}
+        accent="neutral"
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {exp.base_votes.map((v) => (
             <ModelVoteCard key={v.model} vote={v} />
           ))}
         </div>
-      </div>
+      </Section>
 
-      {exp.models_disagree && hasNews && (
-        <p className="text-xs text-muted-foreground border-l-2 border-muted pl-3">
-          Inputs disagreed — the combiner weighted them to reach the final call above.
-        </p>
+      {/* Ensemble override — focal when inputs disagree with final */}
+      {showOverride && exp.disagreement && (
+        <Section
+          title="Ensemble override"
+          sentence={overrideSentence(exp.disagreement)}
+          accent="highlight"
+        >
+          <div className="flex items-center gap-2 text-sm flex-wrap rounded-md border bg-background/80 px-3 py-2">
+            <span className="text-muted-foreground text-xs">Inputs avg</span>
+            <span
+              className={cn(
+                "font-semibold tabular-nums",
+                exp.disagreement.base_lean_direction === "UP" ? "text-up" : "text-down"
+              )}
+            >
+              {Math.round(exp.disagreement.base_lean_proba * 100)}%
+            </span>
+            <span className="text-muted-foreground">→</span>
+            <span className="text-muted-foreground text-xs">Final</span>
+            <span
+              className={cn(
+                "font-semibold tabular-nums",
+                exp.disagreement.ensemble_direction === "UP" ? "text-up" : "text-down"
+              )}
+            >
+              {ensPct}% {exp.disagreement.ensemble_direction}
+            </span>
+          </div>
+          {flipDrivers.length > 0 && (
+            <div className="space-y-2">
+              {flipDrivers.map((d) => (
+                <DriverBar key={d.feature} driver={d} />
+              ))}
+            </div>
+          )}
+        </Section>
+      )}
+
+      {/* Combiner weights */}
+      {topDrivers.length > 0 && (
+        <Section
+          title="What weighted the call"
+          sentence={weightedSentence(topDrivers, exp.ensemble_direction)}
+          accent="neutral"
+        >
+          <div className="space-y-2">
+            {topDrivers.map((d) => (
+              <DriverBar key={d.feature} driver={d} />
+            ))}
+          </div>
+        </Section>
       )}
     </div>
   );

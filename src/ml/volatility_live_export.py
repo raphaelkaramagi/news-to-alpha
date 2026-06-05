@@ -85,22 +85,19 @@ def append_live_volatility_predictions(
     price_csv = PROCESSED_DATA_DIR / "price_predictions.csv"
     if not price_csv.exists():
         return 0
-    price = pd.read_csv(price_csv, usecols=["ticker", "prediction_date", "split"])
-    live_pairs = set(
-        zip(
-            price.loc[price["split"] == "live", "ticker"],
-            price.loc[price["split"] == "live", "prediction_date"].astype(str),
-        )
+    price = pd.read_csv(price_csv, usecols=["ticker", "prediction_date"])
+    need_pairs = set(
+        zip(price["ticker"], price["prediction_date"].astype(str))
     )
-    if not live_pairs:
+    if not need_pairs:
         return 0
 
     vol_csv = PROCESSED_DATA_DIR / CSV_NAME
     if vol_csv.exists():
         existing = pd.read_csv(vol_csv, usecols=["ticker", "prediction_date"])
         have = set(zip(existing["ticker"], existing["prediction_date"].astype(str)))
-        live_pairs -= have
-    if not live_pairs:
+        need_pairs -= have
+    if not need_pairs:
         return 0
 
     ti = TechnicalIndicators()
@@ -117,9 +114,19 @@ def append_live_volatility_predictions(
             mid = df.get("bb_middle", df["close"])
             df["bb_width"] = (df["bb_upper"] - df["bb_lower"]) / mid.replace(0, np.nan)
         mask = df.apply(
-            lambda r: (r["ticker"], r["prediction_date"]) in live_pairs, axis=1
+            lambda r: (r["ticker"], r["prediction_date"]) in need_pairs, axis=1
         )
-        sub = df.loc[mask].dropna(subset=features)
+        sub = df.loc[mask].copy()
+        # optional extra cols (earnings proximity) — only when the saved model expects them
+        extra = {"days_to_earnings", "earnings_window", "sector_vol_ratio"}
+        if extra & set(features):
+            from src.features.fundamentals_features import add_earnings_proximity, add_sector
+            sub = add_earnings_proximity(sub, date_col="prediction_date")
+            sub = add_sector(sub)
+            sector_mean = sub.groupby(["prediction_date", "sector"])["realized_vol_20"].transform("mean")
+            sub["sector_vol_ratio"] = sub["realized_vol_20"] / sector_mean.replace(0, np.nan)
+            sub["sector_vol_ratio"] = sub["sector_vol_ratio"].fillna(1.0)
+        sub = sub.dropna(subset=features)
         if sub.empty:
             continue
         pred = np.clip(model.predict(sub[features]), 0.05, 20.0)

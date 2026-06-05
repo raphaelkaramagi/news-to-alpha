@@ -177,6 +177,12 @@ def run(cfg: PipelineConfig) -> None:
              "--days", str(cfg.lookback_days), "--fill-gaps", *ticker_args],
             "collect_news",
         )
+        # finnhub doesn't ship sentiment — score headlines so news side-features
+        # and embedding relevance weights aren't stuck at zero
+        _run(
+            [_py(), "scripts/backfill_news_sentiment.py"],
+            "score_news_sentiment",
+        )
     if not cfg.skip_labels:
         _run([_py(), "scripts/generate_labels.py", *ticker_args], "generate_labels")
     if not cfg.skip_split:

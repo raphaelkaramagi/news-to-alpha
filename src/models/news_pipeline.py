@@ -349,6 +349,49 @@ def assign_split_labels(df: pd.DataFrame, split_info_path: Path) -> pd.DataFrame
     return out
 
 
+def split_dataset_for_news(
+    df: pd.DataFrame,
+    *,
+    source: str,
+    split_info_path: Path,
+    train_ratio: float = 0.70,
+    val_ratio: float = 0.15,
+    min_global_train_rows: int = 200,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Pick the train/val/test split for the news models.
+
+    source="global"  -> use the SAME date sets as the LSTM (split_info.json) so
+                        a calendar day is never train for news but test for the
+                        price model. This is the leakage-safe ideal, but it
+                        requires the news window to overlap the global TRAIN
+                        window. With only ~6 months of news that window is
+                        empty, so we guard against starving training and fall
+                        back to chronological with a loud warning.
+    source="news_chrono" (default) -> chronological split over news-bearing
+                        dates only (the only viable option with short history).
+                        Cross-split leakage into the ensemble is then prevented
+                        downstream in build_eval_dataset.py (news scores are
+                        nulled when news_split != price_split).
+    """
+    if source == "global":
+        # ideal: same calendar boundaries as lstm — but news only ~6mo so train is often empty
+        train, val, test = split_by_info_json(df, split_info_path)
+        if len(train) >= min_global_train_rows:
+            logger.info("News split source: GLOBAL (split_info.json)")
+            return train, val, test
+        logger.warning(
+            "News split source=global requested but global TRAIN has only %d "
+            "news rows (<%d). News history does not reach the global train "
+            "window — falling back to chronological split on news dates.",
+            len(train), min_global_train_rows,
+        )
+    elif source != "news_chrono":
+        raise ValueError(f"Unknown split source {source!r}")
+
+    logger.info("News split source: NEWS_CHRONO (chronological on news dates)")
+    return chronological_split(df, train_ratio=train_ratio, val_ratio=val_ratio)
+
+
 def split_by_info_json(
     df: pd.DataFrame,
     split_info_path: Path,

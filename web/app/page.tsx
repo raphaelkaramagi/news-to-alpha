@@ -17,7 +17,7 @@ export default async function MarketsPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Markets</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Next-session direction forecasts
+          Next-session expected move and direction call for 20 US equities
         </p>
       </div>
 

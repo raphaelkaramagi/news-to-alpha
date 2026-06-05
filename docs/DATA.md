@@ -21,11 +21,14 @@ Raw downloads and training stay on the operator machine. Only inference artifact
 
 | Table | Contents |
 |-------|----------|
-| `prices` | Daily OHLCV per ticker |
-| `news` | Headlines, source, URL, published_at |
+| `prices` | Daily OHLCV per ticker (+ VIX/SPY context) |
+| `news` | Headlines, source, URL, published_at, **`sentiment_score` + `relevance_score`** (FinBERT, backfilled) |
 | `labels` | Up/down labels + `%` return (requires next session close) |
 | `predictions` | Optional mirror of model CSV rows |
 | `run_log` | Script execution audit trail |
+| `fundamentals` / `macro` / `earnings_dates` | **Gated** extra sources (yfinance + FRED). Collected but not in the default feature set — see [RESULTS.md](RESULTS.md) |
+
+**News sentiment:** Finnhub ships no sentiment, so `scripts/backfill_news_sentiment.py` scores every headline with FinBERT after collection (wired into `run_pipeline.py` and `daily_update.py`). All ~48k rows are scored; this is what the news models consume. The gated tables are populated by `collect_fundamentals.py`, `collect_macro.py`, and `collect_news_gdelt.py` but only enter training behind `--extra-features`.
 
 ### `data/processed/` (CSVs)
 

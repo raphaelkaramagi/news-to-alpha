@@ -8,15 +8,20 @@ Next-session **direction** (UP/DOWN) and **expected move** (±% band) for 20 US 
 
 ---
 
-## Signal limits 
+## Results at a glance
 
-| Output | Test skill | Notes |
-|--------|------------|-------|
-| **Direction** (UP/DOWN) | AUC ≈ **0.50** | Efficient-market ceiling for liquid large-cap daily direction |
-| **Expected move %** (volatlity/return) | high-move AUC ≈ **0.65**, MAE ≈ 1.2% | The measurable signal; shown as ±% band on cards and detail |
-| **Drift** (always UP) | 52.5% (1d) | Base rate, not skill — accuracy without AUC does not count |
+Held-out test split (n≈2,183), latest `max_v2` retrain.
 
-Full metrics and subsets: **[docs/RESULTS.md](docs/RESULTS.md)** 
+Use **AUC**, not accuracy — daily direction sits near the efficient-market noise floor, so raw accuracy is mostly drift.
+
+| Output | Test skill | Read as |
+|--------|------------|---------|
+| **Direction** (UP/DOWN, ensemble) | AUC ≈ **0.53** | The headline call; marginal, near noise floor |
+| **Direction on news days** (`news_scored`, n≈380) | AUC ≈ **0.55** | Slight edge when fresh headlines exist |
+| **Expected move %** (volatility) | high-move AUC ≈ **0.65**, MAE ≈ **1.2%** | More reliable than direction — shown as the ±% band |
+| **Drift** (always UP) | acc ≈ 0.51 | Base rate, not skill |
+
+Full metrics, subsets, and walk-forward findings: **[docs/RESULTS.md](docs/RESULTS.md)**
 
 ---
 
@@ -38,6 +43,13 @@ Vercel (web/)  ←  Next.js dashboard
 
 Models: **LSTM** (price direction), **TF-IDF + FinBERT** (news direction), **volatility regressor** (next-day |return|), **conditional HGB ensemble** (13 features, routes has_news / no_news).
 
+### Data inputs (what actually feeds the models)
+
+| Source | Rows | Used by models? |
+|--------|------|-----------------|
+| Prices (yfinance, OHLCV + VIX/SPY) | ~16.5k | Yes — LSTM, volatility |
+| News (Finnhub) + **FinBERT sentiment/relevance** | ~48k (all scored) | Yes — TF-IDF + embedding news models → ensemble |
+| Fundamentals / macro (FRED) / earnings dates | 20 / 787 / 974 | **Collected but gated** — walk-forward showed no direction lift, so off by default (`--extra-features`) |
 ---
 
 ## Quick start
@@ -54,7 +66,7 @@ python scripts/run_pipeline.py --preset max_v2
 **API:** `python app/server.py --port 8000`  
 **UI:** `cd web && npm install && npm run dev` → http://localhost:3000
 
-Details: **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
+Setup, retrain, verify, and run locally, step by step: **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
 
 ---
 
@@ -62,11 +74,11 @@ Details: **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**
 
 | Doc | Purpose |
 |-----|---------|
-| [docs/README.md](docs/README.md) | Index |
-| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Local setup, smoke tests |
-| [docs/DATA.md](docs/DATA.md) | Pipeline, artifacts, publish |
-| [docs/RESULTS.md](docs/RESULTS.md) | Evaluation metrics |
-| [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Architecture |
+| [docs/README.md](docs/README.md) | Index / reading order |
+| [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | Detailed overview: data, models, pipeline, modules, deployment |
+| [docs/RESULTS.md](docs/RESULTS.md) | Evaluation metrics + walk-forward findings |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Setup, retrain, verify, run API/UI locally |
+| [docs/DATA.md](docs/DATA.md) | Pipeline, data sources, artifacts, publish |
 | [web/README.md](web/README.md) | Frontend |
 
 Daily refresh (no retrain): `python scripts/daily_update.py`  
