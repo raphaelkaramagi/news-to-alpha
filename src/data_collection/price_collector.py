@@ -96,6 +96,83 @@ class PriceCollector(BaseCollector):
 
         return 0, 0, "unexpected"
 
+    def fill_gaps(
+        self,
+        tickers: list[str],
+        *,
+        lookback_days: int = 60,
+    ) -> dict:
+        """Fetch single-day windows for NYSE sessions missing from the DB.
+
+        yfinance occasionally leaves holes (e.g. 2026-06-02) when a bulk range
+        is pulled before that bar exists. Gaps break labels and live LSTM rows.
+        """
+        from datetime import date as _date
+
+        from src.utils.trading_calendar import last_trading_session, nyse_sessions_between
+
+        end_d = last_trading_session()
+        start_d = end_d - timedelta(days=lookback_days)
+        expected = [d.isoformat() for d in nyse_sessions_between(start_d, end_d)]
+        if not expected:
+            return {
+                "tickers_succeeded": [],
+                "tickers_failed": [],
+                "rows_added": 0,
+                "duplicates_skipped": 0,
+                "errors": {},
+                "gap_days_filled": 0,
+            }
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        stats = {
+            "tickers_succeeded": [],
+            "tickers_failed": [],
+            "rows_added": 0,
+            "duplicates_skipped": 0,
+            "errors": {},
+            "gap_days_filled": 0,
+        }
+        run_start = datetime.now()
+
+        for ticker in tickers:
+            rows = cursor.execute(
+                "SELECT date FROM prices WHERE ticker = ? AND date >= ? AND date <= ?",
+                (ticker, start_d.isoformat(), end_d.isoformat()),
+            ).fetchall()
+            have = {str(r[0])[:10] for r in rows}
+            missing = [d for d in expected if d not in have]
+            if not missing:
+                stats["tickers_succeeded"].append(ticker)
+                continue
+            self.logger.info(
+                "%s: filling %d missing session(s): %s .. %s",
+                ticker, len(missing), missing[0], missing[-1],
+            )
+            ticker_failed = False
+            for day in missing:
+                added, dupes, error = self._collect_one(
+                    ticker, day, day, cursor, MAX_RETRIES,
+                )
+                stats["rows_added"] += added
+                stats["duplicates_skipped"] += dupes
+                if error:
+                    stats["errors"][f"{ticker}:{day}"] = error
+                    ticker_failed = True
+                elif added:
+                    stats["gap_days_filled"] += 1
+            if ticker_failed:
+                stats["tickers_failed"].append(ticker)
+            else:
+                stats["tickers_succeeded"].append(ticker)
+
+        conn.commit()
+        conn.close()
+        duration = (datetime.now() - run_start).total_seconds()
+        self._log_run(stats, run_start, duration)
+        return stats
+
     @staticmethod
     def _insert_rows(ticker: str, df: pd.DataFrame, cursor: sqlite3.Cursor) -> tuple[int, int]:
         """Insert DataFrame rows into database.

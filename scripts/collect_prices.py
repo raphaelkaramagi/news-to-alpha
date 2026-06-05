@@ -50,6 +50,11 @@ def main() -> None:
         "--tickers", nargs="+",
         help="Specific tickers (default: all from config)",
     )
+    parser.add_argument(
+        "--fill-gaps",
+        action="store_true",
+        help="After the main fetch, pull any missing NYSE sessions in the lookback window.",
+    )
     args = parser.parse_args()
 
     end_date = datetime.now().strftime("%Y-%m-%d")
@@ -85,7 +90,19 @@ def main() -> None:
     print(f"Range   : {start_date}  ->  {end_date}")
     print(f"Tickers : {', '.join(tickers)}  ({len(tickers)} total)\n")
 
-    stats = PriceCollector().collect(tickers, start_date, end_date)
+    collector = PriceCollector()
+    stats = collector.collect(tickers, start_date, end_date)
+
+    if args.fill_gaps:
+        gap_lookback = max(args.days, (datetime.strptime(end_date, "%Y-%m-%d") -
+                        datetime.strptime(start_date, "%Y-%m-%d")).days + 5)
+        print(f"\nFilling missing NYSE sessions (lookback {gap_lookback} calendar days) ...")
+        gap_stats = collector.fill_gaps(tickers, lookback_days=gap_lookback)
+        stats["rows_added"] += gap_stats["rows_added"]
+        stats["duplicates_skipped"] += gap_stats["duplicates_skipped"]
+        stats["gap_days_filled"] = gap_stats.get("gap_days_filled", 0)
+        if gap_stats.get("errors"):
+            stats.setdefault("errors", {}).update(gap_stats["errors"])
 
     print("\n" + "=" * 60)
     print("SUMMARY")

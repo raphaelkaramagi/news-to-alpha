@@ -72,6 +72,24 @@ def last_trading_session(as_of: Optional[date] = None) -> date:
     return d
 
 
+def nyse_sessions_between(start: date, end: date) -> list[date]:
+    """NYSE session dates in the inclusive range [start, end]."""
+    if end < start:
+        return []
+    cal = _get_nyse()
+    if cal is not None:
+        import pandas as pd
+        sessions = cal.sessions_in_range(pd.Timestamp(start), pd.Timestamp(end))
+        return [s.date() for s in sessions]
+    out: list[date] = []
+    d = start
+    while d <= end:
+        if d.weekday() < 5:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
 def sessions_between(start: date, end: date) -> int:
     """Count NYSE trading sessions in the range [start, end) exclusive of end."""
     if end <= start:

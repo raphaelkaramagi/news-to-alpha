@@ -140,7 +140,7 @@ def run(
         collect_flags = ["--days", str(lookback_days)]
 
     _run(
-        [_py(), "scripts/collect_prices.py", *collect_flags, *ticker_args],
+        [_py(), "scripts/collect_prices.py", *collect_flags, "--fill-gaps", *ticker_args],
         "collect_prices",
     )
 
