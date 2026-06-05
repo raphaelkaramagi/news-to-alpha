@@ -142,7 +142,7 @@ export function AdvancedPanel({ ticker, date, model, perModel, tickerData }: Pro
       <div>
         <p className="text-sm font-medium mb-1">Expected move (volatility model)</p>
         <p className="text-xs text-muted-foreground mb-3">
-          Next-session |return| forecast — the stronger, measurable signal (~0.65 test AUC for high vs low move).
+          Next-session |return| forecast from the volatility model.
         </p>
         <div className="rounded-lg border px-4 py-3 text-sm space-y-2">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">

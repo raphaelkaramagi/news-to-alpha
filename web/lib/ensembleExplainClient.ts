@@ -32,7 +32,7 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
   const tfidf = pm.tfidf?.proba ?? 0.5;
   const emb = pm.embeddings?.proba ?? 0.5;
   const simpleAvg = hasNews ? (lstm + tfidf + emb) / 3 : lstm;
-  const direction = proba >= 0.5 ? "UP" : "DOWN";
+  const direction: "UP" | "DOWN" = proba >= 0.5 ? "UP" : "DOWN";
   const confidence = data.ensemble_confidence ?? confidenceFromProba(proba);
   const label = confidenceLabel(confidence);
 
@@ -77,6 +77,21 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
     direction: "neutral" as const,
   }));
 
+  const baseLeanProba = simpleAvg;
+  const baseLeanDir: "UP" | "DOWN" = baseLeanProba >= 0.5 ? "UP" : "DOWN";
+  const flips = baseLeanDir !== direction;
+  const disagreement = {
+    base_lean_proba: baseLeanProba,
+    base_lean_direction: baseLeanDir,
+    ensemble_direction: direction,
+    ensemble_proba: proba,
+    flips_base_lean: flips,
+    flip_drivers: [],
+    explanation: flips
+      ? `Inputs lean ${baseLeanDir} (${(baseLeanProba * 100).toFixed(0)}% UP) but the ensemble calls ${direction} (${(proba * 100).toFixed(0)}% UP).`
+      : `Ensemble call (${direction}) agrees with the input lean.`,
+  };
+
   return {
     ensemble_proba: proba,
     ensemble_direction: direction,
@@ -88,6 +103,7 @@ export function buildClientExplanation(data: RationaleResponse): EnsembleExplana
     bullets,
     base_votes,
     drivers,
+    disagreement,
     news_weight_note: null,
     models_disagree: hasNews && upVotes > 0 && downVotes > 0,
     ensemble_route: route,

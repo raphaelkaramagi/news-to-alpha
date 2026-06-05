@@ -150,6 +150,12 @@ def run(
              *collect_flags, "--fill-gaps", *ticker_args],
             "collect_news",
         )
+        # Score FinBERT sentiment + relevance for any newly collected headlines
+        # so the news side-features and embedding weights are not always zero.
+        _run(
+            [_py(), "scripts/backfill_news_sentiment.py"],
+            "score_news_sentiment",
+        )
 
     _run(
         [_py(), "scripts/generate_labels.py", *ticker_args],

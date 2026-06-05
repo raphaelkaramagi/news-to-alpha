@@ -22,7 +22,7 @@ export const metadata: Metadata = {
     template: "%s · Stock Price and Sentiment Predictor",
   },
   description:
-    "Next-session stock direction forecasts combining price signals, news sentiment, and ensemble ML.",
+    "Next-session expected move and direction forecasts from price signals, news sentiment, and ensemble ML.",
   icons: {
     icon: [{ url: "/icon.png", type: "image/png", sizes: "512x512" }],
     apple: [{ url: "/apple-icon.png", type: "image/png", sizes: "180x180" }],

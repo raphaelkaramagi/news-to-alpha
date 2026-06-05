@@ -184,7 +184,10 @@ def apply_level_scaler(X: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.n
 
 
 class SeedEnsemble:
-    """Wraps N trained LSTMTrainers — averages raw logits/probs, calibrates once."""
+    """Wraps N trained LSTMTrainers — averages seed outputs, calibrates once.
+
+    calibration happens *after* averaging so we fit one mapping on val, not N.
+    """
 
     def __init__(self, trainers: list[LSTMTrainer]):
         if not trainers:
@@ -198,11 +201,17 @@ class SeedEnsemble:
 
     def predict_proba_raw(self, X: np.ndarray,
                           ticker_idx: np.ndarray | None = None) -> np.ndarray:
-        logits = np.mean(
-            np.stack([t.predict_logits(X, ticker_idx) for t in self.trainers], axis=0),
+        # Average PROBABILITIES, not logits. Averaging logits before the sigmoid
+        # compresses the output spread (a weak signal across seeds collapses
+        # toward 0.5), which is one driver of identical day-to-day probabilities.
+        probs = np.mean(
+            np.stack([
+                1.0 / (1.0 + np.exp(-t.predict_logits(X, ticker_idx)))
+                for t in self.trainers
+            ], axis=0),
             axis=0,
         )
-        return 1.0 / (1.0 + np.exp(-logits))
+        return probs
 
     def predict_proba(self, X: np.ndarray,
                       ticker_idx: np.ndarray | None = None) -> np.ndarray:
@@ -216,13 +225,35 @@ class SeedEnsemble:
         return (self.predict_proba(X, ticker_idx) >= self.decision_threshold).astype(np.int32)
 
 
+def _is_degenerate_calibration(
+    calibrated: np.ndarray,
+    min_unique: int = 20,
+    min_std: float = 0.02,
+) -> bool:
+    """True if a calibrator collapses outputs into a few plateaus / near-constant.
+
+    A handful of distinct probabilities is exactly what produces identical
+    P(up) across many consecutive sessions in the UI.
+    """
+    cal = np.asarray(calibrated, dtype=float)
+    if cal.size == 0:
+        return True
+    return (np.unique(np.round(cal, 4)).size < min_unique) or (float(np.std(cal)) < min_std)
+
+
 def fit_predictor_calibration(
     predictor,
     X_val: np.ndarray,
     y_val: np.ndarray,
     tidx_val: np.ndarray | None = None,
 ) -> tuple[float, str | None]:
-    """Fit one calibrator + decision threshold on validation (after seed averaging)."""
+    """Fit one calibrator + decision threshold on validation (after seed averaging).
+
+    Policy: prefer Platt **sigmoid** (smooth, monotonic, preserves day-to-day
+    variation). Isotonic is only adopted when val is large AND high-variance AND
+    a post-fit check confirms it did not collapse into plateaus. Any calibrator
+    that still collapses is rejected in favor of the raw probabilities.
+    """
     y_val = np.asarray(y_val).astype(int)
     if len(X_val) == 0 or len(np.unique(y_val)) < 2:
         return 0.5, None
@@ -235,24 +266,37 @@ def fit_predictor_calibration(
         target = predictor
 
     raw_std = float(np.std(raw))
+    # model basically constant — calibrating would just add fake steps
     if raw_std < 0.005:
         target.calibrator = None
         target.calibration_method = "none_degenerate"
         target.decision_threshold = LSTMTrainer.tune_decision_threshold(y_val, raw)
         return target.decision_threshold, target.calibration_method
 
-    # Force sigmoid when variance is low — isotonic collapses into plateaus.
+    # Default: Platt sigmoid.
+    chosen = _SigmoidCalibrator().fit(raw, y_val)
+    method = "sigmoid"
+
+    # Try isotonic only when there is enough data and spread to support it,
+    # and only keep it if it does not collapse the output.
     if len(raw) >= CAL_ISOTONIC_MIN_ROWS and raw_std >= 0.05:
         from sklearn.isotonic import IsotonicRegression
-        cal = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
-        cal.fit(raw, y_val.astype(float))
-        target.calibrator = cal
-        target.calibration_method = "isotonic"
-    else:
-        target.calibrator = _SigmoidCalibrator().fit(raw, y_val)
-        target.calibration_method = "sigmoid"
+        iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+        iso.fit(raw, y_val.astype(float))
+        iso_out = np.clip(iso.predict(raw), 1e-4, 1 - 1e-4)
+        if not _is_degenerate_calibration(iso_out):
+            chosen, method = iso, "isotonic"
 
-    calibrated = np.clip(target.calibrator.predict(raw), 1e-4, 1 - 1e-4)
+    target.calibrator = chosen
+    target.calibration_method = method
+    calibrated = np.clip(chosen.predict(raw), 1e-4, 1 - 1e-4)
+
+    # last line of defense — if we still only have ~39 unique probas, skip calib
+    if _is_degenerate_calibration(calibrated):
+        target.calibrator = None
+        target.calibration_method = f"{method}_rejected_raw"
+        calibrated = raw
+
     target.decision_threshold = LSTMTrainer.tune_decision_threshold(y_val, calibrated)
     return target.decision_threshold, target.calibration_method
 
@@ -471,7 +515,7 @@ def main() -> None:
     n_neg = int((y_train == 0).sum())
     if n_pos == 0 or n_neg == 0:
         pos_weight = 1.0
-    elif config.get("use_focal_loss", True):
+    elif config.get("use_focal_loss", False):  # default False to match LSTM_CONFIG
         pos_weight = None  # focal loss handles class imbalance
         print(f"\n  Class balance train: pos={n_pos} neg={n_neg}  (focal loss, no pos_weight)")
     else:

@@ -23,6 +23,7 @@ class DatabaseSchema:
             self._create_labels_table(cursor)
             self._create_predictions_table(cursor)
             self._create_run_log_table(cursor)
+            self._create_fundamentals_tables(cursor)
             self._migrate_labels_horizon(cursor)
             conn.commit()
             logger.info("All database tables created successfully")
@@ -125,6 +126,42 @@ class DatabaseSchema:
                 UNIQUE(ticker, date, model_version)
             )
         """)
+
+    def _create_fundamentals_tables(self, cursor: sqlite3.Cursor) -> None:
+        """Free yfinance fundamentals + earnings calendar (for vol/regime features)."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS fundamentals (
+                ticker        TEXT PRIMARY KEY,
+                sector        TEXT,
+                industry      TEXT,
+                market_cap    REAL,
+                trailing_pe   REAL,
+                forward_pe    REAL,
+                beta          REAL,
+                updated_at    TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS earnings_dates (
+                ticker         TEXT NOT NULL,
+                earnings_date  TEXT NOT NULL,
+                created_at     TEXT DEFAULT (datetime('now')),
+                UNIQUE(ticker, earnings_date)
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_earnings_ticker_date ON earnings_dates(ticker, earnings_date)"
+        )
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS macro (
+                date        TEXT NOT NULL,
+                series_id   TEXT NOT NULL,
+                value       REAL,
+                created_at  TEXT DEFAULT (datetime('now')),
+                UNIQUE(date, series_id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_macro_date ON macro(date, series_id)")
 
     def _create_run_log_table(self, cursor: sqlite3.Cursor) -> None:
         """Track when data collection / training runs happened."""

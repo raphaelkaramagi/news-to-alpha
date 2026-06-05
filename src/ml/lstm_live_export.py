@@ -1,4 +1,8 @@
-"""Append forward-looking LSTM predictions for dates after the last label."""
+"""Append forward-looking LSTM predictions for dates after the last label.
+
+live rows land in price_predictions.csv with split='live'. uses the same
+calibrator + decision_threshold saved on the checkpoint — not a fresh 0.5 cut.
+"""
 from __future__ import annotations
 
 import logging
@@ -83,17 +87,40 @@ def append_live_lstm_predictions(
     else:
         scaler_state = getattr(predictor, "scaler_state", None)
 
+    # Use the validation-tuned decision threshold, not a hardcoded 0.5, so live
+    # binary calls match how the model was actually tuned/evaluated.
+    threshold = float(getattr(predictor, "decision_threshold", 0.5) or 0.5)
+    logger.info("LSTM live scoring with decision_threshold=%.4f", threshold)
+
     gen = SequenceGenerator(horizon=horizon, feature_columns=feature_cols)
+
+    # catch up any (ticker, date) holes — not just dates after the last label.
+    # late price collects can label sessions before we ever scored them.
+    existing_by_ticker: dict[str, set[str]] = {}
+    if csv_path.exists():
+        prev = pd.read_csv(csv_path, usecols=["ticker", "prediction_date"])
+        for t, grp in prev.groupby("ticker"):
+            existing_by_ticker[str(t)] = set(grp["prediction_date"].astype(str))
+
     frames: list[pd.DataFrame] = []
 
+    catch_up_days = 21  # only fill recent holes, not years of history
+
     for ticker in tickers:
-        X_live, dates = gen.generate_live(ticker)
+        skip = existing_by_ticker.get(ticker, set())
+        min_date = None
+        if skip:
+            anchor = pd.Timestamp(max(skip))
+            min_date = (anchor - pd.Timedelta(days=catch_up_days)).strftime("%Y-%m-%d")
+        X_live, dates = gen.generate_unscored(
+            ticker, existing_dates=skip, min_date=min_date,
+        )
         if len(X_live) == 0:
             continue
         X_live = _apply_scaler(X_live, scaler_state)
         tidx = np.full(len(X_live), ticker_to_idx.get(ticker, 0), dtype=np.int64)
         proba = predictor.predict_proba(X_live, tidx)
-        binary = (proba >= 0.5).astype(int)
+        binary = (proba >= threshold).astype(int)
         confidence = np.abs(proba - 0.5) * 2.0
 
         frames.append(pd.DataFrame({

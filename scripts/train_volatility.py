@@ -45,6 +45,29 @@ FEATURE_COLS = [
     "rsi_norm",
 ]
 
+# Free extra features (earnings proximity + sector-relative vol). Gated: only
+# kept if they improve test MAE / high-move AUC in this script's eval.
+EXTRA_FEATURE_COLS = [
+    "days_to_earnings",
+    "earnings_window",
+    "sector_vol_ratio",
+]
+
+
+def add_extra_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Augment with earnings-proximity and sector-relative realized vol."""
+    from src.features.fundamentals_features import add_earnings_proximity, add_sector
+
+    out = add_earnings_proximity(df, date_col="prediction_date")
+    out = add_sector(out)
+    # Sector-relative vol: this ticker's realized_vol_20 vs same-day sector mean.
+    sector_mean = (
+        out.groupby(["prediction_date", "sector"])["realized_vol_20"].transform("mean")
+    )
+    out["sector_vol_ratio"] = out["realized_vol_20"] / sector_mean.replace(0, np.nan)
+    out["sector_vol_ratio"] = out["sector_vol_ratio"].fillna(1.0)
+    return out
+
 
 def _load_split_dates() -> dict[str, set[str]]:
     path = PROCESSED_DATA_DIR / "split_info.json"
@@ -94,7 +117,9 @@ def assign_splits(df: pd.DataFrame, split_dates: dict[str, set[str]]) -> pd.Data
     return df
 
 
-def train_model(train_df: pd.DataFrame, val_df: pd.DataFrame) -> HistGradientBoostingRegressor:
+def train_model(
+    train_df: pd.DataFrame, val_df: pd.DataFrame, feature_cols: list[str],
+) -> HistGradientBoostingRegressor:
     reg = HistGradientBoostingRegressor(
         max_depth=4,
         max_iter=400,
@@ -102,17 +127,17 @@ def train_model(train_df: pd.DataFrame, val_df: pd.DataFrame) -> HistGradientBoo
         l2_regularization=1.0,
         random_state=42,
     )
-    reg.fit(train_df[FEATURE_COLS], train_df["abs_return_pct"])
+    reg.fit(train_df[feature_cols], train_df["abs_return_pct"])
     if not val_df.empty:
-        val_pred = reg.predict(val_df[FEATURE_COLS])
+        val_pred = reg.predict(val_df[feature_cols])
         print(f"  Val MAE: {mean_absolute_error(val_df['abs_return_pct'], val_pred):.4f}%")
     return reg
 
 
-def evaluate(model, df: pd.DataFrame, name: str) -> dict:
+def evaluate(model, df: pd.DataFrame, name: str, feature_cols: list[str]) -> dict:
     if df.empty:
         return {}
-    pred = np.clip(model.predict(df[FEATURE_COLS]), 0.05, 20.0)
+    pred = np.clip(model.predict(df[feature_cols]), 0.05, 20.0)
     mae = mean_absolute_error(df["abs_return_pct"], pred)
     med = float(df["abs_return_pct"].median())
     y_high = (df["abs_return_pct"] > med).astype(int)
@@ -124,8 +149,8 @@ def evaluate(model, df: pd.DataFrame, name: str) -> dict:
     return {"mae": mae, "high_move_auc": auc, "n": len(df)}
 
 
-def export_predictions(model, df: pd.DataFrame) -> pd.DataFrame:
-    pred = np.clip(model.predict(df[FEATURE_COLS]), 0.05, 20.0)
+def export_predictions(model, df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    pred = np.clip(model.predict(df[feature_cols]), 0.05, 20.0)
     out = df[["ticker", "prediction_date", "split"]].copy()
     out["expected_move_pct"] = pred
     out["actual_abs_return_pct"] = df["abs_return_pct"].values
@@ -138,6 +163,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Train volatility / expected-move model")
     parser.add_argument("--horizon", type=int, default=1, choices=[1, 3])
     parser.add_argument("--tickers", nargs="+", default=None)
+    parser.add_argument(
+        "--extra-features", action="store_true",
+        help="Add earnings-proximity + sector-relative vol (gated; needs collect_fundamentals.py)",
+    )
     args = parser.parse_args()
 
     tickers = [t.upper() for t in (args.tickers or TICKERS)]
@@ -150,6 +179,12 @@ def main() -> None:
     df = build_volatility_frame(tickers, horizon=args.horizon)
     print(f"  Built {len(df):,} feature rows across {df['ticker'].nunique()} tickers")
 
+    feature_cols = list(FEATURE_COLS)
+    if args.extra_features:
+        df = add_extra_features(df)
+        feature_cols = feature_cols + EXTRA_FEATURE_COLS
+        print(f"  Extra features ON: {EXTRA_FEATURE_COLS}")
+
     df = assign_splits(df, split_dates)
     train = df[df["split"] == "train"]
     val = df[df["split"] == "val"]
@@ -157,36 +192,37 @@ def main() -> None:
 
     print(f"  Train {len(train):,}  Val {len(val):,}  Test {len(test):,}")
 
-    model = train_model(train, val)
+    model = train_model(train, val, feature_cols)
     print("\nEvaluation:")
-    evaluate(model, train, "train")
-    evaluate(model, val, "val")
-    evaluate(model, test, "test")
+    evaluate(model, train, "train", feature_cols)
+    evaluate(model, val, "val", feature_cols)
+    evaluate(model, test, "test", feature_cols)
 
     # Score all rows including live (features known, label may be NaN)
-    all_scored = export_predictions(model, df)
+    all_scored = export_predictions(model, df, feature_cols)
     csv_path = PROCESSED_DATA_DIR / CSV_NAME
     labeled = all_scored[all_scored["split"].isin(["train", "val", "test"])]
     combined = labeled.copy()
     combined.to_csv(csv_path, index=False)
     print(f"\n  Saved {len(combined):,} rows to {csv_path}")
 
-    from src.ml.volatility_live_export import append_live_volatility_predictions  # noqa: E402
-    n_live = append_live_volatility_predictions(tickers=tickers, horizon=args.horizon)
-    if n_live:
-        print(f"  Appended {n_live} live volatility rows")
-
+    # save joblib before live export — append_live reads features from disk
     model_path = MODELS_DIR / MODEL_FILE
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump({
         "model": model,
-        "features": FEATURE_COLS,
+        "features": feature_cols,
         "horizon": args.horizon,
         "model_name": MODEL_NAME,
         "model_version": MODEL_VERSION,
         "high_vol_median_pct": float(train["abs_return_pct"].median()) if not train.empty else 1.0,
     }, model_path)
     print(f"  Saved model to {model_path}")
+
+    from src.ml.volatility_live_export import append_live_volatility_predictions  # noqa: E402
+    n_live = append_live_volatility_predictions(tickers=tickers, horizon=args.horizon)
+    if n_live:
+        print(f"  Appended {n_live} live volatility rows")
     print("=" * 70)
 
 

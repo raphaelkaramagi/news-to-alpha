@@ -157,6 +157,45 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
         })
     drivers.sort(key=lambda d: abs(d["effect"]), reverse=True)
 
+    # base lean = simple mean of active model P(up)s — what users intuitively expect
+    # flips_base_lean = ensemble direction disagrees with that mean (the confusing case)
+    active_probas = [v["proba"] for v in active_votes]
+    base_lean_proba = float(np.mean(active_probas)) if active_probas else simple_avg
+    base_lean_dir = "UP" if base_lean_proba >= 0.5 else "DOWN"
+    flips = base_lean_dir != direction
+
+    # Drivers that pushed the call toward the ENSEMBLE direction (away from the
+    # base lean). For a DOWN call we want the most negative effects; for UP the
+    # most positive. effect = base_p - cf_p (feature's presence vs neutral).
+    if direction == "DOWN":
+        flip_drivers = [d for d in drivers if d["effect"] < -0.003]
+    else:
+        flip_drivers = [d for d in drivers if d["effect"] > 0.003]
+    flip_drivers = sorted(flip_drivers, key=lambda d: abs(d["effect"]), reverse=True)[:3]
+
+    if flips:
+        names = ", ".join(d["label"] for d in flip_drivers) or "the combiner's learned regime weighting"
+        disagreement_text = (
+            f"Base models lean **{base_lean_dir}** ({base_lean_proba*100:.0f}% UP on average), "
+            f"but the ensemble calls **{direction}** ({base_p*100:.0f}% UP). "
+            f"The combiner is non-linear — it down-weighted the raw lean because of: {names}."
+        )
+    else:
+        disagreement_text = (
+            f"The ensemble call (**{direction}**, {base_p*100:.0f}% UP) agrees with the "
+            f"base-model lean (**{base_lean_dir}**, {base_lean_proba*100:.0f}% UP)."
+        )
+
+    disagreement = {
+        "base_lean_proba": base_lean_proba,
+        "base_lean_direction": base_lean_dir,
+        "ensemble_direction": direction,
+        "ensemble_proba": base_p,
+        "flips_base_lean": flips,
+        "flip_drivers": flip_drivers,
+        "explanation": disagreement_text,
+    }
+
     # Plain-English summary (kept short for UI)
     if direction == "DOWN":
         headline = f"Final call is **DOWN** ({base_p*100:.0f}% UP) — below the 50% threshold."
@@ -164,6 +203,8 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
         headline = f"Final call is **UP** ({base_p*100:.0f}% UP) — above the 50% threshold."
 
     bullets: list[str] = [headline]
+    if flips:
+        bullets.append(disagreement_text)
     if route == "no_news":
         bullets.append(
             "No headlines before 4 PM ET — the **price-only combiner** used the LSTM score and market context."
@@ -209,6 +250,7 @@ def explain_ensemble_row(row: pd.Series, meta_payload: dict) -> dict[str, Any]:
         "bullets": bullets,
         "base_votes": base_votes,
         "drivers": drivers,
+        "disagreement": disagreement,
         "news_weight_note": news_note,
         "models_disagree": has_news and not agree,
         "ensemble_route": route,
