@@ -1,9 +1,10 @@
 # Weekday inference refresh on GitHub Actions (not inside Railway).
-# Pulls /data from Railway, runs daily_update locally on the runner, publishes back.
+# Pulls /data from Railway, runs daily_update on the runner, publishes back.
 #
 # Required repository secrets:
-#   RAILWAY_API_TOKEN, RAILWAY_SSH_PRIVATE_KEY, RAILWAY_PROJECT_ID,
-#   RAILWAY_SERVICE, RAILWAY_ENVIRONMENT, RAILWAY_API_URL, NEWS_API_KEY
+#   RAILWAY_API_TOKEN  — Account token (Railway → Account → Tokens → "No workspace")
+#   RAILWAY_SSH_PRIVATE_KEY, RAILWAY_PROJECT_ID, RAILWAY_SERVICE, RAILWAY_ENVIRONMENT
+#   RAILWAY_API_URL, NEWS_API_KEY
 name: Daily update (GitHub Actions)
 
 on:
@@ -20,6 +21,12 @@ jobs:
   daily-update:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+      RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
+      RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
 
     steps:
       - name: Checkout repository
@@ -48,6 +55,27 @@ jobs:
           echo "RAILWAY_SSH_KEY_PATH=$HOME/.ssh/railway_actions" >> "$GITHUB_ENV"
           ssh-keyscan -H ssh.railway.com >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Verify Railway access
+        run: |
+          for var in RAILWAY_TOKEN RAILWAY_PROJECT_ID RAILWAY_SERVICE RAILWAY_ENVIRONMENT; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Missing secret $var"
+              exit 1
+            fi
+          done
+          if ! railway whoami; then
+            echo "::error::RAILWAY_API_TOKEN is invalid or expired."
+            echo "Create a new Account token at https://railway.com/account/tokens"
+            echo "(select 'No workspace'), then update the RAILWAY_API_TOKEN secret."
+            exit 1
+          fi
+          railway ssh \
+            -p "$RAILWAY_PROJECT_ID" \
+            -s "$RAILWAY_SERVICE" \
+            -e "$RAILWAY_ENVIRONMENT" \
+            -i "$RAILWAY_SSH_KEY_PATH" \
+            -- echo "ssh ok"
+
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
@@ -65,20 +93,33 @@ jobs:
             hf-${{ runner.os }}-
 
       - name: Pull data from Railway volume
-        env:
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
-          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
         run: |
-          for var in RAILWAY_PROJECT_ID RAILWAY_SERVICE RAILWAY_ENVIRONMENT; do
-            if [ -z "${!var}" ]; then
-              echo "Missing secret $var"
-              exit 1
-            fi
-          done
-          # SSH auth uses the registered key + -p/-s/-e flags (not RAILWAY_TOKEN).
-          unset RAILWAY_TOKEN || true
-          python scripts/pull_railway_data.py --service "$RAILWAY_SERVICE"
+          mkdir -p data
+          railway ssh \
+            -p "$RAILWAY_PROJECT_ID" \
+            -s "$RAILWAY_SERVICE" \
+            -e "$RAILWAY_ENVIRONMENT" \
+            -i "$RAILWAY_SSH_KEY_PATH" \
+            -- ls -la /data
+          ITEMS=$(railway ssh \
+            -p "$RAILWAY_PROJECT_ID" \
+            -s "$RAILWAY_SERVICE" \
+            -e "$RAILWAY_ENVIRONMENT" \
+            -i "$RAILWAY_SSH_KEY_PATH" \
+            -- sh -c 'cd /data && for p in database.db processed models; do [ -e "$p" ] && printf "%s " "$p"; done')
+          if [ -z "$ITEMS" ]; then
+            echo "::error::Nothing found under /data on Railway (need database.db, processed/, and/or models/)"
+            exit 1
+          fi
+          echo "Pulling: $ITEMS"
+          railway ssh \
+            -p "$RAILWAY_PROJECT_ID" \
+            -s "$RAILWAY_SERVICE" \
+            -e "$RAILWAY_ENVIRONMENT" \
+            -i "$RAILWAY_SSH_KEY_PATH" \
+            -- sh -c "cd /data && tar czf - $ITEMS" \
+            | tar xzf - -C data/
+          ls -la data/
 
       - name: Run daily update on runner
         env:
@@ -91,12 +132,7 @@ jobs:
           python scripts/daily_update.py
 
       - name: Publish bundle to Railway
-        env:
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
-          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
         run: |
-          unset RAILWAY_TOKEN || true
           python scripts/publish_deploy_bundle.py \
             --target railway \
             --service "$RAILWAY_SERVICE" \
