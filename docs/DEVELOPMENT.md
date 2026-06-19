@@ -170,8 +170,20 @@ python scripts/publish_deploy_bundle.py --target railway --service web
 ```
 
 Requires the Railway CLI, SSH keys, and a linked project (see [DATA.md § Publish](DATA.md)).
-Scheduled weekday refreshes can run via `.github/workflows/daily-update.yml`
-(repository secrets required).
+Scheduled weekday refreshes run on **GitHub Actions** (pull → `daily_update.py` → publish).
+Verify CI auth locally before debugging Actions:
+
+```bash
+export RAILWAY_TOKEN="<Account token from railway.com/account/tokens>"
+export RAILWAY_PROJECT_ID="91bd0f77-9c80-416e-8f60-8409ae0f0927"
+export RAILWAY_SERVICE="web"
+export RAILWAY_ENVIRONMENT="production"
+export RAILWAY_SSH_KEY_PATH="$HOME/.ssh/railway_github_actions"
+bash scripts/verify_railway_ci.sh
+```
+
+GitHub secrets must match: `RAILWAY_API_TOKEN` = full token (not `****-3fdf` suffix),
+`RAILWAY_SSH_PRIVATE_KEY` = contents of `~/.ssh/railway_github_actions`.
 
 ---
 
@@ -185,5 +197,6 @@ Scheduled weekday refreshes can run via `.github/workflows/daily-update.yml`
 | Recent dates missing tickers | News or prices not collected — re-run `daily_update.py` |
 | `ModuleNotFoundError: src` | Activate venv; run commands from the repo root |
 | Charts blank / Why tab empty | Stale Flask or NaN in JSON — restart `app/server.py` |
+| GitHub Action: Unauthorized / login | Regenerate Account token; update `RAILWAY_API_TOKEN` secret; run `scripts/verify_railway_ci.sh` |
 
 More detail: [DATA.md](DATA.md), [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md).

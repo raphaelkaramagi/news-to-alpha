@@ -63,10 +63,15 @@ jobs:
               exit 1
             fi
           done
+          echo "RAILWAY_TOKEN length: ${#RAILWAY_TOKEN} (expect ~36; 0 means secret empty)"
+          if [ "${#RAILWAY_TOKEN}" -lt 10 ]; then
+            echo "::error::RAILWAY_API_TOKEN secret is empty or too short"
+            exit 1
+          fi
           if ! railway whoami; then
-            echo "::error::RAILWAY_API_TOKEN is invalid or expired."
-            echo "Create a new Account token at https://railway.com/account/tokens"
-            echo "(select 'No workspace'), then update the RAILWAY_API_TOKEN secret."
+            echo "::error::RAILWAY_API_TOKEN is invalid, expired, or not an Account token."
+            echo "Railway → Account → Tokens → New token → 'No workspace' → copy once →"
+            echo "GitHub → Settings → Secrets → update RAILWAY_API_TOKEN"
             exit 1
           fi
           railway ssh \
