@@ -23,7 +23,8 @@ jobs:
     timeout-minutes: 90
 
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      # Account token → RAILWAY_API_TOKEN (NOT RAILWAY_TOKEN). See railway.com/docs/cli#tokens
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
       RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
       RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
@@ -57,21 +58,20 @@ jobs:
 
       - name: Verify Railway access
         run: |
-          for var in RAILWAY_TOKEN RAILWAY_PROJECT_ID RAILWAY_SERVICE RAILWAY_ENVIRONMENT; do
+          unset RAILWAY_TOKEN || true
+          for var in RAILWAY_API_TOKEN RAILWAY_PROJECT_ID RAILWAY_SERVICE RAILWAY_ENVIRONMENT; do
             if [ -z "${!var}" ]; then
               echo "::error::Missing secret $var"
               exit 1
             fi
           done
-          echo "RAILWAY_TOKEN length: ${#RAILWAY_TOKEN} (expect ~36; 0 means secret empty)"
-          if [ "${#RAILWAY_TOKEN}" -lt 10 ]; then
+          echo "RAILWAY_API_TOKEN length: ${#RAILWAY_API_TOKEN} (expect ~36)"
+          if [ "${#RAILWAY_API_TOKEN}" -lt 10 ]; then
             echo "::error::RAILWAY_API_TOKEN secret is empty or too short"
             exit 1
           fi
           if ! railway whoami; then
-            echo "::error::RAILWAY_API_TOKEN is invalid, expired, or not an Account token."
-            echo "Railway → Account → Tokens → New token → 'No workspace' → copy once →"
-            echo "GitHub → Settings → Secrets → update RAILWAY_API_TOKEN"
+            echo "::error::RAILWAY_API_TOKEN rejected — use Account token (No workspace) at railway.com/account/tokens"
             exit 1
           fi
           railway ssh \
@@ -99,6 +99,7 @@ jobs:
 
       - name: Pull data from Railway volume
         run: |
+          unset RAILWAY_TOKEN || true
           mkdir -p data
           railway ssh \
             -p "$RAILWAY_PROJECT_ID" \
@@ -138,6 +139,7 @@ jobs:
 
       - name: Publish bundle to Railway
         run: |
+          unset RAILWAY_TOKEN || true
           python scripts/publish_deploy_bundle.py \
             --target railway \
             --service "$RAILWAY_SERVICE" \

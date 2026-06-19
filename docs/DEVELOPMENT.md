@@ -174,7 +174,7 @@ Scheduled weekday refreshes run on **GitHub Actions** (pull → `daily_update.py
 Verify CI auth locally before debugging Actions:
 
 ```bash
-export RAILWAY_TOKEN="<Account token from railway.com/account/tokens>"
+export RAILWAY_API_TOKEN="<Account token from railway.com/account/tokens>"
 export RAILWAY_PROJECT_ID="91bd0f77-9c80-416e-8f60-8409ae0f0927"
 export RAILWAY_SERVICE="web"
 export RAILWAY_ENVIRONMENT="production"
@@ -182,8 +182,8 @@ export RAILWAY_SSH_KEY_PATH="$HOME/.ssh/railway_github_actions"
 bash scripts/verify_railway_ci.sh
 ```
 
-GitHub secrets must match: `RAILWAY_API_TOKEN` = full token (not `****-3fdf` suffix),
-`RAILWAY_SSH_PRIVATE_KEY` = contents of `~/.ssh/railway_github_actions`.
+GitHub secret `RAILWAY_API_TOKEN` must be the full Account token (No workspace).
+The CLI reads it as **`RAILWAY_API_TOKEN`**, not `RAILWAY_TOKEN` — do not set both.
 
 ---
 
