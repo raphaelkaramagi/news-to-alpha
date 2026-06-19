@@ -73,8 +73,20 @@ def _lstm_decision_threshold() -> float:
     global _LSTM_THRESHOLD_CACHE
     if _LSTM_THRESHOLD_CACHE is not None:
         return _LSTM_THRESHOLD_CACHE
+    meta_path = MODELS_DIR / "lstm_meta.json"
+    if meta_path.exists():
+        try:
+            data = json.loads(meta_path.read_text())
+            _LSTM_THRESHOLD_CACHE = float(data.get("decision_threshold", 0.5))
+            return _LSTM_THRESHOLD_CACHE
+        except Exception:
+            pass
     path = MODELS_DIR / "lstm_model.pt"
     if not path.exists():
+        _LSTM_THRESHOLD_CACHE = 0.5
+        return 0.5
+    if _INFERENCE_ONLY:
+        # Slim Railway image has no torch; bundle should ship lstm_meta.json.
         _LSTM_THRESHOLD_CACHE = 0.5
         return 0.5
     try:

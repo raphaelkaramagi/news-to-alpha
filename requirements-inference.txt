@@ -1,29 +1,21 @@
-# Inference-only requirements for Railway (API-serving only, no training).
-# Uses CPU-only torch to avoid the 1.2+ GB CUDA wheel.
-# Install: pip install --index-url https://download.pytorch.org/whl/cpu -r requirements-inference.txt
+# Inference-only requirements for Railway (API-serving only, no training/scoring).
+# Daily scoring runs on GitHub Actions — see .github/workflows/daily-update.yml.
 
 # ── Core ────────────────────────────────────────────────────────────────────
 pandas
 numpy
 
-# ── API keys / env ──────────────────────────────────────────────────────────
+# ── Env ─────────────────────────────────────────────────────────────────────
 python-dotenv
-requests
-yfinance              # daily_update price collection on Railway
 
-# ── ML inference (CPU torch) ─────────────────────────────────────────────
-# torch CPU wheel is resolved from --index-url at install time (see Dockerfile.inference)
-torch
+# ── ML (rationale / ensemble explain only — no torch) ─────────────────────
 scikit-learn>=1.6.0,<1.9.0   # must match training host when loading .joblib models
 joblib
 
-# ── Sentence embeddings (MiniLM) ─────────────────────────────────────────
-sentence-transformers
-
-# ── Timezone ────────────────────────────────────────────────────────────────
+# ── Timezone / calendar ─────────────────────────────────────────────────────
 pytz
 exchange_calendars
 
-# ── Web app ──────────────────────────────────────────────────────────────────
+# ── Web app ─────────────────────────────────────────────────────────────────
 flask
 gunicorn

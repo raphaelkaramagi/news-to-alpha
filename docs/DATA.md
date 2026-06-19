@@ -155,11 +155,11 @@ Daily runs use all **20 canonical tickers** and **horizon 1**, regardless of old
 
 | Approach | Description |
 |----------|-------------|
-| **GitHub Actions** | [`.github/workflows/daily-update.yml`](../.github/workflows/daily-update.yml) runs `daily_update.py` on the production host via `railway ssh` (Mon–Fri 22:00 UTC). Requires repository secrets (`RAILWAY_API_TOKEN`, SSH key, project/service IDs). |
-| **Manual / CI** | `python scripts/daily_update.py` on any host with access to `/data`, or publish from a training host via `publish_deploy_bundle.py`. |
-| **Host cron** | Wrap `daily_update.py` (+ optional publish) in cron or systemd on a machine that stays online after market close. |
+| **GitHub Actions** | [`.github/workflows/daily-update.yml`](../.github/workflows/daily-update.yml) pulls `/data` from Railway, runs `daily_update.py` on the **Actions runner** (free CPU/RAM), then publishes back via `publish_deploy_bundle.py`. Requires secrets: `RAILWAY_*`, `NEWS_API_KEY`. |
+| **Manual / CI** | Same flow locally: `pull_railway_data.py` → `daily_update.py` → `publish_deploy_bundle.py --target railway`. |
+| **Host cron** | Wrap the same three commands on any always-on machine. |
 
-When the job runs **inside** the Railway container on `/data`, no separate publish step is needed — outputs are written where the API reads them.
+The Railway container is **API-only** (slim `Dockerfile.inference` — no torch). Scoring never runs there, which keeps memory ~300–500 MB instead of ~1 GB.
 
 #### If the GitHub Action fails at `score_volatility`
 

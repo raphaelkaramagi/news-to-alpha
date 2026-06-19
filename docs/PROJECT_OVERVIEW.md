@@ -174,9 +174,8 @@ Vercel (web/)  ←  Next.js dashboard, API_BASE_URL → Railway
 ```
 
 Training and raw downloads stay local; only inference artifacts (CSVs, models,
-SQLite) are uploaded. Railway reads everything from the mounted `/data` volume via
-path env vars (`DATABASE_PATH`, `PROCESSED_DATA_DIR`, `MODELS_DIR`). Scheduled
-weekday refreshes run through `.github/workflows/daily-update.yml`.
+SQLite) are uploaded. Railway runs a **slim API image** (`Dockerfile.inference`, no
+torch); weekday scoring runs on GitHub Actions and publishes to the `/data` volume.
 
 ---
 

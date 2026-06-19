@@ -59,6 +59,7 @@ BUNDLE_FILES = [
     ("models/tfidf_lr.joblib",                   False),
     ("models/news_embeddings.joblib",            False),
     ("models/volatility_model.joblib",           False),
+    ("models/lstm_meta.json",                    False),
 ]
 
 TRIM_DAYS = 180  # keep last N calendar days in the DB per ticker
@@ -142,6 +143,31 @@ def trim_database(src_db: Path, dest_db: Path, trim_days: int, dry_run: bool) ->
     finally:
         conn.close()
     print(f"           DB size after trim: {_human_size(dest_db)}")
+
+
+def write_lstm_meta(source_data: Path, dest: Path, dry_run: bool) -> None:
+    """Ship LSTM decision threshold as JSON so the slim API image needs no torch."""
+    meta_dst = dest / "models" / "lstm_meta.json"
+    meta_src = source_data / "models" / "lstm_meta.json"
+    threshold = 0.5
+    if meta_src.exists():
+        try:
+            threshold = float(json.loads(meta_src.read_text()).get("decision_threshold", 0.5))
+        except Exception:
+            pass
+    else:
+        pt = source_data / "models" / "lstm_model.pt"
+        if pt.exists():
+            try:
+                import torch
+                ckpt = torch.load(pt, map_location="cpu", weights_only=False)
+                threshold = float(ckpt.get("decision_threshold", 0.5))
+            except Exception:
+                pass
+    print(f"  [meta]   models/lstm_meta.json  (decision_threshold={threshold})")
+    if not dry_run:
+        meta_dst.parent.mkdir(parents=True, exist_ok=True)
+        meta_dst.write_text(json.dumps({"decision_threshold": threshold}, indent=2))
 
 
 def write_manifest_stamp(dest: Path, dry_run: bool) -> None:
@@ -309,6 +335,7 @@ def main() -> None:
 
     dest = Path(args.output)
     n = copy_artifacts(DATA_DIR, dest, args.dry_run)
+    write_lstm_meta(DATA_DIR, dest, args.dry_run)
     if DATABASE_PATH.exists():
         trim_database(DATABASE_PATH, dest / "database.db", args.trim_days, args.dry_run)
     write_manifest_stamp(dest, args.dry_run)

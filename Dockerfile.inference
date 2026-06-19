@@ -1,5 +1,6 @@
-# Slim Railway image: Flask API only (no training).
+# Slim Railway image: Flask API only (no training, no daily scoring).
 # Artifacts (CSVs, models, DB) live on the /data volume — see publish_deploy_bundle.py.
+# Daily updates run on GitHub Actions and publish back via SSH.
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,10 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DATA_DIR=/data \
     DATABASE_PATH=/data/database.db \
     PROCESSED_DATA_DIR=/data/processed \
-    MODELS_DIR=/data/models \
-    HF_HOME=/data/hf-cache \
-    TRANSFORMERS_CACHE=/data/hf-cache \
-    TORCH_HOME=/data/torch-cache
+    MODELS_DIR=/data/models
 
 WORKDIR /app
 
@@ -22,15 +20,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-inference.txt ./
-
 RUN pip install --upgrade pip \
- && pip install --index-url https://download.pytorch.org/whl/cpu torch \
  && pip install -r requirements-inference.txt
 
 COPY . .
 
-RUN mkdir -p /data/processed /data/models /data/hf-cache /data/torch-cache
+RUN mkdir -p /data/processed /data/models
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "gunicorn app.server:app --workers 1 --threads 4 --timeout 120 --bind 0.0.0.0:${PORT:-8080}"]
+CMD ["sh", "-c", "gunicorn app.server:app --workers 1 --threads 2 --timeout 120 --bind 0.0.0.0:${PORT:-8080}"]
