@@ -66,10 +66,15 @@ jobs:
           set -eo pipefail
           unset RAILWAY_TOKEN || true
           mkdir -p data
-          SSH="railway ssh -p $RAILWAY_PROJECT_ID -s $RAILWAY_SERVICE -e $RAILWAY_ENVIRONMENT -i $RAILWAY_SSH_KEY_PATH"
-          $SSH -- ls -la /data
-          # Single tar stream (no $(...) capture — that broke set -e / stdout)
-          $SSH -- sh -c 'cd /data && tar czf - database.db processed models' \
+          SSH=(railway ssh
+            -p "$RAILWAY_PROJECT_ID"
+            -s "$RAILWAY_SERVICE"
+            -e "$RAILWAY_ENVIRONMENT"
+            -i "$RAILWAY_SSH_KEY_PATH")
+          "${SSH[@]}" -- ls -la /data
+          "${SSH[@]}" -- test -f /data/database.db
+          # Use /dev/stdout (not "-") so Railway CLI does not swallow the dash flag
+          "${SSH[@]}" -- tar czf /dev/stdout -C /data database.db processed models \
             | tar xzf - -C data/
           test -f data/database.db
           test -d data/models
