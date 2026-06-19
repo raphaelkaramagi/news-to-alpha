@@ -62,6 +62,13 @@ def _ssh_cmd(cli: str, service: str | None) -> list[str]:
     return cmd
 
 
+def _ssh_env() -> dict[str, str]:
+    """Railway SSH in CI uses the registered key + -p/-s/-e, not RAILWAY_TOKEN."""
+    env = os.environ.copy()
+    env.pop("RAILWAY_TOKEN", None)
+    return env
+
+
 def _run_ssh(
     ssh: list[str],
     remote: str,
@@ -73,6 +80,7 @@ def _run_ssh(
         ssh + ["--", "sh", "-c", remote],
         stdout=subprocess.PIPE if capture_stdout else None,
         stderr=subprocess.PIPE,
+        env=_ssh_env(),
         check=False,
     )
     return proc
@@ -139,6 +147,7 @@ def pull_from_railway(
                 ssh + ["--", "sh", "-c", remote_cmd],
                 stdout=out,
                 stderr=subprocess.PIPE,
+                env=_ssh_env(),
                 check=False,
             )
         err = (proc.stderr or b"").decode(errors="replace").strip()

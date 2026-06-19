@@ -182,6 +182,12 @@ def write_manifest_stamp(dest: Path, dry_run: bool) -> None:
         stamp_path.write_text(json.dumps(stamp, indent=2))
 
 
+def _ssh_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env.pop("RAILWAY_TOKEN", None)
+    return env
+
+
 def _ensure_railway_ssh(cli: str) -> None:
     """Fail fast if Railway SSH is not set up (keys + linked project)."""
     keys = subprocess.run(
@@ -231,6 +237,7 @@ def _railway_upload_file(
         ssh + ["--", "mkdir", "-p", parent],
         capture_output=True,
         text=True,
+        env=_ssh_env(),
     )
     if mkdir.returncode != 0:
         err = (mkdir.stderr or mkdir.stdout or "mkdir failed").strip()
@@ -242,6 +249,7 @@ def _railway_upload_file(
             stdin=handle,
             capture_output=True,
             text=True,
+            env=_ssh_env(),
         )
     if result.returncode != 0:
         err = (result.stderr or result.stdout or "upload failed").strip()
