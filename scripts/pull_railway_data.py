@@ -30,6 +30,9 @@ from src.config import DATA_DIR  # noqa: E402
 
 RAILWAY_DATA_ROOT = os.getenv("RAILWAY_DATA_ROOT", "/data")
 
+# Relative to RAILWAY_DATA_ROOT
+PULL_PATHS = ["database.db", "processed", "models"]
+
 
 def _railway_cli() -> str:
     cli = shutil.which("railway")
@@ -40,22 +43,64 @@ def _railway_cli() -> str:
     return cli
 
 
-def _ssh_prefix(cli: str, service: str | None) -> list[str]:
+def _ssh_cmd(cli: str, service: str | None) -> list[str]:
+    """Match the flags used by the working daily-update SSH steps in CI."""
     cmd = [cli, "ssh"]
-    for key, env in (
+    for flag, env in (
         ("-p", "RAILWAY_PROJECT_ID"),
         ("-s", "RAILWAY_SERVICE"),
         ("-e", "RAILWAY_ENVIRONMENT"),
     ):
-        val = os.getenv(env if key != "-s" else "RAILWAY_SERVICE")
-        if key == "-s" and service:
+        val = os.getenv(env)
+        if flag == "-s" and service:
             val = service
         if val:
-            cmd.extend([key, val])
+            cmd.extend([flag, val])
     key_path = os.getenv("RAILWAY_SSH_KEY_PATH")
     if key_path:
         cmd.extend(["-i", key_path])
     return cmd
+
+
+def _run_ssh(
+    ssh: list[str],
+    remote: str,
+    *,
+    capture_stdout: bool = False,
+) -> subprocess.CompletedProcess:
+    """Run ``railway ssh -- <remote>`` and return the completed process."""
+    proc = subprocess.run(
+        ssh + ["--", "sh", "-c", remote],
+        stdout=subprocess.PIPE if capture_stdout else None,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    return proc
+
+
+def _ssh_text(ssh: list[str], remote: str) -> str:
+    proc = _run_ssh(ssh, remote, capture_stdout=True)
+    out = (proc.stdout or b"").decode(errors="replace").strip()
+    err = (proc.stderr or b"").decode(errors="replace").strip()
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"railway ssh failed ({proc.returncode}): {err or out or 'no output'}"
+        )
+    return out
+
+
+def _existing_paths(ssh: list[str], root: str, candidates: list[str]) -> list[str]:
+    """Return which candidate paths exist under ``root`` on the remote host."""
+    joined = " ".join(shlex.quote(p) for p in candidates)
+    script = (
+        f"cd {shlex.quote(root)} 2>/dev/null || {{ echo 'MISSING_ROOT'; exit 2; }}; "
+        f"for p in {joined}; do [ -e \"$p\" ] && echo \"$p\"; done"
+    )
+    out = _ssh_text(ssh, script)
+    if out == "MISSING_ROOT":
+        raise RuntimeError(f"Volume root {root}/ not found in container")
+    found = [line.strip() for line in out.splitlines() if line.strip()]
+    return found
 
 
 def pull_from_railway(
@@ -66,36 +111,48 @@ def pull_from_railway(
 ) -> None:
     cli = _railway_cli()
     root = RAILWAY_DATA_ROOT.rstrip("/")
-    ssh = _ssh_prefix(cli, service)
+    ssh = _ssh_cmd(cli, service)
+    candidates = ["database.db"] if db_only else list(PULL_PATHS)
 
-    if db_only:
-        remote_paths = "database.db"
-    else:
-        remote_paths = "database.db processed models"
+    print(f"[pull] Probing {root}/ on Railway …")
+    listing = _ssh_text(ssh, f"ls -la {shlex.quote(root)} 2>&1 || ls -la /")
+    print(listing)
 
-    print(f"[pull] Streaming {root}/{{{remote_paths}}} from Railway …")
+    found = _existing_paths(ssh, root, candidates)
+    if not found:
+        raise RuntimeError(
+            f"Nothing to pull under {root}/ — expected one of: {', '.join(candidates)}"
+        )
+    print(f"[pull] Found: {', '.join(found)}")
+
     dest.mkdir(parents=True, exist_ok=True)
+    path_args = " ".join(shlex.quote(p) for p in found)
+    remote_cmd = f"cd {shlex.quote(root)} && tar czf - {path_args}"
 
     with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
         tmp_path = Path(tmp.name)
 
     try:
-        remote_cmd = f"cd {shlex.quote(root)} && tar czf - {remote_paths} 2>/dev/null"
+        print(f"[pull] Streaming tarball …")
         with open(tmp_path, "wb") as out:
-            result = subprocess.run(
+            proc = subprocess.run(
                 ssh + ["--", "sh", "-c", remote_cmd],
                 stdout=out,
                 stderr=subprocess.PIPE,
+                check=False,
             )
-        if result.returncode != 0:
-            err = (result.stderr or b"").decode(errors="replace").strip()
-            raise RuntimeError(f"railway ssh pull failed: {err or result.returncode}")
-
-        if tmp_path.stat().st_size < 100:
+        err = (proc.stderr or b"").decode(errors="replace").strip()
+        if proc.returncode != 0:
             raise RuntimeError(
-                "Pull returned an empty archive — is the service Online and "
-                f"the volume mounted at {root}/?"
+                f"tar over railway ssh failed ({proc.returncode}): {err or 'no stderr'}"
             )
+
+        size = tmp_path.stat().st_size
+        if size < 100:
+            raise RuntimeError(
+                f"Pull returned a tiny archive ({size} B) — SSH may have dropped binary data"
+            )
+        print(f"[pull] Received {size / (1024 * 1024):.1f} MB")
 
         with tarfile.open(tmp_path, "r:gz") as tar:
             tar.extractall(path=dest)

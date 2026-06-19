@@ -66,6 +66,7 @@ jobs:
 
       - name: Pull data from Railway volume
         env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
@@ -77,7 +78,13 @@ jobs:
               exit 1
             fi
           done
-          unset RAILWAY_TOKEN || true
+          # Preflight: service must be Online for railway ssh
+          railway ssh \
+            -p "$RAILWAY_PROJECT_ID" \
+            -s "$RAILWAY_SERVICE" \
+            -e "$RAILWAY_ENVIRONMENT" \
+            -i "$RAILWAY_SSH_KEY_PATH" \
+            -- ls -la /data
           python scripts/pull_railway_data.py --service "$RAILWAY_SERVICE"
 
       - name: Run daily update on runner
@@ -92,12 +99,12 @@ jobs:
 
       - name: Publish bundle to Railway
         env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_SERVICE: ${{ secrets.RAILWAY_SERVICE }}
           RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
         run: |
-          unset RAILWAY_TOKEN || true
           python scripts/publish_deploy_bundle.py \
             --target railway \
             --service "$RAILWAY_SERVICE" \

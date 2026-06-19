@@ -204,8 +204,19 @@ def _ensure_railway_ssh(cli: str) -> None:
 
 def _railway_ssh_cmd(cli: str, service: str | None) -> list[str]:
     cmd = [cli, "ssh"]
-    if service:
-        cmd.extend(["-s", service])
+    for flag, env in (
+        ("-p", "RAILWAY_PROJECT_ID"),
+        ("-s", "RAILWAY_SERVICE"),
+        ("-e", "RAILWAY_ENVIRONMENT"),
+    ):
+        val = os.getenv(env)
+        if flag == "-s" and service:
+            val = service
+        if val:
+            cmd.extend([flag, val])
+    key_path = os.getenv("RAILWAY_SSH_KEY_PATH")
+    if key_path:
+        cmd.extend(["-i", key_path])
     return cmd
 
 
